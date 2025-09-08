@@ -1,6 +1,5 @@
 <?php
 
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Auth\JwtAuthController;
 use App\Http\Controllers\V1\Api\DailyVideoController;
@@ -29,5 +28,8 @@ Route::prefix('v1')->group(function () {
         Route::resource('promotion-videos', PromotionVideoController::class);
         Route::resource('promotion-video-quizzes', PromotionQuizController::class);
         Route::get('auth-user', [JwtAuthController::class, 'AuthUser']);
+
+        // user panel routes
+        Route::get('daily-video/today', [DailyVideoController::class, 'todayVideo']);
     });
 });

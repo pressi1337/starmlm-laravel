@@ -1,0 +1,899 @@
+===============================================================================
+                        STARMLM LARAVEL API DOCUMENTATION
+                           For Frontend Development Team
+===============================================================================
+
+BASE URL: /api/v1
+
+AUTHENTICATION:
+- Most endpoints require Bearer token authentication (auth:api middleware)
+- Login first to get access token, then include in headers: Authorization: Bearer {token}
+
+===============================================================================
+                              AUTHENTICATION ENDPOINTS
+===============================================================================
+
+1. USER REGISTRATION
+   Method: POST
+   URL: /api/v1/auth/register
+   Authentication: None required
+   
+   Request Body:
+   {
+     "name": "string (required)",
+     "email": "string (required, valid email, unique)",
+     "mobile": "string (required, unique)",
+     "password": "string (required, min:8)",
+     "password_confirmation": "string (required, must match password)"
+   }
+   
+   Response (Success - 200):
+   {
+     "status": 200
+   }
+   
+   Response (Validation Error - 422):
+   {
+     "status": 422,
+     "message": "validation error",
+     "errors": {
+       "field_name": ["error messages"]
+     }
+   }
+
+2. USER LOGIN
+   Method: POST
+   URL: /api/v1/auth/login
+   Authentication: None required
+   
+   Request Body:
+   {
+     "identifier": "string (required - can be email, mobile, or username)",
+     "password": "string (required)"
+   }
+   
+   Response (Success - 200):
+   {
+     "user": {
+       "id": "integer",
+       "username": "string",
+       "name": "string",
+       "email": "string",
+       "referral_code": "string",
+       "mobile": "string",
+       "role": "integer"
+     },
+     "access_token": "string"
+   }
+   
+   Response (Error - 401):
+   {
+     "error": "Invalid credentials"
+   }
+
+3. GET AUTHENTICATED USER
+   Method: GET
+   URL: /api/v1/auth-user
+   Authentication: Required (Bearer token)
+   
+   Response (Success - 200):
+   {
+     "user": {
+       "id": "integer",
+       "username": "string",
+       "name": "string",
+       "email": "string",
+       "referral_code": "string",
+       "mobile": "string",
+       "role": "integer"
+     }
+   }
+
+4. USER LOGOUT
+   Method: POST
+   URL: /api/v1/api-logout
+   Authentication: Required (Bearer token)
+   
+   Response: 204 No Content
+
+===============================================================================
+                              DAILY VIDEO ENDPOINTS
+===============================================================================
+
+5. GET ALL DAILY VIDEOS
+   Method: GET
+   URL: /api/v1/daily-videos
+   Authentication: Required (Bearer token)
+   
+   Query Parameters (Optional):
+   - is_pagination: 1 (for paginated results)
+   - current_page_num: integer (default: 1)
+   - limit: integer (default: 10, use -1 for all)
+   - search: string (searches in title)
+   
+   Response (Success - 200):
+   {
+     "daily_videos": [
+       {
+         "id": "integer",
+         "title": "string",
+         "description": "string",
+         "video_path": "string",
+         "youtube_link": "string",
+         "showing_date": "date",
+         "type": "string",
+         "is_active": "integer",
+         "created_at_formatted": "string",
+         "updated_at_formatted": "string"
+       }
+     ],
+     "count": "integer (if paginated)",
+     "next": "integer|null (if paginated)"
+   }
+
+6. CREATE DAILY VIDEO
+   Method: POST
+   URL: /api/v1/daily-videos
+   Authentication: Required (Bearer token)
+   Content-Type: multipart/form-data
+   
+   Request Body:
+   {
+     "title": "string (required)",
+     "description": "string (required)",
+     "video_path": "file (required if youtube_link not provided)",
+     "youtube_link": "string (required if video_path not provided)",
+     "showing_date": "date (required, must be unique)",
+     "type": "string (required)",
+     "is_active": "boolean (optional)"
+   }
+   
+   Response (Success - 200):
+   {
+     "message": "New Daily Video Created successfully",
+     "status": 200
+   }
+
+7. GET DAILY VIDEO FOR EDITING
+   Method: GET
+   URL: /api/v1/daily-videos/{id}/edit
+   Authentication: Required (Bearer token)
+   
+   Response (Success - 200):
+   {
+     "daily_video": {
+       "id": "integer",
+       "title": "string",
+       "description": "string",
+       "video_path": "string",
+       "youtube_link": "string",
+       "showing_date": "date",
+       "type": "string",
+       "is_active": "integer"
+     }
+   }
+
+8. UPDATE DAILY VIDEO
+   Method: PUT/PATCH
+   URL: /api/v1/daily-videos/{id}
+   Authentication: Required (Bearer token)
+   Content-Type: multipart/form-data
+   
+   Request Body: (Same as create, but all fields optional except title, description, showing_date, type)
+   
+   Response (Success - 200):
+   {
+     "message": "Daily Video Details updated successfully",
+     "status": 200
+   }
+
+9. DELETE DAILY VIDEO
+   Method: DELETE
+   URL: /api/v1/daily-videos/{id}
+   Authentication: Required (Bearer token)
+   
+   Response (Success - 200):
+   {
+     "status": 200
+   }
+
+10. GET TODAY'S DAILY VIDEO
+    Method: GET
+    URL: /api/v1/daily-video/today
+    Authentication: Required (Bearer token)
+    
+    Response (Success - 200):
+    {
+      "daily_video": {
+        "id": "integer",
+        "title": "string",
+        "description": "string",
+        "video_path": "string",
+        "youtube_link": "string",
+        "showing_date": "date",
+        "type": "string",
+        "created_at_formatted": "string",
+        "updated_at_formatted": "string"
+      },
+      "status": 200
+    }
+    
+    Response (Not Found - 404):
+    {
+      "message": "No video found for today",
+      "status": 404
+    }
+
+===============================================================================
+                              YOUTUBE CHANNEL ENDPOINTS
+===============================================================================
+
+11. GET ALL YOUTUBE CHANNELS
+    Method: GET
+    URL: /api/v1/youtube-channels
+    Authentication: Required (Bearer token)
+    
+    Query Parameters: (Same as daily videos)
+    
+    Response (Success - 200):
+    {
+      "youtube_channels": [
+        {
+          "id": "integer",
+          "channel_name": "string",
+          "description": "string",
+          "url": "string",
+          "is_running": "string",
+          "is_active": "integer",
+          "created_at_formatted": "string",
+          "updated_at_formatted": "string"
+        }
+      ]
+    }
+
+12. CREATE YOUTUBE CHANNEL
+    Method: POST
+    URL: /api/v1/youtube-channels
+    Authentication: Required (Bearer token)
+    
+    Request Body:
+    {
+      "channel_name": "string (required)",
+      "description": "string (required)",
+      "url": "string (required)",
+      "is_running": "string (required)",
+      "is_active": "boolean (optional)"
+    }
+    
+    Response (Success - 200):
+    {
+      "message": "New Youtube Channel Created successfully",
+      "status": 200
+    }
+
+13. GET YOUTUBE CHANNEL FOR EDITING
+    Method: GET
+    URL: /api/v1/youtube-channels/{id}/edit
+    Authentication: Required (Bearer token)
+    
+    Response (Success - 200):
+    {
+      "youtube_channel": {
+        "id": "integer",
+        "channel_name": "string",
+        "description": "string",
+        "url": "string",
+        "is_running": "string",
+        "is_active": "integer"
+      }
+    }
+
+14. UPDATE YOUTUBE CHANNEL
+    Method: PUT/PATCH
+    URL: /api/v1/youtube-channels/{id}
+    Authentication: Required (Bearer token)
+    
+    Request Body: (Same as create)
+    
+    Response (Success - 200):
+    {
+      "message": "Youtube Channel Details updated successfully",
+      "status": 200
+    }
+
+15. DELETE YOUTUBE CHANNEL
+    Method: DELETE
+    URL: /api/v1/youtube-channels/{id}
+    Authentication: Required (Bearer token)
+    
+    Response (Success - 200):
+    {
+      "status": 200
+    }
+
+===============================================================================
+                              SCRATCH SETUP ENDPOINTS
+===============================================================================
+
+16. GET ALL SCRATCH SETUPS
+    Method: GET
+    URL: /api/v1/scratch-setup
+    Authentication: Required (Bearer token)
+    
+    Query Parameters: (Same as daily videos)
+    
+    Response (Success - 200):
+    {
+      "referral_scratch_levels": [
+        {
+          "id": "integer",
+          "promotor_level": "string",
+          "is_active": "integer",
+          "created_at_formatted": "string",
+          "updated_at_formatted": "string",
+          "ranges": [
+            {
+              "id": "integer",
+              "start_range": "integer",
+              "end_range": "integer",
+              "amount": "integer",
+              "msg": "string",
+              "order_no": "integer"
+            }
+          ]
+        }
+      ]
+    }
+
+17. UPDATE SCRATCH SETUP
+    Method: PUT/PATCH
+    URL: /api/v1/scratch-setup/{id}
+    Authentication: Required (Bearer token)
+    
+    Request Body:
+    {
+      "is_active": "boolean (optional)",
+      "ranges": [
+        {
+          "start_range": "integer (required)",
+          "end_range": "integer (required)",
+          "amount": "integer (required)",
+          "msg": "string (optional)"
+        }
+      ]
+    }
+    
+    Response (Success - 200):
+    {
+      "message": "Referral Scratch Level updated successfully",
+      "status": 200
+    }
+
+18. DELETE SCRATCH SETUP
+    Method: DELETE
+    URL: /api/v1/scratch-setup/{id}
+    Authentication: Required (Bearer token)
+    
+    Response (Success - 200):
+    {
+      "status": 200
+    }
+
+===============================================================================
+                              TRAINING VIDEO ENDPOINTS
+===============================================================================
+
+19. GET ALL TRAINING VIDEOS
+    Method: GET
+    URL: /api/v1/training-videos
+    Authentication: Required (Bearer token)
+    
+    Query Parameters: (Same as daily videos)
+    
+    Response (Success - 200):
+    {
+      "training_videos": [
+        {
+          "id": "integer",
+          "title": "string",
+          "description": "string",
+          "video_path": "string",
+          "youtube_link": "string",
+          "showing_date": "date",
+          "day": "string",
+          "session_type": "string",
+          "quiz_applicable": "integer",
+          "is_active": "integer",
+          "created_at_formatted": "string",
+          "updated_at_formatted": "string"
+        }
+      ]
+    }
+
+20. CREATE TRAINING VIDEO
+    Method: POST
+    URL: /api/v1/training-videos
+    Authentication: Required (Bearer token)
+    Content-Type: multipart/form-data
+    
+    Request Body:
+    {
+      "title": "string (required)",
+      "description": "string (required)",
+      "video_path": "file (required if youtube_link not provided)",
+      "youtube_link": "string (required if video_path not provided)",
+      "showing_date": "date (required, must be unique)",
+      "day": "string (required)",
+      "session_type": "string (required)",
+      "is_active": "boolean (optional)",
+      "quiz_applicable": "boolean (optional)"
+    }
+    
+    Response (Success - 200):
+    {
+      "message": "New Training Video Created successfully",
+      "status": 200
+    }
+
+21. GET TRAINING VIDEO FOR EDITING
+    Method: GET
+    URL: /api/v1/training-videos/{id}/edit
+    Authentication: Required (Bearer token)
+    
+    Response (Success - 200):
+    {
+      "training_video": {
+        "id": "integer",
+        "title": "string",
+        "description": "string",
+        "video_path": "string",
+        "youtube_link": "string",
+        "showing_date": "date",
+        "day": "string",
+        "session_type": "string",
+        "quiz_applicable": "integer",
+        "is_active": "integer"
+      }
+    }
+
+22. UPDATE TRAINING VIDEO
+    Method: PUT/PATCH
+    URL: /api/v1/training-videos/{id}
+    Authentication: Required (Bearer token)
+    Content-Type: multipart/form-data
+    
+    Request Body: (Same as create)
+    
+    Response (Success - 200):
+    {
+      "message": "Training Video Details updated successfully",
+      "status": 200
+    }
+
+23. DELETE TRAINING VIDEO
+    Method: DELETE
+    URL: /api/v1/training-videos/{id}
+    Authentication: Required (Bearer token)
+    
+    Response (Success - 200):
+    {
+      "status": 200
+    }
+
+===============================================================================
+                              TRAINING QUIZ ENDPOINTS
+===============================================================================
+
+24. GET ALL TRAINING QUIZZES
+    Method: GET
+    URL: /api/v1/training-video-quizzes
+    Authentication: Required (Bearer token)
+    
+    Query Parameters: (Same as daily videos)
+    
+    Response (Success - 200):
+    {
+      "training_video_quizzes": [
+        {
+          "id": "integer",
+          "training_video_id": "integer",
+          "is_active": "integer",
+          "created_at_formatted": "string",
+          "updated_at_formatted": "string"
+        }
+      ]
+    }
+
+25. CREATE TRAINING QUIZ
+    Method: POST
+    URL: /api/v1/training-video-quizzes
+    Authentication: Required (Bearer token)
+    
+    Request Body:
+    {
+      "training_video_id": "integer (required, must be unique)",
+      "is_active": "boolean (optional)",
+      "questions": [
+        {
+          "lang_type": "integer (required, 1=English, 2=Tamil)",
+          "question": "string (required)",
+          "time_limit": "integer (required)",
+          "promotor": "integer (required)",
+          "promotor1": "integer (required)",
+          "promotor2": "integer (required)",
+          "promotor3": "integer (required)",
+          "promotor4": "integer (required)",
+          "choices": [
+            {
+              "lang_type": "integer (required, 1=English, 2=Tamil)",
+              "choice_value": "string (required)",
+              "is_correct": "boolean (required)"
+            }
+          ]
+        }
+      ]
+    }
+    
+    Response (Success - 200):
+    {
+      "message": "New Training Video Quiz Created successfully",
+      "status": 200
+    }
+
+26. GET TRAINING QUIZ FOR EDITING
+    Method: GET
+    URL: /api/v1/training-video-quizzes/{id}/edit
+    Authentication: Required (Bearer token)
+    
+    Response (Success - 200):
+    {
+      "training_video_quiz": {
+        "id": "integer",
+        "training_video_id": "integer",
+        "is_active": "integer",
+        "questions": [
+          {
+            "id": "integer",
+            "lang_type": "integer",
+            "question": "string",
+            "time_limit": "integer",
+            "promotor": "integer",
+            "promotor1": "integer",
+            "promotor2": "integer",
+            "promotor3": "integer",
+            "promotor4": "integer",
+            "choices": [
+              {
+                "id": "integer",
+                "lang_type": "integer",
+                "choice_value": "string",
+                "is_correct": "integer"
+              }
+            ]
+          }
+        ],
+        "training_video": {
+          "id": "integer",
+          "title": "string",
+          "description": "string"
+        }
+      }
+    }
+
+27. UPDATE TRAINING QUIZ
+    Method: PUT/PATCH
+    URL: /api/v1/training-video-quizzes/{id}
+    Authentication: Required (Bearer token)
+    
+    Request Body: (Same as create)
+    
+    Response (Success - 200):
+    {
+      "message": "Training Video Quiz Details updated successfully",
+      "status": 200
+    }
+
+28. DELETE TRAINING QUIZ
+    Method: DELETE
+    URL: /api/v1/training-video-quizzes/{id}
+    Authentication: Required (Bearer token)
+    
+    Response (Success - 200):
+    {
+      "status": 200
+    }
+
+===============================================================================
+                              PROMOTION VIDEO ENDPOINTS
+===============================================================================
+
+29. GET ALL PROMOTION VIDEOS
+    Method: GET
+    URL: /api/v1/promotion-videos
+    Authentication: Required (Bearer token)
+    
+    Query Parameters: (Same as daily videos)
+    
+    Response (Success - 200):
+    {
+      "promotion_videos": [
+        {
+          "id": "integer",
+          "title": "string",
+          "description": "string",
+          "video_path": "string",
+          "youtube_link": "string",
+          "showing_date": "date",
+          "video_order": "integer",
+          "session_type": "string",
+          "is_active": "integer",
+          "created_at_formatted": "string",
+          "updated_at_formatted": "string"
+        }
+      ]
+    }
+
+30. CREATE PROMOTION VIDEO
+    Method: POST
+    URL: /api/v1/promotion-videos
+    Authentication: Required (Bearer token)
+    Content-Type: multipart/form-data
+    
+    Request Body:
+    {
+      "title": "string (required)",
+      "description": "string (required)",
+      "video_path": "file (required if youtube_link not provided)",
+      "youtube_link": "string (required if video_path not provided)",
+      "showing_date": "date (required, must be unique)",
+      "video_order": "integer (required)",
+      "session_type": "string (required, 1-4 inside session)",
+      "is_active": "boolean (optional)"
+    }
+    
+    Response (Success - 200):
+    {
+      "message": "New Promotion Video Created successfully",
+      "status": 200
+    }
+
+31. GET PROMOTION VIDEO FOR EDITING
+    Method: GET
+    URL: /api/v1/promotion-videos/{id}/edit
+    Authentication: Required (Bearer token)
+    
+    Response (Success - 200):
+    {
+      "promotion_video": {
+        "id": "integer",
+        "title": "string",
+        "description": "string",
+        "video_path": "string",
+        "youtube_link": "string",
+        "showing_date": "date",
+        "video_order": "integer",
+        "session_type": "string",
+        "is_active": "integer"
+      }
+    }
+
+32. UPDATE PROMOTION VIDEO
+    Method: PUT/PATCH
+    URL: /api/v1/promotion-videos/{id}
+    Authentication: Required (Bearer token)
+    Content-Type: multipart/form-data
+    
+    Request Body: (Same as create)
+    
+    Response (Success - 200):
+    {
+      "message": "Promotion Video Details updated successfully",
+      "status": 200
+    }
+
+33. DELETE PROMOTION VIDEO
+    Method: DELETE
+    URL: /api/v1/promotion-videos/{id}
+    Authentication: Required (Bearer token)
+    
+    Response (Success - 200):
+    {
+      "status": 200
+    }
+
+===============================================================================
+                              PROMOTION QUIZ ENDPOINTS
+===============================================================================
+
+34. GET ALL PROMOTION QUIZZES
+    Method: GET
+    URL: /api/v1/promotion-video-quizzes
+    Authentication: Required (Bearer token)
+    
+    Query Parameters: (Same as daily videos)
+    
+    Response (Success - 200):
+    {
+      "promotion_video_quizzes": [
+        {
+          "id": "integer",
+          "promotion_video_id": "integer",
+          "is_active": "integer",
+          "created_at_formatted": "string",
+          "updated_at_formatted": "string"
+        }
+      ]
+    }
+
+35. CREATE PROMOTION QUIZ
+    Method: POST
+    URL: /api/v1/promotion-video-quizzes
+    Authentication: Required (Bearer token)
+    
+    Request Body:
+    {
+      "promotion_video_id": "integer (required, must be unique)",
+      "is_active": "boolean (optional)",
+      "questions": [
+        {
+          "lang_type": "integer (required, 1=English, 2=Tamil)",
+          "question": "string (required)",
+          "time_limit": "integer (required)",
+          "promotor": "integer (required)",
+          "promotor1": "integer (required)",
+          "promotor2": "integer (required)",
+          "promotor3": "integer (required)",
+          "promotor4": "integer (required)",
+          "choices": [
+            {
+              "lang_type": "integer (required, 1=English, 2=Tamil)",
+              "choice_value": "string (required)",
+              "is_correct": "boolean (required)"
+            }
+          ]
+        }
+      ]
+    }
+    
+    Response (Success - 200):
+    {
+      "message": "New Promotion Video Quiz Created successfully",
+      "status": 200
+    }
+
+36. GET PROMOTION QUIZ FOR EDITING
+    Method: GET
+    URL: /api/v1/promotion-video-quizzes/{id}/edit
+    Authentication: Required (Bearer token)
+    
+    Response (Success - 200):
+    {
+      "promotion_video_quiz": {
+        "id": "integer",
+        "promotion_video_id": "integer",
+        "is_active": "integer",
+        "questions": [
+          {
+            "id": "integer",
+            "lang_type": "integer",
+            "question": "string",
+            "time_limit": "integer",
+            "promotor": "integer",
+            "promotor1": "integer",
+            "promotor2": "integer",
+            "promotor3": "integer",
+            "promotor4": "integer",
+            "choices": [
+              {
+                "id": "integer",
+                "lang_type": "integer",
+                "choice_value": "string",
+                "is_correct": "integer"
+              }
+            ]
+          }
+        ],
+        "promotion_video": {
+          "id": "integer",
+          "title": "string",
+          "description": "string"
+        }
+      }
+    }
+
+37. UPDATE PROMOTION QUIZ
+    Method: PUT/PATCH
+    URL: /api/v1/promotion-video-quizzes/{id}
+    Authentication: Required (Bearer token)
+    
+    Request Body: (Same as create)
+    
+    Response (Success - 200):
+    {
+      "message": "Promotion Video Quiz Details updated successfully",
+      "status": 200
+    }
+
+38. DELETE PROMOTION QUIZ
+    Method: DELETE
+    URL: /api/v1/promotion-video-quizzes/{id}
+    Authentication: Required (Bearer token)
+    
+    Response (Success - 200):
+    {
+      "status": 200
+    }
+
+===============================================================================
+                              ADDITIONAL ENDPOINTS
+===============================================================================
+
+Note: The following endpoints are available but may not have full CRUD operations:
+
+STATUS UPDATE ENDPOINTS:
+- POST /api/v1/daily-videos/status-update
+- POST /api/v1/youtube-channels/status-update  
+- POST /api/v1/scratch-setup/status-update
+- POST /api/v1/training-videos/status-update
+- POST /api/v1/training-video-quizzes/status-update
+- POST /api/v1/promotion-videos/status-update
+- POST /api/v1/promotion-video-quizzes/status-update
+
+All status update endpoints require:
+Request Body: { "id": "integer", "is_active": "boolean" }
+Response: { "message": "Details updated successfully", "status": 200 }
+
+USER PROFILE ENDPOINTS (Available in JwtAuthController but not in routes):
+- POST /api/v1/change-password
+- POST /api/v1/update-personal-details  
+- POST /api/v1/delete-account
+
+===============================================================================
+                              COMMON ERROR RESPONSES
+===============================================================================
+
+Validation Error (422):
+{
+  "errors": {
+    "field_name": ["Error message"]
+  }
+}
+
+Authentication Error (401):
+{
+  "message": "Unauthenticated"
+}
+
+Not Found Error (404):
+{
+  "message": "Resource not found"
+}
+
+Server Error (500):
+{
+  "message": "Internal server error"
+}
+
+===============================================================================
+                              IMPORTANT NOTES
+===============================================================================
+
+1. All authenticated endpoints require Bearer token in Authorization header
+2. File uploads should use multipart/form-data content type
+3. Dates should be in Y-m-d format (e.g., "2024-01-15")
+4. Language types: 1 = English, 2 = Tamil
+5. Boolean fields can be sent as 1/0 or true/false
+6. Pagination parameters are optional - without them, all records are returned
+7. Search functionality is available for most list endpoints
+8. All delete operations are soft deletes (is_deleted = 1)
+9. Status updates can be done via dedicated status-update endpoints
+10. File uploads are stored in uploads/daily_video/ directory
+
+===============================================================================
+                              CONTACT INFORMATION
+===============================================================================
+
+For any questions or clarifications about these APIs, please contact the backend development team.
+
+Last Updated: 2025-09-08
+Version: 1.0

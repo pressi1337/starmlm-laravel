@@ -11,16 +11,14 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('referral_scratch_ranges', function (Blueprint $table) {
+        Schema::create('training_attendances', function (Blueprint $table) {
             $table->id();
-            $table->integer('referral_scratch_level_id')->nullable();
-            $table->integer('start_range')->default(0);
-            $table->integer('end_range')->default(0);
-            $table->integer('amount')->default(0);
-            $table->string('msg')->nullable();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->unsignedBigInteger('training_video_id')->nullable();
+            $table->tinyInteger('is_completed')->default(0);
+            $table->date('attended_at')->nullable();
             $table->integer('created_by')->nullable();
             $table->integer('updated_by')->nullable();
-            $table->integer('order_no')->default(1);
             $table->tinyInteger('is_active')->default(1);
             $table->tinyInteger('is_deleted')->default(0);
             $table->timestamps();
@@ -32,6 +30,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('referral_scratch_ranges');
+        Schema::dropIfExists('training_attendances');
     }
 };

@@ -17,6 +17,7 @@ class UserSeeder extends Seeder
         $user = [
             [
                 'name' => 'Admin',
+                'username' => 'admin',
                 'mobile' => '9876543210',
                 'role' => '0',
                 'mobile_verified' => '1',
@@ -25,6 +26,7 @@ class UserSeeder extends Seeder
             ],
             [
                 'name' => 'TESTUSER1',
+                'username' => 'user1',
                 'mobile' => '9876543211',
                 'role' => '2',
                 'mobile_verified' => '1',

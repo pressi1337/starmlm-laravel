@@ -7,6 +7,7 @@ use App\Models\DailyVideo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Rules\UniqueActive;
+use Illuminate\Support\Facades\Auth;
 
 class DailyVideoController extends Controller
 {
@@ -124,7 +125,7 @@ class DailyVideoController extends Controller
             // Validation failed, return a JSON response with validation errors
             return response()->json(['errors' => $validator->errors()], 422);
         }
-        $auth_user_id = auth()->user()->id;
+        $auth_user_id = Auth::id();
         $w = DailyVideo::create();
         $w->title = $request->title;
         $w->description = $request->description;
@@ -209,7 +210,7 @@ class DailyVideoController extends Controller
         }
         // user table email unique validation pending
 
-        $auth_user_id = auth()->user()->id;
+        $auth_user_id = Auth::id();
         $w = DailyVideo::find($id);
         $w->title = $request->title;
         $w->description = $request->description;
@@ -247,7 +248,7 @@ class DailyVideoController extends Controller
     {
         $u = DailyVideo::find($id);
         $u->is_deleted = 1;
-        $u->updated_by = auth()->user()->id;
+        $u->updated_by = Auth::id();
         $u->save();
         // ShopProductStock::where('shop_id', $id)->update(['is_active' => 0]);
         return response()->json(['status' => 200]);
@@ -256,12 +257,35 @@ class DailyVideoController extends Controller
     public function StatusUpdate(Request $request)
     {
 
-        $auth_user_id = auth()->user()->id;
+        $auth_user_id =Auth::id();
         $w = DailyVideo::find($request->id);
         $w->is_active = $request->has('is_active') ? 1 : 0;
         $w->updated_by =  $auth_user_id;
         $w->save();
 
         return response()->json(['message' => 'Daily Video Details updated successfully', 'status' => 200]);
+    }
+    public function todayVideo()
+    {
+        $today = date('Y-m-d'); // Get today's date in Y-m-d format
+
+        $daily_video = DailyVideo::where('is_active', 1)
+            ->where('is_deleted', 0)
+            ->whereDate('showing_date', $today)
+            ->first();
+
+        if ($daily_video) {
+            $daily_video->created_at_formatted = $daily_video->created_at->format('d-m-Y h:i A');
+            $daily_video->updated_at_formatted = $daily_video->updated_at->format('d-m-Y h:i A');
+            return response()->json([
+                'daily_video' => $daily_video,
+                'status' => 200
+            ], 200);
+        } else {
+            return response()->json([
+                'message' => 'No video found for today',
+                'status' => 404
+            ], 404);
+        }
     }
 }
