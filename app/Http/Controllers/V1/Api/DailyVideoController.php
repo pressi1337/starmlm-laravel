@@ -125,7 +125,7 @@ class DailyVideoController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
         $auth_user_id = auth()->user()->id;
-        $w = DailyVideo::create();
+        $w = new DailyVideo();
         $w->title = $request->title;
         $w->description = $request->description;
         $w->youtube_link = $request->youtube_link;
