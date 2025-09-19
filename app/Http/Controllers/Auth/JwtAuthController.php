@@ -21,7 +21,7 @@ class JwtAuthController extends Controller
             $request->all(),
             [
                 'name' => 'required',
-                // 'country_id' => 'required',
+                'username' => 'required|unique:users,username|min:8',
                 'mobile' => 'required|unique:users,mobile',
                 'email' => 'required|email|unique:users,email',
                 'password' => 'required|confirmed|min:8',
@@ -40,6 +40,7 @@ class JwtAuthController extends Controller
             'name' => $request->name,
             'email' => $request->email,
             'mobile' => $request->mobile,
+            'username' => $request->username,
             'password' => Hash::make($request->password)
         ]);
         $newUser->pwd_text = $request->password;
