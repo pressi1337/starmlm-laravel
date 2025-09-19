@@ -176,9 +176,6 @@ class JwtAuthController extends Controller
                 ], 400);
             }
 
-            dd($ff);
-
-
             // Fetch user data
             $user = User::where('id', $user->id)
                 ->select(
