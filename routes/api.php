@@ -17,17 +17,17 @@ Route::prefix('v1')->group(function () {
 // Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 //     return $request->user();
 // });
+Route::middleware('jwt')->prefix('v1')->group(function () {
+    Route::resource('daily-videos', DailyVideoController::class);
+    Route::resource('youtube-channels', YoutubeController::class);
+    Route::resource('scratch-setup', ScratchSetupController::class);
+    Route::resource('training-videos', TrainingVideoController::class);
+    Route::resource('training-video-quizzes', TrainingQuizController::class);
+    Route::resource('promotion-videos', PromotionVideoController::class);
+    Route::resource('promotion-video-quizzes', PromotionQuizController::class);
+    Route::get('auth-user', [JwtAuthController::class, 'AuthUser']);
+});
 
-Route::prefix('v1')->group(function () {
+Route::prefix('userjwt')->prefix('v1')->group(function () {
     // role based middleware pending
-    Route::middleware('auth:api')->group(function () {
-        Route::resource('daily-videos', DailyVideoController::class);
-        Route::resource('youtube-channels', YoutubeController::class);
-        Route::resource('scratch-setup', ScratchSetupController::class);
-        Route::resource('training-videos', TrainingVideoController::class);
-        Route::resource('training-video-quizzes', TrainingQuizController::class);
-        Route::resource('promotion-videos', PromotionVideoController::class);
-        Route::resource('promotion-video-quizzes', PromotionQuizController::class);
-        Route::get('auth-user', [JwtAuthController::class, 'AuthUser']);
-    });
 });

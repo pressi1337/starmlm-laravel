@@ -10,108 +10,201 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Tymon\JWTAuth\Facades\JWTAuth;
 
 
 class JwtAuthController extends Controller
-{
-    public function register(Request $request)
+{   
+    protected $messages;
+    public function __construct()
     {
-        // mobile length and unique validation pending
-        $validateUser = Validator::make(
+        $this->messages = [
+            "username.required" => "Invalid UserName",
+            "password.required" => "Invalid Password",
+        ];
+    }
+
+    public function Register(Request $request)
+    {
+         // Validate
+         $validator = Validator::make(
             $request->all(),
             [
                 'name' => 'required',
                 'username' => 'required|unique:users,username|min:8',
-                'mobile' => 'required|unique:users,mobile',
-                'email' => 'required|email|unique:users,email',
+                'mobile' => ['required', 'string', 'max:15', 'unique:users,mobile'],
+                'email' => 'unique:users,email',
                 'password' => 'required|confirmed|min:8',
             ]
         );
 
-        if ($validateUser->fails()) {
-            return response()->json([
-                'status' => 422,
-                'message' => 'validation error',
-                'errors' => $validateUser->errors()
-            ], 200);
-        }
-
-        $newUser =   User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'mobile' => $request->mobile,
-            'username' => $request->username,
-            'password' => Hash::make($request->password)
-        ]);
-        $newUser->pwd_text = $request->password;
-        $newUser->referral_code = 'STARTUP' . 1000 + $newUser->id;
-        $newUser->save();
-
-        return response()->json([
-            'status' => 200
-        ], 200);
-    }
-
-
-    /**
-     * Authenticate a user and return an access token.
-     */
-    public function login(Request $request)
-    {
-        // Validate the request
-        $request->validate([
-            'identifier' => ['required'],
-            'password' => ['required', 'string'],
-        ]);
-
-        // Get the input credentials
-        $identifier = $request->input('identifier');
-        $password = $request->input('password');
-
-        // Find the user by mobile or email
-        $user = User::where(function ($query) use ($identifier) {
-            $query->where('mobile', $identifier)
-                ->orWhere('email', $identifier)
-                ->orWhere('username', $identifier);
-        })
-            ->where('pwd_text', $password)
-            ->where('is_active', 1)
-            ->where('is_deleted', 0)
-            ->first();
-
-        // Check if the user exists and is not verified
-        if ($user) {
-    
-            if (
-                Auth::attempt(['mobile' => $identifier, 'password' => $password]) ||
-                Auth::attempt(['email' => $identifier, 'password' => $password])||
-                Auth::attempt(['username' => $identifier, 'password' => $password])
-            ) {
-                User::where('id', auth()->user()->id)->update(['last_login' => now()]);
-                $user = User::where('id', auth()->user()->id)
-                    ->select(
-                        'id',
-                        'username',
-                        'name',
-                        'email',
-                        'referral_code',
-                        'mobile',
-                        'role'
-                    )->first();
-                $token = $user->createToken("api-token")->plainTextToken;
-
+        if ($validator->fails()) {
+            $errors = $validator->errors();
+            if ($errors->has('username')) {
                 return response()->json([
-                    'user' => $user,
-                    'access_token' => $token,
-                ]);
+                    'success' => false,
+                    'message' => 'Username is invalid or already taken',
+                    'code' => 'invalid_username',
+                    'error' => [
+                        'username' => 'Username is invalid or already taken'
+                    ]
+                ], 400);
+            }
+            if ($errors->has('email')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Email is invalid or already taken',
+                    'code' => 'invalid_email',
+                    'error' => [
+                        'email' => 'Email is invalid or already taken'
+                    ]
+                ], 400);
+            }
+            if ($errors->has('mobile')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Mobile number is invalid or already taken',
+                    'code' => 'invalid_mobile',
+                    'error' => [
+                        'mobile' => 'Mobile number is invalid or already taken'
+                    ]
+                ], 400);
+            }
+            if ($errors->has('password')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Password must be at least 6 characters',
+                    'code' => 'invalid_password',
+                    'error' => [
+                        'password' => 'Password must be at least 6 characters'
+                    ]
+                ], 400);
             }
         }
 
-        // Return unauthorized response if the user is not authenticated
-        return response()->json(['error' => 'Invalid credentials'], 401);
+        try {
+            // Create the user
+
+            $user =   User::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'mobile' => $request->mobile,
+                'username' => $request->username,
+                'password' => Hash::make($request->password)
+            ]);
+            $user->pwd_text = $request->password;
+            $user->referral_code = 'STARTUP' . 1000 + $user->id;
+            $user->save();
+
+            // Generate JWT token
+            $token = JWTAuth::fromUser($user);
+
+            // Fetch user data
+            $userData = User::where('id', $user->id)
+                ->select(
+                    'id',
+                    'username',
+                    'email',
+                    'mobile',
+                    'role'
+                )->first();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'User registered successfully',
+                'data' => [
+                    'access_token' => $token
+                ]
+            ], 201);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not register user',
+                'code' => 'registration_failed',
+                'error' => [
+                    'general' => 'Could not register user'
+                ]
+            ], 500);
+        }
     }
 
- 
+    public function login(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'username' => ['required'],
+            'password' => ['required', 'string'],
+        ], $this->messages);
+
+        if ($validator->fails()) {
+            // Validation failed, return a JSON response with validation errors
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        // Check if email exists
+        $user = User::where('username', $request->username)
+            ->where('is_deleted', 0)
+            ->first();
+
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Username Not found',
+                'code' => 'username_not_found',
+            ], 400);
+        }
+
+        // Check password
+        if (!Hash::check($request->password, $user->password)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'InValid Password',
+                'code' => 'invalid_password',
+            ], 400);
+        }
+
+        // Attempt JWT authentication
+        $credentials = $request->only('username', 'password');
+        $credentials['role'] = $user->role;
+        $credentials['is_deleted'] = 0;
+
+        try {
+            if (!$token = JWTAuth::attempt($credentials)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized',
+                    'code' => 'unauthorized',
+                ], 400);
+            }
+
+            dd($ff);
+
+
+            // Fetch user data
+            $user = User::where('id', $user->id)
+                ->select(
+                    'id',
+                    'username',
+                    'email',
+                    'role',
+                    'mobile'
+                )->first();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'logged in successfully',
+                'data' => [
+                    'access_token' => $token
+                ]
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Internal Server Error',
+                'code' => 'internal_server_error',
+            ], 500);
+        }
+    }
+   
    
     public function AuthUser()
     {
