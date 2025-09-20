@@ -18,6 +18,7 @@ Route::prefix('v1')->group(function () {
 // });
 Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::resource('daily-videos', DailyVideoController::class);
+    Route::get('daily-videos-today', [DailyVideoController::class,'todayVideo']);
     Route::resource('youtube-channels', YoutubeController::class);
     Route::resource('scratch-setup', ScratchSetupController::class);
     Route::resource('training-videos', TrainingVideoController::class);

@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Rules\UniqueActive;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class DailyVideoController extends Controller
 {
@@ -30,13 +32,13 @@ class DailyVideoController extends Controller
     }
     public function index(Request $request)
     {
-        if ($request->query('is_pagination') == 1) {
+       
             // Default sorting
             $sort_column = $request->query('sort_column', 'created_at');
             $sort_direction = $request->query('sort_direction', 'DESC');
 
             // Pagination parameters
-            $page_size = (int) $request->query('page_size', 0);
+            $page_size = (int) $request->query('page_size', 10); // Default to 10 items per page
             $page_number = (int) $request->query('page_number', 1);
             $search_term = $request->query('search', '');
 
@@ -51,42 +53,50 @@ class DailyVideoController extends Controller
                 $search_param = [];
             }
 
-            // Build the query
-            $query = DailyVideo::where('is_deleted', 0);
+            // Start building the query
+            $query = DailyVideo::query();
+
+            // Apply default filters
+            $query->where('is_deleted', 0);
 
             // Apply search_param filters
             foreach ($search_param as $key => $value) {
                 if (is_array($value)) {
-                    // Use whereIn for array values
-                    $query->whereIn($key, $value);
+                    if ($key === 'date_between' && count($value) === 2) {
+                        // Handle date range filter
+                        $query->whereBetween('showing_date', $value);
+                    } elseif (!empty($value)) {
+                        // Use whereIn for array values
+                        $query->whereIn($key, $value);
+                    }
                 } else {
-                    if ($value) {
+                    if ($value !== '') {
                         // Use where for single values
                         $query->where($key, $value);
                     }
                 }
             }
 
-            // Apply search filter on category_name
+            // Apply search filter on title and description
             if (!empty($search_term)) {
-                $query->where('title', 'LIKE', '%' . $search_term . '%');
+                $query->where(function($q) use ($search_term) {
+                    $q->where('title', 'LIKE', '%' . $search_term . '%')
+                      ->orWhere('description', 'LIKE', '%' . $search_term . '%');
+                });
             }
 
-            // Get total records for pageInfo
+            // Get total records for pagination
             $total_records = $query->count();
 
-            // Apply pagination
-            $daily_videos_query = $query
-
-                ->orderBy($sort_column, $sort_direction);
-            // Apply pagination only if page_size is valid
-            if ($page_size > 0) {
-                $daily_videos_query->skip(($page_number - 1) * $page_size)
-                    ->take($page_size);
-            }
-            $daily_videos = $daily_videos_query
-                ->get()->map(function ($daily_video) {
-                    $daily_video->created_at_formatted =  $daily_video->created_at->format('d-m-Y h:i A');
+            // Apply sorting and pagination
+            $daily_videos = $query->orderBy($sort_column, $sort_direction)
+                ->when($page_size > 0, function($q) use ($page_size, $page_number) {
+                    return $q->skip(($page_number - 1) * $page_size)
+                           ->take($page_size);
+                })
+                ->get()
+                ->map(function ($daily_video) {
+                    $daily_video->created_at_formatted = $daily_video->created_at->format('d-m-Y h:i A');
                     $daily_video->updated_at_formatted = $daily_video->updated_at->format('d-m-Y h:i A');
                     return $daily_video;
                 });
@@ -94,30 +104,16 @@ class DailyVideoController extends Controller
             // Build the response
             return response()->json([
                 'success' => true,
-                'message' => 'success',
+                'message' => 'Success',
                 'data' => $daily_videos,
                 'pageInfo' => [
                     'page_size' => $page_size,
                     'page_number' => $page_number,
-                    'recordsTotal' => $total_records
+                    'total_pages' => $page_size > 0 ? ceil($total_records / $page_size) : 1,
+                    'total_records' => $total_records
                 ]
             ], 200);
-        } else {
-            // Retrieve categories based on pagination, sorting, and filtering
-            $daily_videos = DailyVideo::where(['is_active' => 1, 'is_deleted' => 0])
-
-                ->get()->map(function ($daily_video) {
-                    $daily_video->created_at_formatted =  $daily_video->created_at->format('d-m-Y h:i A');
-                    $daily_video->updated_at_formatted = $daily_video->updated_at->format('d-m-Y h:i A');
-                    return $daily_video;
-                });
-            // Return data as JSON response with the expected structure
-            return response()->json([
-                'data' => $daily_videos,
-                'success' => true,
-                'message' => 'success',
-            ], 200);
-        }
+        
     }
 
 
@@ -138,47 +134,54 @@ class DailyVideoController extends Controller
      * @return \Illuminate\Http\Response
      */
     public function store(Request $request)
-    {
-        // showing date unique validation pending
-        $validator = Validator::make($request->all(), [
-            "title" => 'required',
-            "description" => 'required',
-            "video_path" => 'required_without:youtube_link',
-            "youtube_link" => 'required_without:video_path',
-            "showing_date" => ['required', new UniqueActive('daily_videos', 'showing_date', null, [])],
-            "type" => 'required',
-        ], $this->messages);
+    { 
+        try {
+            // Validation
+            $validator = Validator::make($request->all(), [
+                "title" => 'required',
+                "description" => 'required',
+                "video_path" => 'required_without:youtube_link',
+                "youtube_link" => 'required_without:video_path',
+                "showing_date" => ['required', new UniqueActive('daily_videos', 'showing_date', null, [])],
+                "type" => 'required',
+            ], $this->messages);
 
-        if ($validator->fails()) {
-            // Validation failed, return a JSON response with validation errors
-            return response()->json(['errors' => $validator->errors()], 422);
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
+            }
+
+            DB::beginTransaction();
+
+            $auth_user_id = auth()->user()->id;
+            $w = new DailyVideo();
+            $w->title = $request->title;
+            $w->description = $request->description;
+            $w->youtube_link = $request->youtube_link;
+            $w->showing_date = $request->showing_date;
+            $w->type = $request->type;
+            if ($request->hasFile('video_path')) {
+                $file = $request->file('video_path');
+                $original_name = $file->getClientOriginalName();
+                $modified_name = str_replace(' ', '_', $original_name);
+                $video_full_name = date('d-m-y_H-i-s') .  $modified_name;
+                $upload_path = 'uploads/daily_video/';
+                $video_url = $upload_path . $video_full_name;
+                $file->move($upload_path, $video_full_name);
+                $w->video_path  =  $video_url;
+            }
+            $w->is_active = $request->has('is_active') ? 1 : 0;
+            $w->created_by =  $auth_user_id;
+            $w->updated_by =  $auth_user_id;
+            $w->save();
+
+            DB::commit();
+
+            return response()->json(['message' => 'Created successfully', 'status' => 200]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('DailyVideo store failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
-        $auth_user_id = auth()->user()->id;
-        $w = new DailyVideo();
-        $w->title = $request->title;
-        $w->description = $request->description;
-        $w->youtube_link = $request->youtube_link;
-        $w->showing_date = $request->showing_date;
-        $w->type = $request->type;
-        if ($request->hasFile('video_path')) {
-            $file = $request->file('video_path');
-            $original_name = $file->getClientOriginalName();
-            $modified_name = str_replace(' ', '_', $original_name);
-            $video_full_name = date('d-m-y_H-i-s') .  $modified_name;
-            $upload_path = 'uploads/daily_video/';
-            $video_url = $upload_path . $video_full_name;
-            $file->move($upload_path, $video_full_name);
-            $w->video_path  =  $video_url;
-        }
-        $w->is_active = $request->has('is_active') ? 1 : 0;
-        $w->created_by =  $auth_user_id;
-        $w->updated_by =  $auth_user_id;
-        $w->save();
-
-
-
-        // create one user with role 8
-        return response()->json(['message' => 'New Daily Video Created successfully', 'status' => 200,]);
     }
 
     /**
@@ -218,52 +221,60 @@ class DailyVideoController extends Controller
      */
     public function update(Request $request, $id)
     {
-        // Log::info('Update Request Data:', $request->all());
-        $validator = Validator::make($request->all(), [
-            "title" => 'required',
-            "description" => 'required',
-            "showing_date" => ['required', new UniqueActive(
-                'daily_videos',
-                'showing_date',
-                $id,
-                []
-            )],
-            "type" => 'required',
+        try {
+            // Validation
+            $validator = Validator::make($request->all(), [
+                "title" => 'required',
+                "description" => 'required',
+                "showing_date" => ['required', new UniqueActive(
+                    'daily_videos',
+                    'showing_date',
+                    $id,
+                    []
+                )],
+                "type" => 'required',
+            ], $this->messages);
 
-        ], $this->messages);
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
+            }
 
-        if ($validator->fails()) {
-            // Validation failed, return a JSON response with validation errors
-            return response()->json(['errors' => $validator->errors()], 422);
+            DB::beginTransaction();
+
+            $auth_user_id = Auth::id();
+            $w = DailyVideo::find($id);
+            if (!$w) {
+                DB::rollBack();
+                return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+            $w->title = $request->title;
+            $w->description = $request->description;
+            $w->youtube_link = $request->youtube_link;
+            $w->showing_date = $request->showing_date;
+            $w->type = $request->type;
+            if ($request->hasFile('video_path')) {
+                $file = $request->file('video_path');
+                $original_name = $file->getClientOriginalName();
+                $modified_name = str_replace(' ', '_', $original_name);
+                $video_full_name = date('d-m-y_H-i-s') .  $modified_name;
+                $upload_path = 'uploads/daily_video/';
+                $video_url = $upload_path . $video_full_name;
+                $file->move($upload_path, $video_full_name);
+                $w->video_path = $video_url;
+            }
+
+            $w->is_active = $request->has('is_active') ? 1 : 0;
+            $w->updated_by =  $auth_user_id;
+            $w->save();
+
+            DB::commit();
+
+            return response()->json(['message' => 'Updated successfully', 'status' => 200]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('DailyVideo update failed', ['id' => $id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
-        // user table email unique validation pending
-
-        $auth_user_id = Auth::id();
-        $w = DailyVideo::find($id);
-        $w->title = $request->title;
-        $w->description = $request->description;
-        $w->youtube_link = $request->youtube_link;
-        $w->showing_date = $request->showing_date;
-        $w->type = $request->type;
-        if ($request->hasFile('video_path')) {
-            $file = $request->file('video_path');
-            $original_name = $file->getClientOriginalName();
-            $modified_name = str_replace(' ', '_', $original_name);
-            $video_full_name = date('d-m-y_H-i-s') .  $modified_name;
-            $upload_path = 'uploads/daily_video/';
-            $video_url = $upload_path . $video_full_name;
-            $file->move($upload_path, $video_full_name);
-            $w->video_path = $video_url;
-        } else {
-            $w->video_path =   $w->video_path;
-        }
-
-        $w->is_active = $request->has('is_active') ? 1 : 0;
-        $w->updated_by =  $auth_user_id;
-        $w->save();
-
-
-        return response()->json(['message' => 'Daily Video Details updated successfully', 'status' => 200]);
     }
 
     /**
@@ -274,12 +285,25 @@ class DailyVideoController extends Controller
      */
     public function destroy($id)
     {
-        $u = DailyVideo::find($id);
-        $u->is_deleted = 1;
-        $u->updated_by = Auth::id();
-        $u->save();
-        // ShopProductStock::where('shop_id', $id)->update(['is_active' => 0]);
-        return response()->json(['status' => 200]);
+        try {
+            DB::beginTransaction();
+
+            $u = DailyVideo::find($id);
+            if (!$u) {
+                DB::rollBack();
+                return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+            $u->is_deleted = 1;
+            $u->updated_by = Auth::id();
+            $u->save();
+
+            DB::commit();
+            return response()->json(['message' => 'Deleted successfully', 'status' => 200]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('DailyVideo destroy failed', ['id' => $id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
     }
 
     public function StatusUpdate(Request $request)
@@ -311,9 +335,9 @@ class DailyVideoController extends Controller
             ], 200);
         } else {
             return response()->json([
-                'message' => 'No video found for today',
-                'status' => 404
-            ], 404);
+                'message' => 'No Data found',
+                'status' => 400
+            ], 400);
         }
     }
 }
