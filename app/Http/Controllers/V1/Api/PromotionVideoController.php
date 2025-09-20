@@ -7,6 +7,8 @@ use Illuminate\Http\Request;
 use App\Models\PromotionVideo;
 use Illuminate\Support\Facades\Validator;
 use App\Rules\UniqueActive;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class PromotionVideoController extends Controller
 {
@@ -30,95 +32,81 @@ class PromotionVideoController extends Controller
     }
     public function index(Request $request)
     {
-        if ($request->query('is_pagination') == 1) {
+        // Default sorting
+        $sort_column = $request->query('sort_column', 'created_at');
+        $sort_direction = $request->query('sort_direction', 'DESC');
 
-            // Default sorting
-            $sort_column = $request->query('sort_column', 'created_at');
-            $sort_direction = $request->query('sort_direction', 'DESC');
+        // Pagination parameters
+        $page_size = (int) $request->query('page_size', 10);
+        $page_number = (int) $request->query('page_number', 1);
+        $search_term = $request->query('search', '');
 
-            // Pagination parameters
-            $page_size = (int) $request->query('page_size', 0);
-            $page_number = (int) $request->query('page_number', 1);
-            $search_term = $request->query('search', '');
-
-            // Parse search_param JSON
-            $search_param = $request->query('search_param', '{}');
-            try {
-                $search_param = json_decode($search_param, true);
-                if (!is_array($search_param)) {
-                    $search_param = [];
-                }
-            } catch (\Exception $e) {
+        // Parse search_param JSON
+        $search_param = $request->query('search_param', '{}');
+        try {
+            $search_param = json_decode($search_param, true);
+            if (!is_array($search_param)) {
                 $search_param = [];
             }
+        } catch (\Exception $e) {
+            $search_param = [];
+        }
 
-            // Build the query
-            $query = PromotionVideo::where('is_deleted', 0);
+        // Start building the query
+        $query = PromotionVideo::query();
+        $query->where('is_deleted', 0);
 
-            // Apply search_param filters
-            foreach ($search_param as $key => $value) {
-                if (is_array($value)) {
-                    // Use whereIn for array values
+        // Apply search_param filters
+        foreach ($search_param as $key => $value) {
+            if (is_array($value)) {
+                if ($key === 'date_between' && count($value) === 2) {
+                    $query->whereBetween('showing_date', $value);
+                } elseif (!empty($value)) {
                     $query->whereIn($key, $value);
-                } else {
-                    if ($value) {
-                        // Use where for single values
-                        $query->where($key, $value);
-                    }
+                }
+            } else {
+                if ($value !== '') {
+                    $query->where($key, $value);
                 }
             }
-
-            // Apply search filter on category_name
-            if (!empty($search_term)) {
-                $query->where('title', 'LIKE', '%' . $search_term . '%');
-            }
-
-            // Get total records for pageInfo
-            $total_records = $query->count();
-
-            // Apply pagination
-            $promotion_videos_query = $query
-
-                ->orderBy($sort_column, $sort_direction);
-            // Apply pagination only if page_size is valid
-            if ($page_size > 0) {
-                $promotion_videos_query->skip(($page_number - 1) * $page_size)
-                    ->take($page_size);
-            }
-            $promotion_videos = $promotion_videos_query
-                ->get()->map(function ($promotion_video) {
-                    $promotion_video->created_at_formatted =  $promotion_video->created_at->format('d-m-Y h:i A');
-                    $promotion_video->updated_at_formatted = $promotion_video->updated_at->format('d-m-Y h:i A');
-                    return $promotion_video;
-                });
-
-            // Build the response
-            return response()->json([
-                'success' => true,
-                'message' => 'success',
-                'data' => $promotion_videos,
-                'pageInfo' => [
-                    'page_size' => $page_size,
-                    'page_number' => $page_number,
-                    'recordsTotal' => $total_records
-                ]
-            ], 200);
-        } else {
-            // Retrieve categories based on pagination, sorting, and filtering
-            $promotion_videos = PromotionVideo::where(['is_active' => 1, 'is_deleted' => 0])
-
-                ->get()->map(function ($promotion_video) {
-                    $promotion_video->created_at_formatted =  $promotion_video->created_at->format('d-m-Y h:i A');
-                    $promotion_video->updated_at_formatted = $promotion_video->updated_at->format('d-m-Y h:i A');
-                    return $promotion_video;
-                });
-
-            // Return data as JSON response with the expected structure
-            return response()->json([
-                'promotion_videos' => $promotion_videos,
-
-            ], 200);
         }
+
+        // Apply search filter on title and description
+        if (!empty($search_term)) {
+            $query->where(function ($q) use ($search_term) {
+                $q->where('title', 'LIKE', '%' . $search_term . '%')
+                  ->orWhere('description', 'LIKE', '%' . $search_term . '%');
+            });
+        }
+
+        // Get total records for pagination
+        $total_records = $query->count();
+
+        // Apply sorting and pagination
+        $promotion_videos = $query->orderBy($sort_column, $sort_direction)
+            ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
+                return $q->skip(($page_number - 1) * $page_size)
+                         ->take($page_size);
+            })
+            ->get()
+            ->map(function ($promotion_video) {
+                $promotion_video->created_at_formatted = $promotion_video->created_at->format('d-m-Y h:i A');
+                $promotion_video->updated_at_formatted = $promotion_video->updated_at->format('d-m-Y h:i A');
+                return $promotion_video;
+            });
+
+        // Build the response
+        return response()->json([
+            'success' => true,
+            'message' => 'Success',
+            'data' => $promotion_videos,
+            'pageInfo' => [
+                'page_size' => $page_size,
+                'page_number' => $page_number,
+                'total_pages' => $page_size > 0 ? ceil($total_records / $page_size) : 1,
+                'total_records' => $total_records
+            ]
+        ], 200);
     }
 
 
@@ -140,49 +128,55 @@ class PromotionVideoController extends Controller
      */
     public function store(Request $request)
     {
-        // showing date unique validation pending
-        $validator = Validator::make($request->all(), [
-            "title" => 'required',
-            "description" => 'required',
-            "video_path" => 'required_without:youtube_link',
-            "youtube_link" => 'required_without:video_path',
-            "showing_date" => ['required', new UniqueActive('promotion_videos', 'showing_date', null, [])],
-            "video_order" => 'required',
-            "session_type" => 'required',
-        ], $this->messages);
+        try {
+            // Validation
+            $validator = Validator::make($request->all(), [
+                "title" => 'required',
+                "description" => 'required',
+                "video_path" => 'required_without:youtube_link',
+                "youtube_link" => 'required_without:video_path',
+                "showing_date" => ['required', new UniqueActive('promotion_videos', 'showing_date', null, [])],
+                "video_order" => 'required',
+                "session_type" => 'required',
+            ], $this->messages);
 
-        if ($validator->fails()) {
-            // Validation failed, return a JSON response with validation errors
-            return response()->json(['errors' => $validator->errors()], 422);
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
+            }
+
+            DB::beginTransaction();
+
+            $auth_user_id = auth()->user()->id;
+            $w = new PromotionVideo();
+            $w->title = $request->title;
+            $w->description = $request->description;
+            $w->youtube_link = $request->youtube_link;
+            $w->showing_date = $request->showing_date;
+            $w->video_order = $request->video_order;
+            $w->session_type = $request->session_type;
+            if ($request->hasFile('video_path')) {
+                $file = $request->file('video_path');
+                $original_name = $file->getClientOriginalName();
+                $modified_name = str_replace(' ', '_', $original_name);
+                $video_full_name = date('d-m-y_H-i-s') .  $modified_name;
+                $upload_path = 'uploads/daily_video/';
+                $video_url = $upload_path . $video_full_name;
+                $file->move($upload_path, $video_full_name);
+                $w->video_path  =  $video_url;
+            }
+            $w->is_active = $request->has('is_active') ? 1 : 0;
+            $w->created_by =  $auth_user_id;
+            $w->updated_by =  $auth_user_id;
+            $w->save();
+
+            DB::commit();
+
+            return response()->json(['message' => 'Created successfully', 'status' => 200]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('PromotionVideo store failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
-        $auth_user_id = auth()->user()->id;
-        $w = PromotionVideo::create();
-        $w->title = $request->title;
-        $w->description = $request->description;
-        $w->youtube_link = $request->youtube_link;
-        $w->showing_date = $request->showing_date;
-        $w->video_order = $request->video_order;
-        // 1 to 4 inside session
-        $w->session_type = $request->session_type;
-        if ($request->hasFile('video_path')) {
-            $file = $request->file('video_path');
-            $original_name = $file->getClientOriginalName();
-            $modified_name = str_replace(' ', '_', $original_name);
-            $video_full_name = date('d-m-y_H-i-s') .  $modified_name;
-            $upload_path = 'uploads/daily_video/';
-            $video_url = $upload_path . $video_full_name;
-            $file->move($upload_path, $video_full_name);
-            $w->video_path  =  $video_url;
-        }
-        $w->is_active = $request->has('is_active') ? 1 : 0;
-        $w->created_by =  $auth_user_id;
-        $w->updated_by =  $auth_user_id;
-        $w->save();
-
-
-
-        // create one user with role 8
-        return response()->json(['message' => 'New Promotion Video Created successfully', 'status' => 200,]);
     }
 
     /**
@@ -222,54 +216,63 @@ class PromotionVideoController extends Controller
      */
     public function update(Request $request, $id)
     {
-        // Log::info('Update Request Data:', $request->all());
-        $validator = Validator::make($request->all(), [
-            "title" => 'required',
-            "description" => 'required',
-            "showing_date" => ['required', new UniqueActive(
-                'promotion_videos',
-                'showing_date',
-                $id,
-                []
-            )],
-            "video_order" => 'required',
-            "session_type" => 'required',
+        try {
+            // Validation
+            $validator = Validator::make($request->all(), [
+                "title" => 'required',
+                "description" => 'required',
+                "showing_date" => ['required', new UniqueActive(
+                    'promotion_videos',
+                    'showing_date',
+                    $id,
+                    []
+                )],
+                "video_order" => 'required',
+                "session_type" => 'required',
 
-        ], $this->messages);
+            ], $this->messages);
 
-        if ($validator->fails()) {
-            // Validation failed, return a JSON response with validation errors
-            return response()->json(['errors' => $validator->errors()], 422);
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
+            }
+
+            DB::beginTransaction();
+
+            $auth_user_id = auth()->user()->id;
+            $w = PromotionVideo::find($id);
+            if (!$w) {
+                DB::rollBack();
+                return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+            $w->title = $request->title;
+            $w->description = $request->description;
+            $w->youtube_link = $request->youtube_link;
+            $w->showing_date = $request->showing_date;
+            $w->video_order = $request->video_order;
+            $w->session_type = $request->session_type;
+            if ($request->hasFile('video_path')) {
+                $file = $request->file('video_path');
+                $original_name = $file->getClientOriginalName();
+                $modified_name = str_replace(' ', '_', $original_name);
+                $video_full_name = date('d-m-y_H-i-s') .  $modified_name;
+                $upload_path = 'uploads/daily_video/';
+                $video_url = $upload_path . $video_full_name;
+                $file->move($upload_path, $video_full_name);
+                $w->video_path = $video_url;
+            }
+
+            $w->is_active = $request->has('is_active') ? 1 : 0;
+            $w->updated_by =  $auth_user_id;
+            $w->save();
+
+            DB::commit();
+
+            return response()->json(['message' => 'Updated successfully', 'status' => 200]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('PromotionVideo update failed', ['id' => $id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
-        // user table email unique validation pending
-
-        $auth_user_id = auth()->user()->id;
-        $w = PromotionVideo::find($id);
-        $w->title = $request->title;
-        $w->description = $request->description;
-        $w->youtube_link = $request->youtube_link;
-        $w->showing_date = $request->showing_date;
-        $w->video_order = $request->video_order;
-        $w->session_type = $request->session_type;
-        if ($request->hasFile('video_path')) {
-            $file = $request->file('video_path');
-            $original_name = $file->getClientOriginalName();
-            $modified_name = str_replace(' ', '_', $original_name);
-            $video_full_name = date('d-m-y_H-i-s') .  $modified_name;
-            $upload_path = 'uploads/daily_video/';
-            $video_url = $upload_path . $video_full_name;
-            $file->move($upload_path, $video_full_name);
-            $w->video_path = $video_url;
-        } else {
-            $w->video_path =   $w->video_path;
-        }
-
-        $w->is_active = $request->has('is_active') ? 1 : 0;
-        $w->updated_by =  $auth_user_id;
-        $w->save();
-
-
-        return response()->json(['message' => 'Promotion Video Details updated successfully', 'status' => 200]);
     }
 
     /**
@@ -280,12 +283,25 @@ class PromotionVideoController extends Controller
      */
     public function destroy($id)
     {
-        $u = PromotionVideo::find($id);
-        $u->is_deleted = 1;
-        $u->updated_by = auth()->user()->id;
-        $u->save();
-        // ShopProductStock::where('shop_id', $id)->update(['is_active' => 0]);
-        return response()->json(['status' => 200]);
+        try {
+            DB::beginTransaction();
+
+            $u = PromotionVideo::find($id);
+            if (!$u) {
+                DB::rollBack();
+                return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+            $u->is_deleted = 1;
+            $u->updated_by = auth()->user()->id;
+            $u->save();
+
+            DB::commit();
+            return response()->json(['message' => 'Deleted successfully', 'status' => 200]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('PromotionVideo destroy failed', ['id' => $id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
     }
 
     public function StatusUpdate(Request $request)
