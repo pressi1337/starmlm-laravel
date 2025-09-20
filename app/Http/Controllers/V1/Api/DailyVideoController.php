@@ -31,48 +31,76 @@ class DailyVideoController extends Controller
     public function index(Request $request)
     {
         if ($request->query('is_pagination') == 1) {
+            // Default sorting
+            $sort_column = $request->query('sort_column', 'created_at');
+            $sort_direction = $request->query('sort_direction', 'DESC');
 
-            // Get parameters from the request or set default values
-            $current_page_number = $request->query('current_page_num', 1);
-            $row_per_page = $request->query('limit', 10);
-
-            // Calculate skip count based on current page and rows per page
-            $skip_count = ($current_page_number - 1) * $row_per_page;
-
-            // Define default sorting column and direction
-            $sort_column = 'created_at';
-            $sort_direction = 'asc';
-            // Get the search term from the request
+            // Pagination parameters
+            $page_size = (int) $request->query('page_size', 0);
+            $page_number = (int) $request->query('page_number', 1);
             $search_term = $request->query('search', '');
-            // Retrieve shops based on pagination, sorting, and filtering
-            $daily_videos = DailyVideo::where(['is_active' => 1, 'is_deleted' => 0])
-                ->where(function ($query) use ($search_term) {
-                    if (isset($search_term)) {
 
-                        $query->where('title', 'LIKE', '%' . $search_term . '%');
+            // Parse search_param JSON
+            $search_param = $request->query('search_param', '{}');
+            try {
+                $search_param = json_decode($search_param, true);
+                if (!is_array($search_param)) {
+                    $search_param = [];
+                }
+            } catch (\Exception $e) {
+                $search_param = [];
+            }
+
+            // Build the query
+            $query = DailyVideo::where('is_deleted', 0);
+
+            // Apply search_param filters
+            foreach ($search_param as $key => $value) {
+                if (is_array($value)) {
+                    // Use whereIn for array values
+                    $query->whereIn($key, $value);
+                } else {
+                    if ($value) {
+                        // Use where for single values
+                        $query->where($key, $value);
                     }
-                })
+                }
+            }
 
-                ->orderBy($sort_column, $sort_direction)
-                ->skip($skip_count)
-                ->take($row_per_page == -1 ? DailyVideo::count() : $row_per_page)
+            // Apply search filter on category_name
+            if (!empty($search_term)) {
+                $query->where('title', 'LIKE', '%' . $search_term . '%');
+            }
+
+            // Get total records for pageInfo
+            $total_records = $query->count();
+
+            // Apply pagination
+            $daily_videos_query = $query
+
+                ->orderBy($sort_column, $sort_direction);
+            // Apply pagination only if page_size is valid
+            if ($page_size > 0) {
+                $daily_videos_query->skip(($page_number - 1) * $page_size)
+                    ->take($page_size);
+            }
+            $daily_videos = $daily_videos_query
                 ->get()->map(function ($daily_video) {
                     $daily_video->created_at_formatted =  $daily_video->created_at->format('d-m-Y h:i A');
                     $daily_video->updated_at_formatted = $daily_video->updated_at->format('d-m-Y h:i A');
                     return $daily_video;
                 });
 
-            // Calculate total records and total pages
-            $total_records = DailyVideo::where(['is_active' => 1, 'is_deleted' => 0])->where(function ($query) use ($search_term) {
-                $query->where('title', 'LIKE', '%' . $search_term . '%');
-            })->count();
-            $total_pages = ceil($total_records / $row_per_page);
-
-            // Return data as JSON response with the expected structure
+            // Build the response
             return response()->json([
-                'daily_videos' => $daily_videos,
-                'count' => $total_records,
-                'next' => $total_pages > $current_page_number ? $current_page_number + 1 : null,
+                'success' => true,
+                'message' => 'success',
+                'data' => $daily_videos,
+                'pageInfo' => [
+                    'page_size' => $page_size,
+                    'page_number' => $page_number,
+                    'recordsTotal' => $total_records
+                ]
             ], 200);
         } else {
             // Retrieve categories based on pagination, sorting, and filtering
@@ -83,11 +111,11 @@ class DailyVideoController extends Controller
                     $daily_video->updated_at_formatted = $daily_video->updated_at->format('d-m-Y h:i A');
                     return $daily_video;
                 });
-
             // Return data as JSON response with the expected structure
             return response()->json([
-                'daily_videos' => $daily_videos,
-
+                'data' => $daily_videos,
+                'success' => true,
+                'message' => 'success',
             ], 200);
         }
     }
@@ -257,7 +285,7 @@ class DailyVideoController extends Controller
     public function StatusUpdate(Request $request)
     {
 
-        $auth_user_id =Auth::id();
+        $auth_user_id = Auth::id();
         $w = DailyVideo::find($request->id);
         $w->is_active = $request->has('is_active') ? 1 : 0;
         $w->updated_by =  $auth_user_id;

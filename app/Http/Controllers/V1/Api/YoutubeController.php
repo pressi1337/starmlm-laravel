@@ -28,48 +28,75 @@ class YoutubeController extends Controller
     public function index(Request $request)
     {
         if ($request->query('is_pagination') == 1) {
+            // Default sorting
+            $sort_column = $request->query('sort_column', 'created_at');
+            $sort_direction = $request->query('sort_direction', 'DESC');
 
-            // Get parameters from the request or set default values
-            $current_page_number = $request->query('current_page_num', 1);
-            $row_per_page = $request->query('limit', 10);
-
-            // Calculate skip count based on current page and rows per page
-            $skip_count = ($current_page_number - 1) * $row_per_page;
-
-            // Define default sorting column and direction
-            $sort_column = 'created_at';
-            $sort_direction = 'asc';
-            // Get the search term from the request
+            // Pagination parameters
+            $page_size = (int) $request->query('page_size', 0);
+            $page_number = (int) $request->query('page_number', 1);
             $search_term = $request->query('search', '');
-            // Retrieve shops based on pagination, sorting, and filtering
-            $youtube_channels = YoutubeChannel::where(['is_active' => 1, 'is_deleted' => 0])
-                ->where(function ($query) use ($search_term) {
-                    if (isset($search_term)) {
 
-                        $query->where('channel_name', 'LIKE', '%' . $search_term . '%');
+            // Parse search_param JSON
+            $search_param = $request->query('search_param', '{}');
+            try {
+                $search_param = json_decode($search_param, true);
+                if (!is_array($search_param)) {
+                    $search_param = [];
+                }
+            } catch (\Exception $e) {
+                $search_param = [];
+            }
+
+            // Build the query
+            $query = YoutubeChannel::where('is_deleted', 0);
+
+            // Apply search_param filters
+            foreach ($search_param as $key => $value) {
+                if (is_array($value)) {
+                    // Use whereIn for array values
+                    $query->whereIn($key, $value);
+                } else {
+                    if ($value) {
+                        // Use where for single values
+                        $query->where($key, $value);
                     }
-                })
+                }
+            }
 
-                ->orderBy($sort_column, $sort_direction)
-                ->skip($skip_count)
-                ->take($row_per_page == -1 ? YoutubeChannel::count() : $row_per_page)
+            // Apply search filter on category_name
+            if (!empty($search_term)) {
+                $query->where('channel_name', 'LIKE', '%' . $search_term . '%');
+            }
+
+            // Get total records for pageInfo
+            $total_records = $query->count();
+
+            // Apply pagination
+            $youtube_channels_query = $query
+                ->orderBy($sort_column, $sort_direction);
+            // Apply pagination only if page_size is valid
+            if ($page_size > 0) {
+                $youtube_channels_query->skip(($page_number - 1) * $page_size)
+                    ->take($page_size);
+            }
+            $youtube_channels = $youtube_channels_query
                 ->get()->map(function ($youtube_channel) {
                     $youtube_channel->created_at_formatted =  $youtube_channel->created_at->format('d-m-Y h:i A');
                     $youtube_channel->updated_at_formatted = $youtube_channel->updated_at->format('d-m-Y h:i A');
                     return $youtube_channel;
                 });
 
-            // Calculate total records and total pages
-            $total_records = YoutubeChannel::where(['is_active' => 1, 'is_deleted' => 0])->where(function ($query) use ($search_term) {
-                $query->where('channel_name', 'LIKE', '%' . $search_term . '%');
-            })->count();
-            $total_pages = ceil($total_records / $row_per_page);
-
-            // Return data as JSON response with the expected structure
+            // Build the response
             return response()->json([
-                'youtube_channels' => $youtube_channels,
-                'count' => $total_records,
-                'next' => $total_pages > $current_page_number ? $current_page_number + 1 : null,
+                'success' => true,
+                'message' => 'success',
+                'data' => $youtube_channels,
+                'pageInfo' => [
+                    'page_size' => $page_size,
+                    'page_number' => $page_number,
+                    'recordsTotal' => $total_records
+                ]
             ], 200);
         } else {
             // Retrieve categories based on pagination, sorting, and filtering

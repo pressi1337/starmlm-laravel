@@ -40,39 +40,76 @@ class PromotionQuizController extends Controller
     public function index(Request $request)
     {
         if ($request->query('is_pagination') == 1) {
+            // Default sorting
+            $sort_column = $request->query('sort_column', 'created_at');
+            $sort_direction = $request->query('sort_direction', 'DESC');
 
-            // Get parameters from the request or set default values
-            $current_page_number = $request->query('current_page_num', 1);
-            $row_per_page = $request->query('limit', 10);
-
-            // Calculate skip count based on current page and rows per page
-            $skip_count = ($current_page_number - 1) * $row_per_page;
-
-            // Define default sorting column and direction
-            $sort_column = 'created_at';
-            $sort_direction = 'asc';
-            // Get the search term from the request
+            // Pagination parameters
+            $page_size = (int) $request->query('page_size', 0);
+            $page_number = (int) $request->query('page_number', 1);
             $search_term = $request->query('search', '');
-            // Retrieve shops based on pagination, sorting, and filtering
-            $promotion_video_quizzes = PromotionVideoQuiz::where(['is_active' => 1, 'is_deleted' => 0])
-                ->orderBy($sort_column, $sort_direction)
-                ->skip($skip_count)
-                ->take($row_per_page == -1 ? PromotionVideoQuiz::count() : $row_per_page)
+
+            // Parse search_param JSON
+            $search_param = $request->query('search_param', '{}');
+            try {
+                $search_param = json_decode($search_param, true);
+                if (!is_array($search_param)) {
+                    $search_param = [];
+                }
+            } catch (\Exception $e) {
+                $search_param = [];
+            }
+
+            // Build the query
+            $query = PromotionVideoQuiz::where('is_deleted', 0);
+
+            // Apply search_param filters
+            foreach ($search_param as $key => $value) {
+                if (is_array($value)) {
+                    // Use whereIn for array values
+                    $query->whereIn($key, $value);
+                } else {
+                    if ($value) {
+                        // Use where for single values
+                        $query->where($key, $value);
+                    }
+                }
+            }
+
+            // // Apply search filter on category_name
+            // if (!empty($search_term)) {
+            //     $query->where('title', 'LIKE', '%' . $search_term . '%');
+            // }
+
+            // Get total records for pageInfo
+            $total_records = $query->count();
+
+            // Apply pagination
+            $promotion_video_quizzes_query = $query
+
+                ->orderBy($sort_column, $sort_direction);
+            // Apply pagination only if page_size is valid
+            if ($page_size > 0) {
+                $promotion_video_quizzes_query->skip(($page_number - 1) * $page_size)
+                    ->take($page_size);
+            }
+            $promotion_video_quizzes = $promotion_video_quizzes_query
                 ->get()->map(function ($promotion_video_quiz) {
                     $promotion_video_quiz->created_at_formatted =  $promotion_video_quiz->created_at->format('d-m-Y h:i A');
                     $promotion_video_quiz->updated_at_formatted = $promotion_video_quiz->updated_at->format('d-m-Y h:i A');
                     return $promotion_video_quiz;
                 });
 
-            // Calculate total records and total pages
-            $total_records = PromotionVideoQuiz::where(['is_active' => 1, 'is_deleted' => 0])->count();
-            $total_pages = ceil($total_records / $row_per_page);
-
-            // Return data as JSON response with the expected structure
+            // Build the response
             return response()->json([
-                'promotion_video_quizzes' => $promotion_video_quizzes,
-                'count' => $total_records,
-                'next' => $total_pages > $current_page_number ? $current_page_number + 1 : null,
+                'success' => true,
+                'message' => 'success',
+                'data' => $promotion_video_quizzes,
+                'pageInfo' => [
+                    'page_size' => $page_size,
+                    'page_number' => $page_number,
+                    'recordsTotal' => $total_records
+                ]
             ], 200);
         } else {
             // Retrieve categories based on pagination, sorting, and filtering
@@ -297,19 +334,19 @@ class PromotionQuizController extends Controller
         $u->is_deleted = 1;
         $u->updated_by = auth()->user()->id;
         $u->save();
-    
+
         // Soft delete related questions
         $questions = PromotionQuizQuestion::where('promotion_video_quiz_id', $id)->get();
         $questionIds = $questions->pluck('id'); // get all question IDs
-    
+
         PromotionQuizQuestion::where('promotion_video_quiz_id', $id)->update(['is_deleted' => 1]);
-    
+
         // Soft delete related choices
         PromotionQuizChoice::whereIn('promotion_quiz_question_id', $questionIds)->update(['is_deleted' => 1]);
-    
+
         return response()->json(['status' => 200]);
     }
-    
+
 
     public function StatusUpdate(Request $request)
     {
