@@ -96,8 +96,12 @@ class DailyVideoController extends Controller
                 })
                 ->get()
                 ->map(function ($daily_video) {
-                    $daily_video->created_at_formatted = $daily_video->created_at->format('d-m-Y h:i A');
-                    $daily_video->updated_at_formatted = $daily_video->updated_at->format('d-m-Y h:i A');
+                    $daily_video->created_at_formatted = $daily_video->created_at 
+                    ? $daily_video->created_at->format('d-m-Y h:i A') 
+                    : '-';
+                    $daily_video->updated_at_formatted = $daily_video->updated_at 
+                    ? $daily_video->updated_at->format('d-m-Y h:i A') 
+                    : '-';
                     return $daily_video;
                 });
 

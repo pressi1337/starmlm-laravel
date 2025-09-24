@@ -90,8 +90,12 @@ class PromotionVideoController extends Controller
             })
             ->get()
             ->map(function ($promotion_video) {
-                $promotion_video->created_at_formatted = $promotion_video->created_at->format('d-m-Y h:i A');
-                $promotion_video->updated_at_formatted = $promotion_video->updated_at->format('d-m-Y h:i A');
+                $promotion_video->created_at_formatted = $promotion_video->created_at 
+                    ? $promotion_video->created_at->format('d-m-Y h:i A') 
+                    : '-';
+                $promotion_video->updated_at_formatted =  $promotion_video->updated_at 
+                    ? $promotion_video->updated_at->format('d-m-Y h:i A') 
+                    : '-';
                 return $promotion_video;
             });
 

@@ -105,8 +105,12 @@ class TrainingQuizController extends Controller
             })
             ->get()
             ->map(function ($training_video_quiz) {
-                $training_video_quiz->created_at_formatted = $training_video_quiz->created_at->format('d-m-Y h:i A');
-                $training_video_quiz->updated_at_formatted = $training_video_quiz->updated_at->format('d-m-Y h:i A');
+                $training_video_quiz->created_at_formatted = $training_video_quiz->created_at 
+                    ? $training_video_quiz->created_at->format('d-m-Y h:i A') 
+                    : '-';
+                $training_video_quiz->updated_at_formatted = $training_video_quiz->updated_at 
+                    ? $training_video_quiz->updated_at->format('d-m-Y h:i A') 
+                    : '-';
                 return $training_video_quiz;
             });
 
