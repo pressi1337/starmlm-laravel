@@ -16,7 +16,15 @@ return new class extends Migration
             $table->string('username')->nullable();
             $table->string('referral_code')->nullable();
             $table->string('referred_by')->nullable();
-            $table->string('name')->nullable();
+            $table->string('first_name')->nullable();
+            $table->string('last_name')->nullable();
+            $table->string('dob')->nullable();
+            $table->string('nationality')->nullable();
+            $table->string('state')->nullable();
+            $table->string('city')->nullable();
+            $table->string('district')->nullable();
+            $table->string('pin_code')->nullable();
+            $table->string('language')->nullable();
             $table->string('email')->nullable();
             $table->string('mobile')->nullable();
             $table->tinyInteger('role')->default(2);
@@ -26,6 +34,10 @@ return new class extends Migration
             $table->integer('created_by')->nullable();
             $table->integer('updated_by')->nullable();
             $table->tinyInteger('is_active')->default(1);
+            $table->tinyInteger('training_status')->default(1);
+            $table->tinyInteger('current_promoter_level')->nullable(); // 1,2,3,4
+            $table->tinyInteger('promoter_status')->nullable();       // 0=pending, 1=approved, 2=activated, 3=rejected
+            $table->timestamp('promoter_activated_at')->nullable();
             $table->tinyInteger('is_deleted')->default(0);
             $table->string('password_reset_token')->nullable();
             $table->timestamp('password_reset_token_expires_at')->nullable();

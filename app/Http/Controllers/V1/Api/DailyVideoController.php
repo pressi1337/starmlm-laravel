@@ -32,92 +32,91 @@ class DailyVideoController extends Controller
     }
     public function index(Request $request)
     {
-       
-            // Default sorting
-            $sort_column = $request->query('sort_column', 'created_at');
-            $sort_direction = $request->query('sort_direction', 'DESC');
 
-            // Pagination parameters
-            $page_size = (int) $request->query('page_size', 10); // Default to 10 items per page
-            $page_number = (int) $request->query('page_number', 1);
-            $search_term = $request->query('search', '');
+        // Default sorting
+        $sort_column = $request->query('sort_column', 'created_at');
+        $sort_direction = $request->query('sort_direction', 'DESC');
 
-            // Parse search_param JSON
-            $search_param = $request->query('search_param', '{}');
-            try {
-                $search_param = json_decode($search_param, true);
-                if (!is_array($search_param)) {
-                    $search_param = [];
-                }
-            } catch (\Exception $e) {
+        // Pagination parameters
+        $page_size = (int) $request->query('page_size', 10); // Default to 10 items per page
+        $page_number = (int) $request->query('page_number', 1);
+        $search_term = $request->query('search', '');
+
+        // Parse search_param JSON
+        $search_param = $request->query('search_param', '{}');
+        try {
+            $search_param = json_decode($search_param, true);
+            if (!is_array($search_param)) {
                 $search_param = [];
             }
+        } catch (\Exception $e) {
+            $search_param = [];
+        }
 
-            // Start building the query
-            $query = DailyVideo::query();
+        // Start building the query
+        $query = DailyVideo::query();
 
-            // Apply default filters
-            $query->where('is_deleted', 0);
+        // Apply default filters
+        $query->where('is_deleted', 0);
 
-            // Apply search_param filters
-            foreach ($search_param as $key => $value) {
-                if (is_array($value)) {
-                    if ($key === 'date_between' && count($value) === 2) {
-                        // Handle date range filter
-                        $query->whereBetween('showing_date', $value);
-                    } elseif (!empty($value)) {
-                        // Use whereIn for array values
-                        $query->whereIn($key, $value);
-                    }
-                } else {
-                    if ($value !== '') {
-                        // Use where for single values
-                        $query->where($key, $value);
-                    }
+        // Apply search_param filters
+        foreach ($search_param as $key => $value) {
+            if (is_array($value)) {
+                if ($key === 'date_between' && count($value) === 2) {
+                    // Handle date range filter
+                    $query->whereBetween('showing_date', $value);
+                } elseif (!empty($value)) {
+                    // Use whereIn for array values
+                    $query->whereIn($key, $value);
+                }
+            } else {
+                if ($value !== '') {
+                    // Use where for single values
+                    $query->where($key, $value);
                 }
             }
+        }
 
-            // Apply search filter on title and description
-            if (!empty($search_term)) {
-                $query->where(function($q) use ($search_term) {
-                    $q->where('title', 'LIKE', '%' . $search_term . '%')
-                      ->orWhere('description', 'LIKE', '%' . $search_term . '%');
-                });
-            }
+        // Apply search filter on title and description
+        if (!empty($search_term)) {
+            $query->where(function ($q) use ($search_term) {
+                $q->where('title', 'LIKE', '%' . $search_term . '%')
+                    ->orWhere('description', 'LIKE', '%' . $search_term . '%');
+            });
+        }
 
-            // Get total records for pagination
-            $total_records = $query->count();
+        // Get total records for pagination
+        $total_records = $query->count();
 
-            // Apply sorting and pagination
-            $daily_videos = $query->orderBy($sort_column, $sort_direction)
-                ->when($page_size > 0, function($q) use ($page_size, $page_number) {
-                    return $q->skip(($page_number - 1) * $page_size)
-                           ->take($page_size);
-                })
-                ->get()
-                ->map(function ($daily_video) {
-                    $daily_video->created_at_formatted = $daily_video->created_at 
-                    ? $daily_video->created_at->format('d-m-Y h:i A') 
+        // Apply sorting and pagination
+        $daily_videos = $query->orderBy($sort_column, $sort_direction)
+            ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
+                return $q->skip(($page_number - 1) * $page_size)
+                    ->take($page_size);
+            })
+            ->get()
+            ->map(function ($daily_video) {
+                $daily_video->created_at_formatted = $daily_video->created_at
+                    ? $daily_video->created_at->format('d-m-Y h:i A')
                     : '-';
-                    $daily_video->updated_at_formatted = $daily_video->updated_at 
-                    ? $daily_video->updated_at->format('d-m-Y h:i A') 
+                $daily_video->updated_at_formatted = $daily_video->updated_at
+                    ? $daily_video->updated_at->format('d-m-Y h:i A')
                     : '-';
-                    return $daily_video;
-                });
+                return $daily_video;
+            });
 
-            // Build the response
-            return response()->json([
-                'success' => true,
-                'message' => 'Success',
-                'data' => $daily_videos,
-                'pageInfo' => [
-                    'page_size' => $page_size,
-                    'page_number' => $page_number,
-                    'total_pages' => $page_size > 0 ? ceil($total_records / $page_size) : 1,
-                    'total_records' => $total_records
-                ]
-            ], 200);
-        
+        // Build the response
+        return response()->json([
+            'success' => true,
+            'message' => 'Success',
+            'data' => $daily_videos,
+            'pageInfo' => [
+                'page_size' => $page_size,
+                'page_number' => $page_number,
+                'total_pages' => $page_size > 0 ? ceil($total_records / $page_size) : 1,
+                'total_records' => $total_records
+            ]
+        ], 200);
     }
 
 
@@ -138,7 +137,7 @@ class DailyVideoController extends Controller
      * @return \Illuminate\Http\Response
      */
     public function store(Request $request)
-    { 
+    {
         try {
             // Validation
             $validator = Validator::make($request->all(), [
@@ -334,13 +333,15 @@ class DailyVideoController extends Controller
             $daily_video->created_at_formatted = $daily_video->created_at->format('d-m-Y h:i A');
             $daily_video->updated_at_formatted = $daily_video->updated_at->format('d-m-Y h:i A');
             return response()->json([
-                'daily_video' => $daily_video,
-                'status' => 200
+                'success' => true,
+                'message' => 'Success',
+                'data' => $daily_video,
+
             ], 200);
         } else {
             return response()->json([
                 'message' => 'No Data found',
-                'status' => 400
+                'success' => false
             ], 400);
         }
     }

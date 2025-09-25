@@ -19,6 +19,13 @@ class User extends Authenticatable implements JWTSubject
      *
      * @var list<string>
      */
+    const TRAINING_STATUS_PENDING = 0;
+    const TRAINING_STATUS_IN_PROGRESS = 1;
+    const TRAINING_STATUS_COMPLETED = 2; 
+    const PROMOTER_STATUS_PENDING = 0;
+    const PROMOTER_STATUS_APPROVED = 1;
+    const PROMOTER_STATUS_ACTIVATED = 2;
+    const PROMOTER_STATUS_REJECTED = 3;
     protected $fillable = [
         'name',
         'email',
@@ -59,11 +66,32 @@ class User extends Authenticatable implements JWTSubject
 
     public function getJWTCustomClaims()
     {
-       return [
+        return [
             'id' => $this->id,
             'email' => $this->email,
             'username' => $this->username,
             'role' => $this->role,
         ];
+    }
+    // Relationship: who referred this user
+    public function referrer()
+    {
+        return $this->belongsTo(User::class, 'referred_by');
+    }
+
+    // Relationship: users referred by this user
+    public function referrals()
+    {
+        return $this->hasMany(User::class, 'referred_by');
+    }
+
+    // Generate referral code (e.g., USER12345)
+    public static function generateReferralCode()
+    {
+        return strtoupper('Star' . uniqid());
+    }
+    public function userTrainingVideos()
+    {
+        return $this->hasMany(UserTrainingVideo::class);
     }
 }

@@ -194,6 +194,7 @@ class JwtAuthController extends Controller
                 ]
             ], 200);
         } catch (\Exception $e) {
+            Log::error($e->getMessage());
             return response()->json([
                 'success' => false,
                 'message' => 'Internal Server Error',
