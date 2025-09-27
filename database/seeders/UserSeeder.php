@@ -16,7 +16,7 @@ class UserSeeder extends Seeder
     {
         $user = [
             [
-                'name' => 'Admin',
+                'first_name' => 'Admin',
                 'username' => 'admin',
                 'mobile' => '9876543210',
                 'role' => '0',
@@ -25,7 +25,7 @@ class UserSeeder extends Seeder
                 'pwd_text' => '12345678',
             ],
             [
-                'name' => 'TESTUSER1',
+                'first_name' => 'TESTUSER1',
                 'username' => 'user1',
                 'mobile' => '9876543211',
                 'role' => '2',

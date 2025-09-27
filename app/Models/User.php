@@ -27,7 +27,7 @@ class User extends Authenticatable implements JWTSubject
     const PROMOTER_STATUS_ACTIVATED = 2;
     const PROMOTER_STATUS_REJECTED = 3;
     protected $fillable = [
-        'name',
+        'first_name',
         'email',
         'mobile',
         'role',

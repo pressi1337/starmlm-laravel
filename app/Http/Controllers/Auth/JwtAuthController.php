@@ -30,7 +30,7 @@ class JwtAuthController extends Controller
          $validator = Validator::make(
             $request->all(),
             [
-                'name' => 'required',
+                'first_name' => 'required',
                 'username' => 'required|unique:users,username|min:8',
                 'mobile' => ['required', 'string', 'max:15', 'unique:users,mobile'],
                 'email' => 'unique:users,email',
@@ -86,7 +86,7 @@ class JwtAuthController extends Controller
             // Create the user
 
             $user =   User::create([
-                'name' => $request->name,
+                'first_name' => $request->first_name,
                 'email' => $request->email,
                 'mobile' => $request->mobile,
                 'username' => $request->username,
