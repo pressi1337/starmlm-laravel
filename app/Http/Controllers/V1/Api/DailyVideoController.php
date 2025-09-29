@@ -161,7 +161,7 @@ class DailyVideoController extends Controller
             $w->description = $request->description;
             $w->youtube_link = $request->youtube_link;
             $w->showing_date = $request->showing_date;
-            $w->type = $request->type;
+            $w->type = $request->type ?? 1;
             if ($request->hasFile('video_path')) {
                 $file = $request->file('video_path');
                 $original_name = $file->getClientOriginalName();
@@ -260,7 +260,7 @@ class DailyVideoController extends Controller
             $w->description = $request->description;
             $w->youtube_link = $request->youtube_link;
             $w->showing_date = $request->showing_date;
-            $w->type = $request->type;
+            $w->type = $request->type ?? 1;
             if ($request->hasFile('video_path')) {
                 $file = $request->file('video_path');
                 $original_name = $file->getClientOriginalName();
@@ -324,7 +324,7 @@ class DailyVideoController extends Controller
         $w->updated_by =  $auth_user_id;
         $w->save();
 
-        return response()->json(['message' => 'Daily Video Details updated successfully', 'status' => 200]);
+        return response()->json(['message' => 'Daily Video Status updated successfully', 'status' => 200]);
     }
     public function todayVideo()
     {
