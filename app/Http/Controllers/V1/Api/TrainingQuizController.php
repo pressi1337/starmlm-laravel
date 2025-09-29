@@ -226,7 +226,23 @@ class TrainingQuizController extends Controller
      */
     public function show($id)
     {
-        //
+        $training_video_quiz = TrainingVideoQuiz::where('id', $id)->with([
+            'questions' => function ($q) {
+                $q->where('is_active', 1)->where('is_deleted', 0);
+            },
+            'questions.choices' => function ($q) {
+                $q->where('is_active', 1)->where('is_deleted', 0);
+            },
+            'training_video' => function ($q) {
+                $q->where('is_active', 1)->where('is_deleted', 0);
+            }
+        ])
+            ->first();
+
+        return response()->json([
+            'success' => true,
+            'data' => $training_video_quiz,
+        ], 200);
     }
 
     /**
@@ -252,8 +268,8 @@ class TrainingQuizController extends Controller
             ->first();
 
         return response()->json([
-            'training_video_quiz' => $training_video_quiz,
-
+            'success' => true,
+            'data' => $training_video_quiz,
         ], 200);
     }
 

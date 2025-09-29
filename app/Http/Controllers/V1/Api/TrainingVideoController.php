@@ -199,7 +199,12 @@ class TrainingVideoController extends Controller
      */
     public function show($id)
     {
-        //
+        $training_video = TrainingVideo::find($id);
+
+        return response()->json([
+            'success' => true,
+            'data' => $training_video,
+        ], 200);
     }
 
     /**
@@ -214,8 +219,8 @@ class TrainingVideoController extends Controller
         $training_video = TrainingVideo::find($id);
 
         return response()->json([
-            'training_video' => $training_video,
-
+            'success' => true,
+            'data' => $training_video,
         ], 200);
     }
 

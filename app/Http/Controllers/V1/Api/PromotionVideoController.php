@@ -191,7 +191,12 @@ class PromotionVideoController extends Controller
      */
     public function show($id)
     {
-        //
+        $promotion_video = PromotionVideo::find($id);
+
+        return response()->json([
+            'success' => true,
+            'data' => $promotion_video,
+        ], 200);
     }
 
     /**
@@ -206,8 +211,8 @@ class PromotionVideoController extends Controller
         $promotion_video = PromotionVideo::find($id);
 
         return response()->json([
-            'promotion_video' => $promotion_video,
-
+            'success' => true,
+            'data' => $promotion_video,
         ], 200);
     }
 

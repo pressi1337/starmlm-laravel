@@ -216,7 +216,23 @@ class PromotionQuizController extends Controller
      */
     public function show($id)
     {
-        //
+        $promotion_video_quiz = PromotionVideoQuiz::where('id', $id)->with([
+            'questions' => function ($q) {
+                $q->where('is_active', 1)->where('is_deleted', 0);
+            },
+            'questions.choices' => function ($q) {
+                $q->where('is_active', 1)->where('is_deleted', 0);
+            },
+            'promotion_video' => function ($q) {
+                $q->where('is_active', 1)->where('is_deleted', 0);
+            }
+        ])
+            ->first();
+
+        return response()->json([
+            'success' => true,
+            'data' => $promotion_video_quiz,
+        ], 200);
     }
 
     /**
@@ -242,8 +258,8 @@ class PromotionQuizController extends Controller
             ->first();
 
         return response()->json([
-            'promotion_video_quiz' => $promotion_video_quiz,
-
+            'success' => true,
+            'data' => $promotion_video_quiz,
         ], 200);
     }
 
