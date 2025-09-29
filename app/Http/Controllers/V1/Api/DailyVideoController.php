@@ -196,6 +196,12 @@ class DailyVideoController extends Controller
     public function show($id)
     {
         //
+        $daily_video = DailyVideo::find($id);
+
+        return response()->json([
+            'success' => true,
+            'data' => $daily_video,
+        ], 200);
     }
 
     /**
@@ -210,8 +216,8 @@ class DailyVideoController extends Controller
         $daily_video = DailyVideo::find($id);
 
         return response()->json([
-            'daily_video' => $daily_video,
-
+            'success' => true,
+            'data' => $daily_video,
         ], 200);
     }
 
