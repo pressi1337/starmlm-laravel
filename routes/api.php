@@ -29,6 +29,14 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::resource('promotion-video-quizzes', PromotionQuizController::class);
     Route::get('auth-user', [JwtAuthController::class, 'AuthUser']);
     Route::post('generate-pin', [UserPromoterController::class,'generatePin']);
+    // Custom route for status update
+    Route::post('daily-videos/status-update', [DailyVideoController::class, 'StatusUpdate']);
+    Route::post('training-videos/status-update', [TrainingVideoController::class, 'StatusUpdate']);
+    Route::post('training-video-quizzes/status-update', [TrainingQuizController::class, 'StatusUpdate']);
+    Route::post('promotion-videos/status-update', [PromotionVideoController::class, 'StatusUpdate']);
+    Route::post('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
+    Route::post('youtube-channels/status-update', [YoutubeController::class, 'StatusUpdate']);
+
 
 
     //commmon both admin and user panel
