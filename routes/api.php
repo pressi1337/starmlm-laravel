@@ -20,6 +20,15 @@ Route::prefix('v1')->group(function () {
 //     return $request->user();
 // });
 Route::middleware('jwt')->prefix('v1')->group(function () {
+    // Custom route for status update
+    Route::patch('daily-videos/status-update', [DailyVideoController::class, 'StatusUpdate']);
+    Route::patch('training-videos/status-update', [TrainingVideoController::class, 'StatusUpdate']);
+    Route::patch('training-video-quizzes/status-update', [TrainingQuizController::class, 'StatusUpdate']);
+    Route::patch('promotion-videos/status-update', [PromotionVideoController::class, 'StatusUpdate']);
+    Route::patch('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
+    Route::patch('youtube-channels/status-update', [YoutubeController::class, 'StatusUpdate']);
+    Route::patch('scratch-setup/status-update', [ScratchSetupController::class, 'StatusUpdate']);
+    //
     Route::resource('daily-videos', DailyVideoController::class);
     Route::resource('youtube-channels', YoutubeController::class);
     Route::resource('scratch-setup', ScratchSetupController::class);
@@ -29,13 +38,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::resource('promotion-video-quizzes', PromotionQuizController::class);
     Route::get('auth-user', [JwtAuthController::class, 'AuthUser']);
     Route::post('generate-pin', [UserPromoterController::class,'generatePin']);
-    // Custom route for status update
-    Route::post('daily-videos/status-update', [DailyVideoController::class, 'StatusUpdate']);
-    Route::post('training-videos/status-update', [TrainingVideoController::class, 'StatusUpdate']);
-    Route::post('training-video-quizzes/status-update', [TrainingQuizController::class, 'StatusUpdate']);
-    Route::post('promotion-videos/status-update', [PromotionVideoController::class, 'StatusUpdate']);
-    Route::post('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
-    Route::post('youtube-channels/status-update', [YoutubeController::class, 'StatusUpdate']);
+    
 
 
 
