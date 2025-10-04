@@ -24,6 +24,8 @@ class ReferralController extends Controller
      * @return \Illuminate\Http\Response
      */
     protected $messages;
+    protected array $sortable = ['created_at', 'username', 'first_name', 'last_name', 'mobile', 'id'];
+    protected array $filterable = ['username', 'first_name', 'last_name', 'mobile', 'is_active', 'id'];
     public function __construct()
     {
         $this->messages = [
@@ -67,85 +69,98 @@ class ReferralController extends Controller
     }
     public function index(Request $request)
     {
-
-        // Default sorting
-        $sort_column = $request->query('sort_column', 'created_at');
-        $sort_direction = $request->query('sort_direction', 'DESC');
-
-        // Pagination parameters
-        $page_size = (int) $request->query('page_size', 10); // Default to 10 items per page
-        $page_number = (int) $request->query('page_number', 1);
-        $search_term = $request->query('search', '');
-
-        // Parse search_param JSON
-        $search_param = $request->query('search_param', '{}');
         try {
-            $search_param = json_decode($search_param, true);
-            if (!is_array($search_param)) {
+            if (!Auth::check()) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            }
+
+            // Default sorting
+            $sort_column = $request->query('sort_column', 'created_at');
+            $sort_direction = strtoupper($request->query('sort_direction', 'DESC')) === 'ASC' ? 'ASC' : 'DESC';
+            if (!in_array($sort_column, $this->sortable, true)) {
+                $sort_column = 'created_at';
+            }
+
+            // Pagination parameters
+            $page_size = max(0, (int) $request->query('page_size', 10)); // 0 disables pagination
+            $page_number = max(1, (int) $request->query('page_number', 1));
+            $search_term = trim((string) $request->query('search', ''));
+
+            // Parse search_param JSON
+            $search_param_raw = $request->query('search_param', '{}');
+            $search_param = [];
+            try {
+                $decoded = json_decode($search_param_raw, true);
+                if (is_array($decoded)) {
+                    $search_param = $decoded;
+                }
+            } catch (\Throwable $e) {
                 $search_param = [];
             }
-        } catch (\Exception $e) {
-            $search_param = [];
-        }
 
-        // Start building the query
-        $query = User::query();
+            // Start building the query
+            $query = User::query();
 
-        // Apply default filters
-        $query->where('is_deleted', 0)->where('referred_by', Auth::id());
+            // Apply default filters
+            $query->where('is_deleted', 0)->where('referred_by', Auth::id());
 
-        // Apply search_param filters
-        foreach ($search_param ?? [] as $key => $value) {
-
-            if ($value !== '') {
-                // Use where for single values
-                $query->where($key, $value);
+            // Apply search_param filters (whitelisted)
+            foreach (($search_param ?? []) as $key => $value) {
+                if ($value === '' || $value === null) {
+                    continue;
+                }
+                if (in_array($key, $this->filterable, true)) {
+                    $query->where($key, $value);
+                }
             }
+
+            // Apply search filter across common fields
+            if ($search_term !== '') {
+                $query->where(function ($q) use ($search_term) {
+                    $q->where('username', 'LIKE', '%' . $search_term . '%')
+                        ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
+                        ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
+                        ->orWhere('name', 'LIKE', '%' . $search_term . '%')
+                        ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
+                });
+            }
+
+            // Get total records for pagination
+            $total_records = $query->count();
+
+            // Apply sorting and pagination
+            $users = $query->orderBy($sort_column, $sort_direction)
+                ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
+                    return $q->skip(($page_number - 1) * $page_size)
+                        ->take($page_size);
+                })
+                ->get()
+                ->map(function ($user) {
+                    $user->created_at_formatted = $user->created_at
+                        ? $user->created_at->format('d-m-Y h:i A')
+                        : '-';
+                    $user->updated_at_formatted = $user->updated_at
+                        ? $user->updated_at->format('d-m-Y h:i A')
+                        : '-';
+                    return $user;
+                });
+
+            // Build the response
+            return response()->json([
+                'success' => true,
+                'message' => 'Success',
+                'data' => $users,
+                'pageInfo' => [
+                    'page_size' => $page_size,
+                    'page_number' => $page_number,
+                    'total_pages' => $page_size > 0 ? (int) ceil($total_records / max(1, $page_size)) : 1,
+                    'total_records' => $total_records
+                ]
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Referral index failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
         }
-
-        // Apply search filter on title and description
-        if (!empty($search_term)) {
-            $query->where(function ($q) use ($search_term) {
-                $q->where('username', 'LIKE', '%' . $search_term . '%')
-                    ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
-                    ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
-                    ->orWhere('name', 'LIKE', '%' . $search_term . '%')
-                    ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
-            });
-        }
-
-        // Get total records for pagination
-        $total_records = $query->count();
-
-        // Apply sorting and pagination
-        $users = $query->orderBy($sort_column, $sort_direction)
-            ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
-                return $q->skip(($page_number - 1) * $page_size)
-                    ->take($page_size);
-            })
-            ->get()
-            ->map(function ($user) {
-                $user->created_at_formatted = $user->created_at
-                    ? $user->created_at->format('d-m-Y h:i A')
-                    : '-';
-                $user->updated_at_formatted = $user->updated_at
-                    ? $user->updated_at->format('d-m-Y h:i A')
-                    : '-';
-                return $user;
-            });
-
-        // Build the response
-        return response()->json([
-            'success' => true,
-            'message' => 'Success',
-            'data' => $users,
-            'pageInfo' => [
-                'page_size' => $page_size,
-                'page_number' => $page_number,
-                'total_pages' => $page_size > 0 ? ceil($total_records / $page_size) : 1,
-                'total_records' => $total_records
-            ]
-        ], 200);
     }
 
 
@@ -156,7 +171,27 @@ class ReferralController extends Controller
      */
     public function create()
     {
-        //
+        // API context: return a sample payload template for Postman
+        return response()->json([
+            'success' => true,
+            'message' => 'Sample payload template',
+            'data' => [
+                'first_name' => 'John',
+                'last_name' => 'Doe',
+                'dob' => '1990-01-01',
+                'mobile' => '+911234567890',
+                'nationality' => 'Indian',
+                'state' => 'State name',
+                'city' => 'City name',
+                'district' => 'District name',
+                'pin_code' => '560001',
+                'language' => 'English',
+                'username' => 'john_doe_90',
+                'password' => 'Secret123',
+                'password_confirmation' => 'Secret123',
+                'is_active' => true
+            ]
+        ], 200);
     }
 
     /**
@@ -218,15 +253,17 @@ class ReferralController extends Controller
                 ->where('is_active', 1)
                 ->where('is_deleted', 0)
                 ->first();
-            $user_training = new UserTrainingVideo();
-            $user_training->user_id = $w->id;
-            $user_training->training_video_id = $day1Video->id;
-            $user_training->day = 1;
-            $user_training->status = UserTrainingVideo::STATUS_ASSIGNED;
-            $user_training->assigned_at = now();
-            $user_training->created_by = $auth_user_id;
-            $user_training->updated_by = $auth_user_id;
-            $user_training->save();
+            if ($day1Video) {
+                $user_training = new UserTrainingVideo();
+                $user_training->user_id = $w->id;
+                $user_training->training_video_id = $day1Video->id;
+                $user_training->day = 1;
+                $user_training->status = UserTrainingVideo::STATUS_ASSIGNED;
+                $user_training->assigned_at = now();
+                $user_training->created_by = $auth_user_id;
+                $user_training->updated_by = $auth_user_id;
+                $user_training->save();
+            }
 
             DB::commit();
 
@@ -246,7 +283,28 @@ class ReferralController extends Controller
      */
     public function show($id)
     {
-        //
+        try {
+            if (!Auth::check()) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            }
+            $referral = User::where('id', $id)
+                ->where('is_deleted', 0)
+                ->where('referred_by', Auth::id())
+                ->first();
+
+            if (!$referral) {
+                return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Success',
+                'data' => $referral
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Referral show failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
     }
 
     /**
@@ -257,13 +315,29 @@ class ReferralController extends Controller
      */
     public function edit($id)
     {
+        try {
+            if (!Auth::check()) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            }
 
-        $referral = User::find($id);
+            $referral = User::where('id', $id)
+                ->where('is_deleted', 0)
+                ->where('referred_by', Auth::id())
+                ->first();
 
-        return response()->json([
-            'referral' => $referral,
+            if (!$referral) {
+                return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            }
 
-        ], 200);
+            return response()->json([
+                'success' => true,
+                'message' => 'Success',
+                'data' => $referral,
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Referral edit failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
     }
 
     /**
