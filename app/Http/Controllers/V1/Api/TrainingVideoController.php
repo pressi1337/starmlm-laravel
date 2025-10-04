@@ -27,7 +27,7 @@ class TrainingVideoController extends Controller
             "description.required" => "Description Required",
             "video_path.required" => "Video Path Required",
             "youtube_link.required" => "Youtube Link Required",
-            "showing_date.required" => "Showing Date Required",
+            // "showing_date.required" => "Showing Date Required",
             "day.required" => "Day Required",
             "session_type.required" => "Session Type Required",
         ];
@@ -146,7 +146,7 @@ class TrainingVideoController extends Controller
                 "description" => 'required',
                 "video_path" => 'required_without:youtube_link',
                 "youtube_link" => 'required_without:video_path',
-                "showing_date" => ['required', new UniqueActive('training_videos', 'showing_date', null, [])],
+                // "showing_date" => ['required', new UniqueActive('training_videos', 'showing_date', null, [])],
                 "day" => 'required',
                 "session_type" => 'required',
             ], $this->messages);
@@ -162,7 +162,7 @@ class TrainingVideoController extends Controller
             $w->title = $request->title;
             $w->description = $request->description;
             $w->youtube_link = $request->youtube_link;
-            $w->showing_date = $request->showing_date;
+            // $w->showing_date = $request->showing_date;
             $w->day = $request->day;
             $w->session_type = $request->session_type;
             if ($request->hasFile('video_path')) {
@@ -237,7 +237,7 @@ class TrainingVideoController extends Controller
             $validator = Validator::make($request->all(), [
                 "title" => 'required',
                 "description" => 'required',
-                "showing_date" => ['required', new UniqueActive('training_videos', 'showing_date', $id, [])],
+                // "showing_date" => ['required', new UniqueActive('training_videos', 'showing_date', $id, [])],
                 "day" => 'required',
                 "session_type" => 'required',
             ], $this->messages);
@@ -257,7 +257,7 @@ class TrainingVideoController extends Controller
             $w->title = $request->title;
             $w->description = $request->description;
             $w->youtube_link = $request->youtube_link;
-            $w->showing_date = $request->showing_date;
+            // $w->showing_date = $request->showing_date;
             $w->day = $request->day;
             $w->session_type = $request->session_type;
             if ($request->hasFile('video_path')) {
