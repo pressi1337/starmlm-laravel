@@ -151,7 +151,56 @@ class ScratchSetupController extends Controller
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\Response
      */
-    public function store(Request $request) {}
+    public function store(Request $request)
+    {
+        try {
+            $auth_user_id = Auth::id();
+
+            $validator = Validator::make($request->all(), [
+                'promotor_level' => 'required|integer',
+                'is_active' => 'nullable|boolean',
+                'ranges' => 'required|array|min:1',
+                'ranges.*.start_range' => 'required|integer',
+                'ranges.*.end_range' => 'required|integer',
+                'ranges.*.amount' => 'required|integer',
+                'ranges.*.msg' => 'nullable|string',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
+            }
+
+            $w = new ReferralScratchLevel();
+            $w->promotor_level = $request->promotor_level;
+            $w->is_active = $request->has('is_active') && (int)$request->is_active ? 1 : 0;
+            $w->created_by = $auth_user_id;
+            $w->updated_by = $auth_user_id;
+            $w->save();
+
+            DB::beginTransaction();
+
+
+            foreach ($request->ranges ?? [] as $index => $rangeData) {
+                $range = new ReferralScratchRange();
+                $range->referral_scratch_level_id = $w->id;
+                $range->start_range = (int) $rangeData['start_range'];
+                $range->end_range = (int) $rangeData['end_range'];
+                $range->amount = (int) $rangeData['amount'];
+                $range->msg = $rangeData['msg'] ?? null;
+                $range->order_no = $index + 1;
+                $range->created_by =  $auth_user_id;
+                $range->updated_by =  $auth_user_id;
+                $range->save();
+            }
+
+            DB::commit();
+            return response()->json(['message' => 'Referral Scratch Level created successfully', 'status' => 200], 200);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('ScratchSetup store failed', ['error' => $e->getMessage()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
+    }
 
     /**
      * Display the specified resource.
