@@ -82,8 +82,24 @@ class PromotionVideoController extends Controller
         // Get total records for pagination
         $total_records = $query->count();
 
-        // Apply sorting and pagination
-        $promotion_videos = $query->orderBy($sort_column, $sort_direction)
+        // Apply sorting, eager loading, and pagination
+        $promotion_videos = $query
+            ->with([
+                'quiz' => function ($quizQuery) {
+                    $quizQuery->where('is_deleted', 0)
+                        ->with([
+                            'questions' => function ($questionQuery) {
+                                $questionQuery->where('is_deleted', 0)
+                                    ->with([
+                                        'choices' => function ($choiceQuery) {
+                                            $choiceQuery->where('is_deleted', 0);
+                                        }
+                                    ]);
+                            }
+                        ]);
+                }
+            ])
+            ->orderBy($sort_column, $sort_direction)
             ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
                 return $q->skip(($page_number - 1) * $page_size)
                          ->take($page_size);

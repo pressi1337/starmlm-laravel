@@ -9,6 +9,6 @@ class PromotionVideo extends Model
     //
     public function quiz()
     {
-        return $this->belongsTo(PromotionVideoQuiz::class,'promotion_video_id');
+        return $this->hasOne(PromotionVideoQuiz::class,'promotion_video_id');
     }
 }

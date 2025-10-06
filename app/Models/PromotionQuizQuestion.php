@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class PromotionQuizQuestion extends Model
 {
     //
-    public function question()
+    public function quiz()
     {
         return $this->belongsTo(PromotionVideoQuiz::class,'promotion_video_quiz_id');
     }
