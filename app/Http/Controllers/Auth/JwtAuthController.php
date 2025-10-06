@@ -264,7 +264,6 @@ class JwtAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'first_name' => 'sometimes|nullable|string|max:100',
             'last_name' => 'sometimes|nullable|string|max:100',
-            'username' => 'sometimes|required|string|max:100|unique:users,username,' . $user->id,
             'dob' => 'sometimes|nullable|date',
             'mobile' => 'sometimes|required|string|min:8|max:15|unique:users,mobile,' . $user->id,
             'nationality' => 'sometimes|nullable|string|max:100',
@@ -283,7 +282,7 @@ class JwtAuthController extends Controller
 
         // Assign only provided keys (allow nulls when explicitly sent)
         foreach ([
-            'first_name', 'last_name', 'username', 'dob', 'mobile', 'nationality',
+            'first_name', 'last_name', 'dob', 'mobile', 'nationality',
             'state', 'city', 'district', 'pin_code', 'language'
         ] as $field) {
             if ($request->has($field)) {

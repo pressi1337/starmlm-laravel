@@ -31,7 +31,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::patch('scratch-setup/status-update', [ScratchSetupController::class, 'StatusUpdate']);
     Route::patch('changepassword', [JwtAuthController::class, 'changePassword']);
     Route::patch('update-personal-details', [JwtAuthController::class, 'updatePersonalDetails']);
-    Route::patch('deleted-account', [JwtAuthController::class, 'DeleteAccount']);
+    Route::patch('delete-account', [JwtAuthController::class, 'DeleteAccount']);
     //
     Route::resource('daily-videos', DailyVideoController::class);
     Route::resource('youtube-channels', YoutubeController::class);
