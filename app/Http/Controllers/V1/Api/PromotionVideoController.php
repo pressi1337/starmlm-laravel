@@ -158,16 +158,7 @@ class PromotionVideoController extends Controller
             $w->showing_date = $request->showing_date;
             $w->video_order = $request->video_order;
             $w->session_type = $request->session_type;
-            if ($request->hasFile('video_path')) {
-                $file = $request->file('video_path');
-                $original_name = $file->getClientOriginalName();
-                $modified_name = str_replace(' ', '_', $original_name);
-                $video_full_name = date('d-m-y_H-i-s') .  $modified_name;
-                $upload_path = 'uploads/daily_video/';
-                $video_url = $upload_path . $video_full_name;
-                $file->move($upload_path, $video_full_name);
-                $w->video_path  =  $video_url;
-            }
+            $w->video_path  =  $request->video_path;
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
             $w->is_active = (int) $isActiveInput ? 1 : 0;
@@ -261,16 +252,7 @@ class PromotionVideoController extends Controller
             $w->showing_date = $request->showing_date;
             $w->video_order = $request->video_order;
             $w->session_type = $request->session_type;
-            if ($request->hasFile('video_path')) {
-                $file = $request->file('video_path');
-                $original_name = $file->getClientOriginalName();
-                $modified_name = str_replace(' ', '_', $original_name);
-                $video_full_name = date('d-m-y_H-i-s') .  $modified_name;
-                $upload_path = 'uploads/daily_video/';
-                $video_url = $upload_path . $video_full_name;
-                $file->move($upload_path, $video_full_name);
-                $w->video_path = $video_url;
-            }
+            $w->video_path  =  $request->video_path;
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
             $w->is_active = (int) $isActiveInput ? 1 : 0;
