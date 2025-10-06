@@ -20,7 +20,7 @@ Route::prefix('v1')->group(function () {
 //     return $request->user();
 // });
 Route::middleware('jwt')->prefix('v1')->group(function () {
-    // Custom route for status update
+    // Custom route 
     Route::patch('daily-videos/status-update', [DailyVideoController::class, 'StatusUpdate']);
     Route::patch('training-videos/status-update', [TrainingVideoController::class, 'StatusUpdate']);
     Route::patch('training-video-quizzes/status-update', [TrainingQuizController::class, 'StatusUpdate']);
@@ -28,6 +28,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::patch('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
     Route::patch('youtube-channels/status-update', [YoutubeController::class, 'StatusUpdate']);
     Route::patch('scratch-setup/status-update', [ScratchSetupController::class, 'StatusUpdate']);
+    Route::patch('changepassword', [JwtAuthController::class, 'changePassword']);
     //
     Route::resource('daily-videos', DailyVideoController::class);
     Route::resource('youtube-channels', YoutubeController::class);
@@ -37,6 +38,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::resource('promotion-videos', PromotionVideoController::class);
     Route::resource('promotion-video-quizzes', PromotionQuizController::class);
     Route::get('auth-user', [JwtAuthController::class, 'AuthUser']);
+
     Route::post('generate-pin', [UserPromoterController::class,'generatePin']);
     
 

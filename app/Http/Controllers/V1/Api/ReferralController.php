@@ -244,7 +244,9 @@ class ReferralController extends Controller
             $w->pwd_text = $request->password;
             $w->referred_by = $auth_user_id;
             $w->referral_code = User::generateReferralCode();
-            $w->is_active = $request->has('is_active') ? 1 : 0;
+            // Use provided is_active/active when present; default to 1 when absent
+            $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
+            $w->is_active = (int) $isActiveInput ? 1 : 0;
             $w->created_by =  $auth_user_id;
             $w->updated_by =  $auth_user_id;
             $w->save();
