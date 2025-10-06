@@ -7,8 +7,8 @@ use Illuminate\Database\Eloquent\Model;
 class TrainingVideo extends Model
 {
     //
-    public function trainingVideoQuizzes()
+    public function quiz()
     {
-        return $this->hasMany(TrainingVideoQuiz::class,'training_video_id');
+        return $this->hasOne(TrainingVideoQuiz::class,'training_video_id');
     }
 }
