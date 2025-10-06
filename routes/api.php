@@ -12,6 +12,7 @@ use App\Http\Controllers\V1\Api\PromotionQuizController;
 use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
 use App\Http\Controllers\V1\Api\UserTrainingController;
+use App\Http\Controllers\VideoUploadController;
 
 Route::prefix('v1')->group(function () {
     require __DIR__ . '/auth.php';
@@ -40,6 +41,8 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::post('generate-pin', [UserPromoterController::class,'generatePin']);
     
 
+    Route::post('/upload-chunk', [VideoUploadController::class, 'uploadChunk']);
+    Route::post('/merge-chunks', [VideoUploadController::class, 'mergeChunks']);
 
 
     //commmon both admin and user panel
