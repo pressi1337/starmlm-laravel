@@ -207,19 +207,11 @@ class JwtAuthController extends Controller
     public function AuthUser()
     {
         $user = User::where('id', Auth::user()->id)
-            ->select(
-                'id',
-                'username',
-                'name',
-                'email',
-                'referral_code',
-                'mobile',
-                'role'
-            )->first();
-        return response()->json([
-            'user' => $user,
-
-        ]);
+               ->first();
+         return response()->json([
+            'success' => true,
+            'data' => $user,
+        ], 200);
     }
    
 
