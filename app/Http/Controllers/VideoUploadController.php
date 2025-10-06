@@ -74,6 +74,6 @@ class VideoUploadController extends Controller
         fclose($output);
         File::deleteDirectory($tempDir);
 
-        return response()->json(['message' => '✅ File merged successfully', 'filename' => $filename]);
+        return response()->json(['message' => 'File merged successfully', 'filename' => $filename]);
     }
 }

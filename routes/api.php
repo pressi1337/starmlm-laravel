@@ -55,15 +55,16 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     
     
     // user panel based apis later we want to add middleware
+    
+});
+
+Route::prefix('userjwt')->prefix('v1')->group(function () {
+    // role based middleware pending
     Route::get('daily-videos-today', [DailyVideoController::class,'todayVideo']);
     Route::resource('referrals', ReferralController::class);
     Route::get('user-training-current', [UserTrainingController::class,'getCurrentTrainingVideo']);
     Route::post('user-day-training-mark-as-completed', [UserTrainingController::class,'completeTraining']);
     Route::post('activate-pin', [UserPromoterController::class,'activatePin']);
     Route::get('user-promoters/list', [UserPromoterController::class, 'userPromotersList']);
-});
-
-Route::prefix('userjwt')->prefix('v1')->group(function () {
-    // role based middleware pending
 
 });
