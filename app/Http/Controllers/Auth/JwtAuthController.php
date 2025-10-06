@@ -230,18 +230,22 @@ class JwtAuthController extends Controller
  
     public function changePassword(Request $request)
     {
-        // Validate the request
-        $request->validate([
-            'current_password' => 'required',
-            'new_password' => 'required|min:8|confirmed',
+
+       // Validate the request
+        $validator = Validator::make($request->all(), [
+            "current_password" => 'required',
+            'new_password' => 'required|min:8',
         ]);
 
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
         // Get the currently authenticated user
         $user = User::find(auth()->user()->id);
 
         // Check if the current password is correct
         if (!Hash::check($request->current_password, $user->password)) {
-            return response()->json(['message' => 'Current password is incorrect.'], 400);
+            return response()->json(['message' => 'Current password is incorrect', 'status' => 400], 400);
         }
 
         // Update the user's password
@@ -250,7 +254,7 @@ class JwtAuthController extends Controller
         $user->save();
 
 
-        return response()->json(['message' => 'Password successfully changed.'], 200);
+        return response()->json(['message' => 'Password successfully changed.','status' => 200], 200);
     }
     public function updatePersonalDetails(Request $request)
     {

@@ -171,7 +171,9 @@ class PromotionQuizController extends Controller
             $auth_user_id = auth()->user()->id;
             $w = PromotionVideoQuiz::create();
             $w->promotion_video_id = $request->promotion_video_id;
-            $w->is_active = $request->has('is_active') ? 1 : 0;
+            // Use provided is_active/active when present; default to 1 when absent
+            $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
+            $w->is_active = (int) $isActiveInput ? 1 : 0;
             $w->created_by =  $auth_user_id;
             $w->updated_by =  $auth_user_id;
             $w->save();
@@ -309,7 +311,9 @@ class PromotionQuizController extends Controller
                 return response()->json(['message' => 'Data not found', 'status' => 400], 400);
             }
             $w->promotion_video_id = $request->promotion_video_id;
-            $w->is_active = $request->has('is_active') ? 1 : 0;
+            // Use provided is_active/active when present; default to 1 when absent
+            $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
+            $w->is_active = (int) $isActiveInput ? 1 : 0;
             $w->updated_by =  $auth_user_id;
             $w->save();
 
@@ -404,7 +408,9 @@ class PromotionQuizController extends Controller
 
         $auth_user_id = auth()->user()->id;
         $w = PromotionVideoQuiz::find($request->id);
-        $w->is_active = $request->has('is_active') ? 1 : 0;
+        // Use provided is_active/active when present; default to 1 when absent
+        $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
+        $w->is_active = (int) $isActiveInput ? 1 : 0;
         $w->updated_by =  $auth_user_id;
         $w->save();
 
