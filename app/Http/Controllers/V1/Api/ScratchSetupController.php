@@ -212,7 +212,30 @@ class ScratchSetupController extends Controller
      */
     public function show($id)
     {
-        //
+        try {
+            $item = ReferralScratchLevel::where('id', $id)
+                ->where('is_deleted', 0)
+                ->with(['ranges' => function ($q) {
+                    $q->where(['is_deleted' => 0])
+                        ->orderBy('order_no', 'asc');
+                }])
+                ->first();
+
+            if (!$item) {
+                return response()->json(['message' => 'Not found', 'status' => 404], 404);
+            }
+
+            $item->created_at_formatted = $item->created_at ? $item->created_at->format('d-m-Y h:i A') : '-';
+            $item->updated_at_formatted = $item->updated_at ? $item->updated_at->format('d-m-Y h:i A') : '-';
+
+            return response()->json([
+                'success' => true,
+                'data' => $item,
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('ScratchSetup show failed', ['id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
     }
 
     /**
@@ -221,7 +244,32 @@ class ScratchSetupController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function edit($id) {}
+    public function edit($id) {
+        try {
+            $item = ReferralScratchLevel::where('id', $id)
+                ->where('is_deleted', 0)
+                ->with(['ranges' => function ($q) {
+                    $q->where(['is_deleted' => 0])
+                        ->orderBy('order_no', 'asc');
+                }])
+                ->first();
+
+            if (!$item) {
+                return response()->json(['message' => 'Not found', 'status' => 404], 404);
+            }
+
+            $item->created_at_formatted = $item->created_at ? $item->created_at->format('d-m-Y h:i A') : '-';
+            $item->updated_at_formatted = $item->updated_at ? $item->updated_at->format('d-m-Y h:i A') : '-';
+
+            return response()->json([
+                'success' => true,
+                'data' => $item,
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('ScratchSetup edit failed', ['id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
+    }
 
     /**
      * Update the specified resource in storage.
