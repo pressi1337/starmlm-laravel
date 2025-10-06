@@ -258,24 +258,21 @@ class JwtAuthController extends Controller
     }
     public function updatePersonalDetails(Request $request)
     {
-        $user = user::find(auth()->user()->id);
+        $user = User::find(auth()->user()->id);
 
+        // Validate incoming fields (all optional), enforce uniqueness on username/mobile when provided
         $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'email' => [
-                'required',
-                'email',
-                'max:255',
-                'unique:users,email,' . $user->id,
-            ],
-            'mobile' => [
-                'required',
-                'string',
-                'min:8',
-                'max:12',
-                'unique:users,mobile,' . $user->id,
-            ],
-            // 'profile' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', // Adjust for file upload
+            'first_name' => 'sometimes|nullable|string|max:100',
+            'last_name' => 'sometimes|nullable|string|max:100',
+            'username' => 'sometimes|required|string|max:100|unique:users,username,' . $user->id,
+            'dob' => 'sometimes|nullable|date',
+            'mobile' => 'sometimes|required|string|min:8|max:15|unique:users,mobile,' . $user->id,
+            'nationality' => 'sometimes|nullable|string|max:100',
+            'state' => 'sometimes|nullable|string|max:100',
+            'city' => 'sometimes|nullable|string|max:100',
+            'district' => 'sometimes|nullable|string|max:100',
+            'pin_code' => 'sometimes|nullable|string|max:20',
+            'language' => 'sometimes|nullable|string|max:50',
         ]);
 
         if ($validator->fails()) {
@@ -284,9 +281,15 @@ class JwtAuthController extends Controller
             ], 422);
         }
 
-        $user->name = $request->input('name');
-        $user->email = $request->input('email');
-        $user->mobile = $request->input('mobile');
+        // Assign only provided keys (allow nulls when explicitly sent)
+        foreach ([
+            'first_name', 'last_name', 'username', 'dob', 'mobile', 'nationality',
+            'state', 'city', 'district', 'pin_code', 'language'
+        ] as $field) {
+            if ($request->has($field)) {
+                $user->{$field} = $request->input($field);
+            }
+        }
 
         $user->save();
 
@@ -301,7 +304,10 @@ class JwtAuthController extends Controller
         $u = User::find(auth()->user()->id);
         $u->is_deleted = 1;
         $u->save();
-        return response()->json(['status' => 200]);
+        return response()->json([
+            'message' => 'Data Deleted successfully.',
+            'status' => 200,
+        ], 200);
     }
 
    
