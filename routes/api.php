@@ -44,9 +44,8 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
 
     Route::post('generate-pin', [UserPromoterController::class,'generatePin']);
     
-
-    Route::post('/upload-chunk', [VideoUploadController::class, 'uploadChunk']);
-    Route::post('/merge-chunks', [VideoUploadController::class, 'mergeChunks']);
+    // unified endpoint: handles chunk upload and auto-merge
+    Route::post('/upload', [VideoUploadController::class, 'upload']);
 
 
     //commmon both admin and user panel

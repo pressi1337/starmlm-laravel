@@ -3,77 +3,89 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 
 
 class VideoUploadController extends Controller
 {
-    protected $tempPath = 'uploads/temp/';
-    protected $finalPath = 'uploads/videos/';
+    private $tempPath = 'uploads/tmp/';
+    private $finalPath = 'uploads/final/';
 
-    public function uploadChunk(Request $request)
+    public function upload(Request $request)
     {
-        $request->validate([
-            'chunk' => 'required|file',
+        ini_set('max_execution_time', 0);
+        ini_set('upload_max_filesize', '2000M');
+        ini_set('post_max_size', '2000M');
+        ini_set('memory_limit', '2000M');
+
+        $validator = Validator::make($request->all(), [
+            'videofile' => 'required|file',
             'filename' => 'required|string',
-            'chunkIndex' => 'required|numeric',
-            'totalChunks' => 'required|numeric',
+            'chunkIndex' => 'required|integer|min:0',
+            'totalChunks' => 'required|integer|min:1',
         ]);
 
-        $chunk = $request->file('chunk');
-        $filename = $request->input('filename');
-        $chunkIndex = $request->input('chunkIndex');
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
 
-        $tempDir = storage_path('app/' . $this->tempPath . $filename);
+        $chunk = $request->file('videofile');
+        $filename = $request->input('filename');
+        $chunkIndex = (int) $request->input('chunkIndex');
+        $totalChunks = (int) $request->input('totalChunks');
+
+        $tempDir = storage_path("app/{$this->tempPath}{$filename}");
+        $finalDir = storage_path("app/{$this->finalPath}");
+
         if (!File::exists($tempDir)) {
             File::makeDirectory($tempDir, 0777, true);
         }
 
+        // Save current chunk
         $chunk->move($tempDir, "part-{$chunkIndex}");
 
-        return response()->json(['message' => "Chunk {$chunkIndex} uploaded"]);
-    }
+        // Check progress
+        $uploadedChunks = collect(range(0, $totalChunks - 1))
+            ->filter(fn($i) => File::exists("{$tempDir}/part-{$i}"))
+            ->values();
 
-    public function mergeChunks(Request $request)
-    {
-        $request->validate([
-            'filename' => 'required|string',
-            'totalChunks' => 'required|numeric',
-        ]);
-
-        $filename = $request->input('filename');
-        $totalChunks = $request->input('totalChunks');
-        $tempDir = storage_path('app/' . $this->tempPath . $filename);
-        $finalDir = storage_path('app/' . $this->finalPath);
-
-        if (!File::exists($tempDir)) {
-            return response()->json(['message' => 'Temp chunks not found'], 404);
-        }
-
-        if (!File::exists($finalDir)) {
-            File::makeDirectory($finalDir, 0777, true);
-        }
-
-        $finalPath = $finalDir . '/' . $filename;
-        $output = fopen($finalPath, 'ab');
-
-        for ($i = 0; $i < $totalChunks; $i++) {
-            $chunkFile = $tempDir . "/part-{$i}";
-            if (!File::exists($chunkFile)) {
-                fclose($output);
-                return response()->json(['message' => "Missing chunk {$i}"], 400);
+        if ($uploadedChunks->count() === $totalChunks) {
+            if (!File::exists($finalDir)) {
+                File::makeDirectory($finalDir, 0777, true);
             }
 
-            $chunkData = fopen($chunkFile, 'rb');
-            stream_copy_to_stream($chunkData, $output);
-            fclose($chunkData);
-            File::delete($chunkFile);
+            $storedName = Str::uuid() . '-' . $filename; // safe unique name
+            $finalPath = "{$finalDir}/{$storedName}";
+
+            $output = fopen($finalPath, 'ab');
+            for ($i = 0; $i < $totalChunks; $i++) {
+                $chunkPath = "{$tempDir}/part-{$i}";
+                $chunkStream = fopen($chunkPath, 'rb');
+                stream_copy_to_stream($chunkStream, $output);
+                fclose($chunkStream);
+                File::delete($chunkPath);
+            }
+            fclose($output);
+
+            File::deleteDirectory($tempDir);
+
+            return response()->json([
+                'message' => 'File merged successfully',
+                'status' => 'merged',
+                'filename' => $filename,
+                'stored_filename' => $storedName,
+                'stored_path' => "{$this->finalPath}{$storedName}",
+            ]);
         }
 
-        fclose($output);
-        File::deleteDirectory($tempDir);
-
-        return response()->json(['message' => 'File merged successfully', 'filename' => $filename]);
+        return response()->json([
+            'message' => 'Chunk uploaded',
+            'status' => 'chunk_uploaded',
+            'uploadedChunks' => $uploadedChunks,
+            'filename' => $filename,
+        ]);
     }
 }
+
