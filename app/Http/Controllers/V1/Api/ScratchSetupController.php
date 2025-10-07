@@ -213,7 +213,7 @@ class ScratchSetupController extends Controller
     public function show($id)
     {
         try {
-            $item = ReferralScratchLevel::where('id', $id)
+            $item = ReferralScratchLevel::where('promotor_level', $id)
                 ->where('is_deleted', 0)
                 ->with(['ranges' => function ($q) {
                     $q->where(['is_deleted' => 0])
@@ -246,7 +246,7 @@ class ScratchSetupController extends Controller
      */
     public function edit($id) {
         try {
-            $item = ReferralScratchLevel::where('id', $id)
+            $item = ReferralScratchLevel::where('promotor_level', $id)
                 ->where('is_deleted', 0)
                 ->with(['ranges' => function ($q) {
                     $q->where(['is_deleted' => 0])
@@ -295,21 +295,27 @@ class ScratchSetupController extends Controller
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
             }
-
-            $w = ReferralScratchLevel::where('id', $id)->where('is_deleted', 0)->first();
-            if (!$w) {
-                return response()->json(['message' => 'Not found'], 404);
-            }
-
             DB::beginTransaction();
-
+            $w = ReferralScratchLevel::where('promotor_level', $id)->where('is_deleted', 0)->first();
+            if (!$w) {
+            $w = new ReferralScratchLevel();
+            $w->promotor_level = $id;
+            // Use provided is_active/active when present; default to 1 when absent
+            $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
+            $w->is_active = (int) $isActiveInput ? 1 : 0;
+            $w->created_by = $auth_user_id;
+            $w->updated_by = $auth_user_id;
+            $w->save();
+            }else{
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
             $w->is_active = (int) $isActiveInput ? 1 : 0;
             $w->updated_by =  $auth_user_id;
             $w->save();
+            }
+        
 
-            ReferralScratchRange::where('referral_scratch_level_id', $id)->update(['is_deleted' => 1]);
+            ReferralScratchRange::where('referral_scratch_level_id', $w->id)->update(['is_deleted' => 1]);
 
             foreach ($request->ranges ?? [] as $index => $rangeData) {
                 $range = new ReferralScratchRange();
@@ -344,12 +350,12 @@ class ScratchSetupController extends Controller
     public function destroy($id)
     {
         // Soft delete the quiz
-        $u = ReferralScratchLevel::find($id);
+        $u = ReferralScratchLevel::where('promotor_level', $id)->first();
         $u->is_deleted = 1;
         $u->updated_by = Auth::id();
         $u->save();
 
-        ReferralScratchRange::where('referral_scratch_level_id', $id)->update(['is_deleted' => 1]);
+        ReferralScratchRange::where('referral_scratch_level_id', $u->id)->update(['is_deleted' => 1]);
 
         return response()->json(['status' => 200]);
     }
@@ -359,7 +365,7 @@ class ScratchSetupController extends Controller
     {
 
         $auth_user_id = Auth::id();
-        $w = ReferralScratchLevel::find($request->id);
+        $w = ReferralScratchLevel::where('promotor_level', $id)->first();
         // Use provided is_active/active when present; default to 1 when absent
         $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
         $w->is_active = (int) $isActiveInput ? 1 : 0;
