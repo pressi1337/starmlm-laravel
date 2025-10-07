@@ -11,7 +11,7 @@ use Illuminate\Support\Str;
 class VideoUploadController extends Controller
 {
     private $tempPath = 'uploads/tmp/';
-    private $finalPath = 'uploads/final/';
+    private $finalPath = 'public/uploads/final/';
 
     public function upload(Request $request)
     {
