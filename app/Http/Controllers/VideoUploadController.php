@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Storage;
 
 
 class VideoUploadController extends Controller
@@ -86,6 +87,37 @@ class VideoUploadController extends Controller
             'uploadedChunks' => $uploadedChunks,
             'filename' => $filename,
         ]);
+    }
+
+    public function delete(Request $request)
+    {
+     
+
+        $validator = Validator::make($request->all(), [
+            'filename' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $filename = $request->input('filename');
+        $path = 'public/uploads/final/' . $filename;
+
+        if (Storage::exists($path)) {
+            Storage::delete($path);
+            return response()->json([
+                'message' => 'File deleted successfully',
+                'status' => 'deleted',
+                'filename' => $filename
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'File not found',
+            'status' => 'not_found',
+            'filename' => $filename
+        ], 400);
     }
 }
 
