@@ -327,16 +327,17 @@ class DailyVideoController extends Controller
         if ($daily_video) {
             $daily_video->created_at_formatted = $daily_video->created_at->format('d-m-Y h:i A');
             $daily_video->updated_at_formatted = $daily_video->updated_at->format('d-m-Y h:i A');
+            
             $checkvideowatched = DB::table('daily_video_watch_details')
             ->where('daily_video_id', $daily_video->id)
             ->where('user_id', Auth::id())
             ->whereDate('watched_date', $today)
             ->first();
+            $daily_video->watched = $checkvideowatched ? 1 : 0;
             return response()->json([
                 'success' => true,
                 'message' => 'Success',
                 'data' => $daily_video,
-                'watched'=>$checkvideowatched ? 1 : 0,
 
             ], 200);
         } else {
@@ -362,12 +363,11 @@ class DailyVideoController extends Controller
             ->where('user_id', Auth::id())
             ->whereDate('watched_date', $today)
             ->first();
-           
+           $data = ['watched' => $checkvideowatched ? 1 : 0];
             return response()->json([
                 'success' => true,
                 'message' => 'Success',
-                'data' => $daily_video,
-                'watched'=>$checkvideowatched ? 1 : 0,
+                'data' => $data,
 
             ], 200);
         } else {

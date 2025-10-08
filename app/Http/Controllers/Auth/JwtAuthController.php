@@ -265,7 +265,7 @@ class JwtAuthController extends Controller
             'first_name' => 'sometimes|nullable|string|max:100',
             'last_name' => 'sometimes|nullable|string|max:100',
             'dob' => 'sometimes|nullable|date',
-            'mobile' => 'sometimes|required|string|min:8|max:15|unique:users,mobile,' . $user->id,
+            'mobile' => 'sometimes|required|string|max:15|unique:users,mobile,' . $user->id,
             'nationality' => 'sometimes|nullable|string|max:100',
             'state' => 'sometimes|nullable|string|max:100',
             'city' => 'sometimes|nullable|string|max:100',
