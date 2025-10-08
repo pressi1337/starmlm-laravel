@@ -58,7 +58,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     
 });
 
-Route::prefix('userjwt')->prefix('v1')->group(function () {
+Route::middleware('userjwt')->prefix('v1')->group(function () {
     // role based middleware pending
     Route::get('daily-videos-today', [DailyVideoController::class,'todayVideo']);
     Route::resource('referrals', ReferralController::class);

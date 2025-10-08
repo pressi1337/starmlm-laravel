@@ -76,7 +76,6 @@ class UserTrainingController extends Controller
             ->with('trainingVideo')
             ->orderBy('day', 'asc')
             ->first();
-
         if (!$userTraining) {
             return response()->json([
                 'message' => 'No current training found for this user',
@@ -117,11 +116,13 @@ class UserTrainingController extends Controller
             $user->updated_by = $user->id;
             $user->save();
         }
+        $data = [
+            'training_status' => $user->training_status,
+        ];
         return response()->json([
             'message'          => 'Training marked as completed',
-            'next_training'    => $nextVideo ?? null,
-            'training_status'  => $user->training_status,
-            'status'           => true,
+            'data'    => $data,
+            'status'=> true,
         ], 200);
     }
     public function getCurrentTrainingVideo()
@@ -149,10 +150,10 @@ class UserTrainingController extends Controller
             ->where('status', '!=', UserTrainingVideo::STATUS_COMPLETED)
             ->orderBy('day', 'asc')
             ->first();
-            $data = [
-                'training' => $training ?? null,
-                'training_status' => $user->training_status,
-            ];
+        $data = [
+            'training' => $training ?? null,
+            'training_status' => $user->training_status,
+        ];
         return response()->json([
             'message' => 'Training data',
             'data' => $data,
