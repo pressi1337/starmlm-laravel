@@ -50,6 +50,8 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
 Route::middleware('userjwt')->prefix('v1')->group(function () {
     // role based middleware pending
     Route::get('daily-videos-today', [DailyVideoController::class,'todayVideo']);
+    Route::get('daily-videos-status', [DailyVideoController::class,'todayVideostatus']);
+    Route::post('daily-videos-watched', [DailyVideoController::class,'todayVideoWatched']);
     Route::resource('referrals', ReferralController::class);
     Route::get('user-training-current', [UserTrainingController::class,'getCurrentTrainingVideo']);
     Route::post('user-day-training-mark-as-completed', [UserTrainingController::class,'completeTraining']);

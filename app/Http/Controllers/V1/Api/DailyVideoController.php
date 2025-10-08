@@ -4,6 +4,7 @@ namespace App\Http\Controllers\V1\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\DailyVideo;
+use App\Models\DailyVideoWatchDetail;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use App\Rules\UniqueActive;
@@ -326,10 +327,16 @@ class DailyVideoController extends Controller
         if ($daily_video) {
             $daily_video->created_at_formatted = $daily_video->created_at->format('d-m-Y h:i A');
             $daily_video->updated_at_formatted = $daily_video->updated_at->format('d-m-Y h:i A');
+            $checkvideowatched = DB::table('daily_video_watch_details')
+            ->where('daily_video_id', $daily_video->id)
+            ->where('user_id', Auth::id())
+            ->whereDate('watched_date', $today)
+            ->first();
             return response()->json([
                 'success' => true,
                 'message' => 'Success',
                 'data' => $daily_video,
+                'watched'=>$checkvideowatched ? 1 : 0,
 
             ], 200);
         } else {
@@ -338,5 +345,52 @@ class DailyVideoController extends Controller
                 'success' => false
             ], 400);
         }
+    }
+
+    public function todayVideostatus()
+    {
+        $today = date('Y-m-d'); // Get today's date in Y-m-d format
+
+        $daily_video = DailyVideo::where('is_active', 1)
+            ->where('is_deleted', 0)
+            ->whereDate('showing_date', $today)
+            ->first();
+
+        if ($daily_video) {
+            $checkvideowatched = DB::table('daily_video_watch_details')
+            ->where('daily_video_id', $daily_video->id)
+            ->where('user_id', Auth::id())
+            ->whereDate('watched_date', $today)
+            ->first();
+           
+            return response()->json([
+                'success' => true,
+                'message' => 'Success',
+                'data' => $daily_video,
+                'watched'=>$checkvideowatched ? 1 : 0,
+
+            ], 200);
+        } else {
+            return response()->json([
+                'message' => 'No Data found',
+                'success' => false
+            ], 400);
+        }
+    }
+
+    public function todayVideoWatched(Request $request)
+    {
+        $auth_user_id = Auth::id();
+        $w = new DailyVideoWatchDetail();
+        $w->daily_video_id = $request->daily_video_id;
+        $w->user_id = $auth_user_id;
+        $w->watched_date = date('Y-m-d');
+        $w->watchedstatus = 1;
+        $w->created_by =  $auth_user_id;
+        $w->updated_by =  $auth_user_id;
+        $w->save();
+
+        return response()->json(['message' => 'Daily Video Watched Added successfully', 'status' => 200]);
+
     }
 }
