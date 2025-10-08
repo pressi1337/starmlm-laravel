@@ -29,8 +29,6 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::patch('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
     Route::patch('youtube-channels/status-update', [YoutubeController::class, 'StatusUpdate']);
     Route::patch('scratch-setup/status-update', [ScratchSetupController::class, 'StatusUpdate']);
-    Route::patch('changepassword', [JwtAuthController::class, 'changePassword']);
-    Route::patch('update-personal-details', [JwtAuthController::class, 'updatePersonalDetails']);
     Route::patch('delete-account', [JwtAuthController::class, 'DeleteAccount']);
     //
     Route::resource('daily-videos', DailyVideoController::class);
@@ -39,8 +37,6 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::resource('training-videos', TrainingVideoController::class);
     Route::resource('training-video-quizzes', TrainingQuizController::class);
     Route::resource('promotion-videos', PromotionVideoController::class);
-    Route::resource('promotion-video-quizzes', PromotionQuizController::class);
-    Route::get('auth-user', [JwtAuthController::class, 'AuthUser']);
 
     Route::post('generate-pin', [UserPromoterController::class,'generatePin']);
     
@@ -48,13 +44,6 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::post('upload', [VideoUploadController::class, 'upload']);
     Route::post('upload/delete', [VideoUploadController::class, 'delete']);
 
-
-    //commmon both admin and user panel
-    // using this store method for user promoter registration
-    Route::resource('user-promoters', UserPromoterController::class);
-    
-    
-    // user panel based apis later we want to add middleware
     
 });
 
@@ -67,4 +56,13 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     Route::post('activate-pin', [UserPromoterController::class,'activatePin']);
     Route::get('user-promoters/list', [UserPromoterController::class, 'userPromotersList']);
 
+});
+
+//Common route for both admin and user panel (Option 1: auth with multiple guards)
+Route::prefix('v1')->middleware('auth:jwt,userjwt')->group(function () {
+    Route::get('auth-user', [JwtAuthController::class, 'AuthUser']);
+    Route::patch('changepassword', [JwtAuthController::class, 'changePassword']);
+    Route::patch('update-personal-details', [JwtAuthController::class, 'updatePersonalDetails']);
+    Route::resource('user-promoters', UserPromoterController::class);
+   
 });
