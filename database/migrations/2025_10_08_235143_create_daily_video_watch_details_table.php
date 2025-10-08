@@ -17,6 +17,7 @@ return new class extends Migration
             $table->date('watched_date')->nullable();;
             $table->integer('user_id')->nullable();
             $table->tinyInteger('watchedstatus')->default(0);
+            $table->decimal('watchedcount', 8, 2)->nullable();
             $table->integer('created_by')->nullable();
             $table->integer('updated_by')->nullable();
             $table->tinyInteger('is_deleted')->default(0);
