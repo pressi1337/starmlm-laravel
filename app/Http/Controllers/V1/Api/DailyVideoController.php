@@ -385,7 +385,7 @@ class DailyVideoController extends Controller
         $w->daily_video_id = $request->daily_video_id;
         $w->user_id = $auth_user_id;
         $w->watched_date = date('Y-m-d');
-        $w->watchedstatus = 1;
+        $w->watchedstatus = $request->watchedstatus ?? 1;
         $w->created_by =  $auth_user_id;
         $w->updated_by =  $auth_user_id;
         $w->save();
