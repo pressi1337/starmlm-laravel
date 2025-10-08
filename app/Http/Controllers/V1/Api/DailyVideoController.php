@@ -381,6 +381,11 @@ class DailyVideoController extends Controller
     public function todayVideoWatched(Request $request)
     {
         $auth_user_id = Auth::id();
+        $w = DailyVideoWatchDetail::where('daily_video_id',$request->daily_video_id)->where('user_id',$auth_user_id)->first();
+        if($w){
+        $w->watchedcount = (float)$w->watchedcount+1;
+        $w->save();
+        }else{
         $w = new DailyVideoWatchDetail();
         $w->daily_video_id = $request->daily_video_id;
         $w->user_id = $auth_user_id;
@@ -389,6 +394,7 @@ class DailyVideoController extends Controller
         $w->created_by =  $auth_user_id;
         $w->updated_by =  $auth_user_id;
         $w->save();
+        }
 
         return response()->json(['message' => 'Daily Video Watched Added successfully', 'status' => 200]);
 
