@@ -57,7 +57,7 @@ class VideoUploadController extends Controller
                 File::makeDirectory($finalDir, 0777, true);
             }
 
-            $storedName = Str::uuid() . '-' . $filename; // safe unique name
+            $storedName = Str::uuid() . '_' . $filename; // safe unique name
             $finalPath = "{$finalDir}/{$storedName}";
 
             $output = fopen($finalPath, 'ab');
