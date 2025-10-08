@@ -133,15 +133,15 @@ class UserTrainingController extends Controller
                     $q->where('is_deleted', 0)
                         ->where('is_active', 1);
                 },
-                'trainingVideo.trainingVideoQuizzes' => function ($q) {
+                'trainingVideo.quiz' => function ($q) {
                     $q->where('is_deleted', 0)
                         ->where('is_active', 1);
                 },
-                'trainingVideo.trainingVideoQuizzes.questions' => function ($q) {
+                'trainingVideo.quiz.questions' => function ($q) {
                     $q->where('is_deleted', 0)
                         ->where('is_active', 1);
                 },
-                'trainingVideo.trainingVideoQuizzes.questions.choices' => function ($q) {
+                'trainingVideo.quiz.questions.choices' => function ($q) {
                     $q->where('is_deleted', 0)
                         ->where('is_active', 1);
                 },
@@ -149,10 +149,13 @@ class UserTrainingController extends Controller
             ->where('status', '!=', UserTrainingVideo::STATUS_COMPLETED)
             ->orderBy('day', 'asc')
             ->first();
+            $data = [
+                'training' => $training ?? null,
+                'training_status' => $user->training_status,
+            ];
         return response()->json([
             'message' => 'Training data',
-            'data' => $training ? $training : null,
-            'training_status' => $user->training_status,
+            'data' => $data,
             'status' => true,
         ], 200);
     }
