@@ -43,6 +43,7 @@ return new class extends Migration
             $table->timestamp('password_reset_token_expires_at')->nullable();
             $table->tinyInteger('mobile_verified')->default(0);
             $table->timestamp('mobile_verified_at')->nullable();
+            $table->tinyInteger('is_profile_updated')->default(0);
             $table->rememberToken();
             $table->timestamps();
         });

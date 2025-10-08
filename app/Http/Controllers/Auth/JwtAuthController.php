@@ -289,6 +289,9 @@ class JwtAuthController extends Controller
                 $user->{$field} = $request->input($field);
             }
         }
+        if($user->role == 2){
+         $user->is_profile_updated = 1;   
+        }
 
         $user->save();
 
