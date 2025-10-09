@@ -164,7 +164,7 @@ class UserPromoterController extends Controller
                 'success' => true,
                 'message' => 'User Promoter created successfully',
                 'data' => $promoter,
-            ], 201);
+            ], 200);
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('UserPromoter store failed', ['error' => $e->getMessage()]);
