@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('user_promoters', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('user_id')->nullable();       // User reference
-            $table->tinyInteger('level')->nullable();                // Promoter level (1,2,3,4)
+            $table->tinyInteger('level')->nullable();                // Promoter level (0,1,2,3,4)
 
             // Optional user details required when starting promoter
             $table->tinyInteger('gift_delivery_type')->nullable();  //1-pic from shop ,2-place delivery

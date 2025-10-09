@@ -35,7 +35,7 @@ return new class extends Migration
             $table->integer('updated_by')->nullable();
             $table->tinyInteger('is_active')->default(1);
             $table->tinyInteger('training_status')->default(1);
-            $table->tinyInteger('current_promoter_level')->nullable(); // 1,2,3,4
+            $table->tinyInteger('current_promoter_level')->nullable(); // 0,1,2,3,4
             $table->tinyInteger('promoter_status')->nullable();       // 0=pending, 1=approved, 2=activated, 3=rejected
             $table->timestamp('promoter_activated_at')->nullable();
             $table->tinyInteger('is_deleted')->default(0);
