@@ -18,8 +18,7 @@ return new class extends Migration
             $table->string('video_path')->nullable();
             $table->string('youtube_link')->nullable();
             $table->date('showing_date')->nullable();
-            $table->integer('day')->default(1);                // training day (1-7)
-            $table->tinyInteger('session_type')->default(1);             // ex: 1-"12am-12pm",2-"12pm-1pm"        
+            $table->integer('day')->default(1);                // training day (1-7)      
             $table->integer('created_by')->nullable();
             $table->integer('updated_by')->nullable();
             $table->tinyInteger('quiz_applicable')->default(0);

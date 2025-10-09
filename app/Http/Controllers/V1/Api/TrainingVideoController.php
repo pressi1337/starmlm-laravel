@@ -29,7 +29,6 @@ class TrainingVideoController extends Controller
             "youtube_link.required" => "Youtube Link Required",
             // "showing_date.required" => "Showing Date Required",
             "day.required" => "Day Required",
-            "session_type.required" => "Session Type Required",
         ];
     }
     public function index(Request $request)
@@ -164,7 +163,6 @@ class TrainingVideoController extends Controller
                 "youtube_link" => 'required_without:video_path',
                 // "showing_date" => ['required', new UniqueActive('training_videos', 'showing_date', null, [])],
                 "day" => 'required',
-                "session_type" => 'required',
             ], $this->messages);
 
             if ($validator->fails()) {
@@ -180,7 +178,6 @@ class TrainingVideoController extends Controller
             $w->youtube_link = $request->youtube_link;
             // $w->showing_date = $request->showing_date;
             $w->day = $request->day;
-            $w->session_type = $request->session_type;
             $w->video_path  =  $request->video_path;
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
@@ -248,7 +245,6 @@ class TrainingVideoController extends Controller
                 "description" => 'required',
                 // "showing_date" => ['required', new UniqueActive('training_videos', 'showing_date', $id, [])],
                 "day" => 'required',
-                "session_type" => 'required',
             ], $this->messages);
 
             if ($validator->fails()) {
@@ -268,7 +264,6 @@ class TrainingVideoController extends Controller
             $w->youtube_link = $request->youtube_link;
             // $w->showing_date = $request->showing_date;
             $w->day = $request->day;
-            $w->session_type = $request->session_type;
             $w->video_path  =  $request->video_path;
 
             $w->quiz_applicable = $request->has('quiz_applicable') ? 1 : 0;
