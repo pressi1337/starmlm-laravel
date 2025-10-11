@@ -4,12 +4,16 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Models\TrainingVideo;
+use App\Models\UserTrainingVideo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
+use App\Rules\UniqueActive;
 use Tymon\JWTAuth\Facades\JWTAuth;
 
 
@@ -26,88 +30,119 @@ class JwtAuthController extends Controller
 
     public function Register(Request $request)
     {
-         // Validate
-         $validator = Validator::make(
-            $request->all(),
-            [
-                'first_name' => 'required',
-                'username' => 'required|unique:users,username|min:8',
-                'mobile' => ['required', 'string', 'max:15', 'unique:users,mobile'],
-                'email' => 'unique:users,email',
-                'password' => 'required|confirmed|min:8',
-            ]
-        );
+        // Validate (aligned with ReferralController::store)
+        $validator = Validator::make($request->all(), [
+            'first_name'    => 'required|string|max:100',
+            'last_name'     => 'required|string|max:100',
+            'dob'           => 'nullable|date',
+            'mobile'        => ['required', new UniqueActive('users', 'mobile', null, [])],
+            'nationality'   => 'nullable|string|max:100',
+            'state'         => 'nullable|string|max:100',
+            'city'          => 'nullable|string|max:100',
+            'district'      => 'nullable|string|max:100',
+            'pin_code'      => 'nullable|string|max:20',
+            'language'      => 'nullable|string|max:50',
+            'username'      => 'required|string|max:100|unique:users,username',
+            'password'      => 'required|min:6|confirmed',
+            'referral_code' =>'required',
+        ], [
+            "first_name.required" => "First Name Required",
+            "last_name.required" => "Last Name Required",
+            "dob.required" => "DOB Required",
+            "mobile.required" => "Mobile Required",
+            "nationality.required" => "Nationality Required",
+            "state.required" => "State Required",
+            "city.required" => "City Required",
+            "district.required" => "District Required",
+            "pin_code.required" => "Pin Code Required",
+            "language.required" => "Language Required",
+            "username.required" => "Username Required",
+            "password.required" => "Password Required",
+            "referral_code.required" => "Referral Required",
+            "mobile.unique" => "Mobile Already Exists",
+            "username.unique" => "Username Already Exists",
+            "password.confirmed" => "Password Confirmation Mismatch",
+            "password.min" => "Password Must Be At Least 6 Characters Long",
+            "mobile.max" => "Mobile Must Be At Most 15 Characters Long",
+            "mobile.string" => "Mobile Must Be A String",
+            "nationality.max" => "Nationality Must Be At Most 100 Characters Long",
+            "nationality.string" => "Nationality Must Be A String",
+            "state.max" => "State Must Be At Most 100 Characters Long",
+            "state.string" => "State Must Be A String",
+            "city.max" => "City Must Be At Most 100 Characters Long",
+            "city.string" => "City Must Be A String",
+            "district.max" => "District Must Be At Most 100 Characters Long",
+            "district.string" => "District Must Be A String",
+            "pin_code.max" => "Pin Code Must Be At Most 20 Characters Long",
+            "pin_code.string" => "Pin Code Must Be A String",
+            "language.max" => "Language Must Be At Most 50 Characters Long",
+            "language.string" => "Language Must Be A String",
+            "username.max" => "Username Must Be At Most 100 Characters Long",
+            "username.string" => "Username Must Be A String",
+            "password.max" => "Password Must Be At Most 100 Characters Long",
+            "password.string" => "Password Must Be A String",
+        ]);
 
         if ($validator->fails()) {
-            $errors = $validator->errors();
-            if ($errors->has('username')) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Username is invalid or already taken',
-                    'code' => 'invalid_username',
-                    'error' => [
-                        'username' => 'Username is invalid or already taken'
-                    ]
-                ], 400);
-            }
-            if ($errors->has('email')) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Email is invalid or already taken',
-                    'code' => 'invalid_email',
-                    'error' => [
-                        'email' => 'Email is invalid or already taken'
-                    ]
-                ], 400);
-            }
-            if ($errors->has('mobile')) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Mobile number is invalid or already taken',
-                    'code' => 'invalid_mobile',
-                    'error' => [
-                        'mobile' => 'Mobile number is invalid or already taken'
-                    ]
-                ], 400);
-            }
-            if ($errors->has('password')) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Password must be at least 6 characters',
-                    'code' => 'invalid_password',
-                    'error' => [
-                        'password' => 'Password must be at least 6 characters'
-                    ]
-                ], 400);
-            }
+            return response()->json(['errors' => $validator->errors()], 422);
         }
 
         try {
-            // Create the user
+            DB::beginTransaction();
 
-            $user =   User::create([
-                'first_name' => $request->first_name,
-                'email' => $request->email,
-                'mobile' => $request->mobile,
-                'username' => $request->username,
-                'password' => Hash::make($request->password)
-            ]);
+            $referredBy = DB::table('users')
+            ->where('referral_code', $request->referral_code)
+            ->value('id');
+
+            if (is_null($referredBy)) {
+            return response()->json([
+            'success' => false,
+            'message' => 'No referral user found. Please cross-check the referral code.'
+            ], 400);
+            }
+
+            $user = new User();
+            $user->first_name = $request->first_name;
+            $user->last_name = $request->last_name;
+            $user->username = $request->username;
+            $user->dob = $request->dob;
+            $user->mobile = $request->mobile;
+            $user->nationality = $request->nationality;
+            $user->state = $request->state;
+            $user->city = $request->city;
+            $user->district = $request->district;
+            $user->pin_code = $request->pin_code;
+            $user->language = $request->language;
+            $user->password = Hash::make($request->password);
             $user->pwd_text = $request->password;
-            $user->referral_code = 'STARTUP' . 1000 + $user->id;
+            $user->referred_by = $referredBy; // 
+            $user->referral_code = User::generateReferralCode();
+            // Use provided is_active/active when present; default to 1 when absent
+            $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
+            $user->is_active = (int) $isActiveInput ? 1 : 0;
+            $user->created_by = $referredBy;
+            $user->updated_by = $referredBy;
             $user->save();
 
-            // Generate JWT token
-            $token = JWTAuth::fromUser($user);
+            // Assign Day 1 training video
+            $day1Video = TrainingVideo::where('day', 1)
+                ->where('is_active', 1)
+                ->where('is_deleted', 0)
+                ->first();
+            if ($day1Video) {
+                $userTraining = new UserTrainingVideo();
+                $userTraining->user_id = $user->id;
+                $userTraining->training_video_id = $day1Video->id;
+                $userTraining->day = 1;
+                $userTraining->status = UserTrainingVideo::STATUS_ASSIGNED;
+                $userTraining->assigned_at = now();
+                $userTraining->created_by = $referredBy;
+                $userTraining->updated_by = $referredBy;
+                $userTraining->save();
+            }
 
-            // Fetch user data
-            $userData = User::where('id', $user->id)
-                ->select(
-                    'id',
-                    'username',
-                    'email',
-                    'mobile',
-                    'role'
-                )->first();
+
+            DB::commit();
 
             return response()->json([
                 'success' => true,
@@ -115,15 +150,14 @@ class JwtAuthController extends Controller
                 'data' => [
                     'access_token' => $token
                 ]
-            ], 201);
-        } catch (\Exception $e) {
+            ], 200);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('Register failed', ['error' => $e->getMessage()]);
             return response()->json([
                 'success' => false,
                 'message' => 'Could not register user',
                 'code' => 'registration_failed',
-                'error' => [
-                    'general' => 'Could not register user'
-                ]
             ], 500);
         }
     }
