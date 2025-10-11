@@ -82,7 +82,8 @@ class UserTrainingController extends Controller
                 'status' => false,
             ], 404);
         }
-
+       
+        if($request->status == 2){
         // Mark as completed
         $userTraining->status = UserTrainingVideo::STATUS_COMPLETED;
         $userTraining->completed_at = now();
@@ -96,7 +97,7 @@ class UserTrainingController extends Controller
             ->where('is_active', 1)
             ->where('is_deleted', 0)
             ->first();
-
+     
         if ($nextVideo) {
             $user_training = new UserTrainingVideo();
             $user_training->user_id = $user->id;
@@ -116,11 +117,17 @@ class UserTrainingController extends Controller
             $user->updated_by = $user->id;
             $user->save();
         }
+            $msg= "Video Watched";
+        }else{
+            $userTraining->status = UserTrainingVideo::STATUS_IN_PROGRESS;
+            $userTraining->save();
+            $msg= "Training marked as completed";
+        }
         $data = [
             'training_status' => $user->training_status,
         ];
         return response()->json([
-            'message'          => 'Training marked as completed',
+            'message'          => $msg,
             'data'    => $data,
             'status'=> true,
         ], 200);
@@ -129,6 +136,7 @@ class UserTrainingController extends Controller
     {
         $user = User::find(Auth::id());
         $training = UserTrainingVideo::where('user_id', $user->id)
+            ->where('assigned_at','<',today())
             ->with([
                 'trainingVideo' => function ($q) {
                     $q->where('is_deleted', 0)
