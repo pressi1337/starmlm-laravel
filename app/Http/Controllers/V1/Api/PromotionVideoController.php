@@ -534,22 +534,22 @@ class PromotionVideoController extends Controller
             case 1:
                 $default_video_total_earnable_amount = 5;
                 // max limit per day split by 2
-                $max_earnable_per_video = 5;
+                $max_earnable_per_video = 35;
                 break;
             case 2:
                 $default_video_total_earnable_amount = 50;
                 // max limit per day split by 2
-                $max_earnable_per_video = 50;
+                $max_earnable_per_video = 230;
                 break;
             case 3:
                 $default_video_total_earnable_amount = 62.5;
                 // max limit per day split by 4
-                $max_earnable_per_video = 62.5;
+                $max_earnable_per_video = 182.5;
                 break;
             case 4:
                 $default_video_total_earnable_amount = 92.5;
                 // max limit per day split by 4
-                $max_earnable_per_video = 92.5;
+                $max_earnable_per_video =265;
                 break;
         }
         $video_total_earnable_amount = $default_video_total_earnable_amount;
