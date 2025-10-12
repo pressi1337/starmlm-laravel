@@ -12,6 +12,7 @@ class UserPromoter extends Model
     const PIN_STATUS_APPROVED = 1;
     const PIN_STATUS_ACTIVATED = 2;
     const PIN_STATUS_REJECTED = 3; 
+    const PROMOTER_STATUS_CLOSED = 4;
     protected $fillable = [
         'user_id',
         'level',

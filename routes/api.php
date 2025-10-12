@@ -38,25 +38,26 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::resource('training-video-quizzes', TrainingQuizController::class);
     Route::resource('promotion-videos', PromotionVideoController::class);
 
-    Route::post('generate-pin', [UserPromoterController::class,'generatePin']);
-    
+    Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
+
     // unified endpoint: handles chunk upload and auto-merge
     Route::post('upload', [VideoUploadController::class, 'upload']);
     Route::post('upload/delete', [VideoUploadController::class, 'delete']);
-
-    
 });
 
 Route::middleware('userjwt')->prefix('v1')->group(function () {
     // role based middleware pending
-    Route::get('daily-videos-today', [DailyVideoController::class,'todayVideo']);
-    Route::get('daily-videos-status', [DailyVideoController::class,'todayVideostatus']);
-    Route::post('daily-videos-watched', [DailyVideoController::class,'todayVideoWatched']);
+    Route::get('daily-videos-today', [DailyVideoController::class, 'todayVideo']);
+    Route::get('daily-videos-status', [DailyVideoController::class, 'todayVideostatus']);
+    Route::post('daily-videos-watched', [DailyVideoController::class, 'todayVideoWatched']);
     Route::resource('referrals', ReferralController::class);
-    Route::get('user-training-current', [UserTrainingController::class,'getCurrentTrainingVideo']);
-    Route::post('user-day-training-mark-as-completed', [UserTrainingController::class,'completeTraining']);
-    Route::post('activate-pin', [UserPromoterController::class,'activatePin']);
+    Route::get('user-training-current', [UserTrainingController::class, 'getCurrentTrainingVideo']);
+    Route::post('user-day-training-mark-as-completed', [UserTrainingController::class, 'completeTraining']);
+    Route::post('activate-pin', [UserPromoterController::class, 'activatePin']);
     Route::get('user-promoters/list', [UserPromoterController::class, 'userPromotersList']);
+    Route::get('user-promoter-video-get', [PromotionVideoController::class, 'userPromotionVideo']);
+    Route::post('user-promoter-quiz-result-get', [PromotionVideoController::class, 'userPromoterQuizResult']);
+    Route::post('user-promoter-quiz-result-confirmation', [PromotionVideoController::class, 'userPromoterQuizResultConfirmation']);
 
 });
 
@@ -66,5 +67,4 @@ Route::prefix('v1')->middleware('auth:jwt,userjwt')->group(function () {
     Route::patch('changepassword', [JwtAuthController::class, 'changePassword']);
     Route::patch('update-personal-details', [JwtAuthController::class, 'updatePersonalDetails']);
     Route::resource('user-promoters', UserPromoterController::class);
-   
 });

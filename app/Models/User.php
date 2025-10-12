@@ -21,11 +21,13 @@ class User extends Authenticatable implements JWTSubject
      */
     const TRAINING_STATUS_PENDING = 0;
     const TRAINING_STATUS_IN_PROGRESS = 1;
-    const TRAINING_STATUS_COMPLETED = 2; 
+    const TRAINING_STATUS_COMPLETED = 2;
     const PROMOTER_STATUS_PENDING = 0;
-    const PROMOTER_STATUS_APPROVED = 1;
-    const PROMOTER_STATUS_ACTIVATED = 2;
-    const PROMOTER_STATUS_REJECTED = 3;
+    const PROMOTER_STATUS_SHOW_TERM = 1;
+    const PROMOTER_STATUS_ACCEPTED_TERM = 2;
+    const PROMOTER_STATUS_APPROVED = 3;
+    const PROMOTER_STATUS_ACTIVATED = 4;
+    const PROMOTER_STATUS_REJECTED = 5;
     protected $fillable = [
         'first_name',
         'email',
@@ -83,6 +85,22 @@ class User extends Authenticatable implements JWTSubject
     public function referrals()
     {
         return $this->hasMany(User::class, 'referred_by');
+    }
+
+    /**
+     * Users that this user has referred (children)
+     */
+    public function referredUsers()
+    {
+        return $this->hasMany(UserReferral::class, 'parent_id');
+    }
+
+    /**
+     * The referral record showing who referred this user
+     */
+    public function referral()
+    {
+        return $this->hasOne(UserReferral::class, 'child_id');
     }
 
     // Generate referral code (e.g., USER12345)

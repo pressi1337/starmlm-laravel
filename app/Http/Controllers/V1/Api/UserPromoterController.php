@@ -242,6 +242,18 @@ class UserPromoterController extends Controller
             'wh_number' => 'nullable|max:50',
 
         ], $this->messages);
+        // after 25 days 
+        //igf gift_delivery_type ==1 date :address
+        // auth user =10
+        // refer parent user =2
+
+        // scratch card for 2
+        // 2= promoter level
+        // // auth user activate level(0,1,2,3,4) <= parent user user level 1
+        // how many refers based to get range
+        // scratch assign
+        // copy to duba
+
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);

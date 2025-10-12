@@ -3,10 +3,18 @@
 namespace App\Http\Controllers\V1\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\EarningHistory;
+use App\Models\PromotionQuizChoice;
+use App\Models\PromotionQuizQuestion;
 use Illuminate\Http\Request;
 use App\Models\PromotionVideo;
+use App\Models\User;
+use App\Models\UserPromoter;
+use App\Models\UserPromoterSession;
+use App\Models\UserReferral;
 use Illuminate\Support\Facades\Validator;
 use App\Rules\UniqueActive;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -75,7 +83,7 @@ class PromotionVideoController extends Controller
         if (!empty($search_term)) {
             $query->where(function ($q) use ($search_term) {
                 $q->where('title', 'LIKE', '%' . $search_term . '%')
-                  ->orWhere('description', 'LIKE', '%' . $search_term . '%');
+                    ->orWhere('description', 'LIKE', '%' . $search_term . '%');
             });
         }
 
@@ -102,15 +110,15 @@ class PromotionVideoController extends Controller
             ->orderBy($sort_column, $sort_direction)
             ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
                 return $q->skip(($page_number - 1) * $page_size)
-                         ->take($page_size);
+                    ->take($page_size);
             })
             ->get()
             ->map(function ($promotion_video) {
-                $promotion_video->created_at_formatted = $promotion_video->created_at 
-                    ? $promotion_video->created_at->format('d-m-Y h:i A') 
+                $promotion_video->created_at_formatted = $promotion_video->created_at
+                    ? $promotion_video->created_at->format('d-m-Y h:i A')
                     : '-';
-                $promotion_video->updated_at_formatted =  $promotion_video->updated_at 
-                    ? $promotion_video->updated_at->format('d-m-Y h:i A') 
+                $promotion_video->updated_at_formatted =  $promotion_video->updated_at
+                    ? $promotion_video->updated_at->format('d-m-Y h:i A')
                     : '-';
                 return $promotion_video;
             });
@@ -326,5 +334,364 @@ class PromotionVideoController extends Controller
         $w->save();
 
         return response()->json(['message' => 'Promotion Video Details updated successfully', 'status' => 200]);
+    }
+    public function userPromotionVideo()
+    {
+        // we want to check auth user promotor status
+        $auth_user_id = auth()->user()->id;
+        $user = User::find($auth_user_id);
+        // Log::info($user);
+        // Log::info($user->current_promoter_level == null);
+        if ($user->current_promoter_level === null) {
+            return response()->json(['message' => 'User is not a promoter', 'status' => 400], 400);
+        }
+
+        switch ($user->promoter_status) {
+            case User::PROMOTER_STATUS_PENDING:
+                return response()->json(['message' => 'User promoter approval pending', 'status' => 400], 400);
+            case User::PROMOTER_STATUS_REJECTED:
+                return response()->json(['message' => 'User promoter approval rejected', 'status' => 400], 400);
+            case User::PROMOTER_STATUS_SHOW_TERM:
+                return response()->json(['message' => 'User promoter show term pending', 'status' => 400], 400);
+            case User::PROMOTER_STATUS_ACCEPTED_TERM:
+                return response()->json(['message' => 'User promoter  accepted term pending', 'status' => 400], 400);
+            case User::PROMOTER_STATUS_APPROVED:
+                return response()->json(['message' => 'User promoter approved but not yet activated', 'status' => 400], 400);
+        }
+
+        $user_promoter = UserPromoter::where('user_id', $auth_user_id)
+            ->where('status', UserPromoter::PIN_STATUS_ACTIVATED)->first();
+        if (!$user_promoter) {
+            return response()->json(['message' => 'User promoter not found', 'status' => 400], 400);
+        }
+        // Determine session type: 1=morning, 2=evening
+        $current_session_type = (Carbon::now()->hour < 12) ? 1 : 2;
+        // Retrieve or create promoter session for today and current session type
+        $user_promoter_session = UserPromoterSession::where('user_id', $auth_user_id)
+            ->where('user_promoter_id', $user_promoter->id)->where('attend_at', today())
+            ->where('session_type', $current_session_type)
+            ->orderBy('id', 'desc')
+            ->first();
+        if (!$user_promoter_session) {
+            $user_promoter_session = new UserPromoterSession();
+            $user_promoter_session->user_id = $auth_user_id;
+            $user_promoter_session->user_promoter_id = $user_promoter->id;
+            $user_promoter_session->current_video_order_set1 = 1;
+            $user_promoter_session->session_type = $current_session_type;
+            $user_promoter_session->session_status = 0;
+            $user_promoter_session->attend_at = today();
+            $user_promoter_session->save();
+        }
+        // 0-pending,1-in-progress,2-completed,3-expired
+        // Validate session status
+        if ($user_promoter_session->session_status > 1) { // completed or expired
+            return response()->json(['message' => 'Session already completed or expired', 'status' => 200], 200);
+        }
+
+        // Determine set and video order
+        $currentSet = ($user_promoter_session->set1_status > 1) ? 2 : 1;
+
+        $currentOrder = ($currentSet === 1)
+            ? $user_promoter_session->current_video_order_set1
+            : $user_promoter_session->current_video_order_set2;
+        if (
+            $currentSet == 1 && $currentOrder == 1 &&
+            $user_promoter_session->set1_status == 2
+        ) {
+            // default mark as retry because quiz completed but no response
+            $user_promoter_session->current_video_order_set1 = 2;
+            $currentOrder = 2;
+            $user_promoter_session->earned_amount_set1 = 0;
+            $user_promoter_session->save();
+        }
+        if (
+            $currentSet == 2 && $currentOrder == 3 &&
+            $user_promoter_session->set2_status == 2
+        ) {
+            // default mark as retry because quiz completed but no response
+            $user_promoter_session->current_video_order_set2 = 4;
+            $currentOrder = 4;
+            $user_promoter_session->earned_amount_set2 = 0;
+            $user_promoter_session->save();
+        }
+        // incase last video and  quiz completed and not confirmed from user end can we mark as close 
+        // earned amount or mark as expird wit 0 or allow user to retry quiz confirm with client to handle
+
+        // question suffle  and no of questions 3
+        $promotion_video = PromotionVideo::where('is_active', 1)
+            ->where('showing_date', today())
+            ->where('session_type', $current_session_type)
+            ->where('video_order', $currentOrder)
+            ->with([
+                'quiz' => function ($quizQuery) {
+                    $quizQuery->where('is_deleted', 0)
+                        ->select(
+                            "id",
+                            "promotion_video_id",
+                        )
+                        ->with([
+                            'questions' => function ($questionQuery) {
+                                $questionQuery->where('is_deleted', 0)
+                                    ->select('id', 'promotion_video_quiz_id', 'lang_type', 'question', 'time_limit')
+                                    ->with([
+                                        'choices' => function ($choiceQuery) {
+                                            $choiceQuery->where('is_deleted', 0)
+                                                ->select('id', 'promotion_quiz_question_id', 'lang_type', 'choice_value');
+                                        }
+                                    ]);
+                            }
+                        ]);
+                }
+            ])
+            ->select(
+                "id",
+                "title",
+                "description",
+                "video_path",
+                "youtube_link",
+                "showing_date",
+                "video_order",
+                "session_type",
+            )
+            ->first();
+
+        // Shuffle 3 questions per language type
+        if ($promotion_video && $promotion_video->quiz) {
+            $quiz = $promotion_video->quiz;
+
+            if ($quiz->questions && $quiz->questions->count() > 0) {
+                // Group questions by language type
+                $questionsByLang = $quiz->questions->groupBy('lang_type');
+
+                $shuffledQuestions = collect();
+
+                foreach ($questionsByLang as $langType => $questions) {
+                    // Shuffle and take 3 questions per language type
+                    $selectedQuestions = $questions->shuffle()->take(3);
+                    $shuffledQuestions = $shuffledQuestions->merge($selectedQuestions);
+                }
+
+                // Replace original questions with shuffled ones
+                $quiz->setRelation('questions', $shuffledQuestions);
+            }
+        }
+
+        if (!$promotion_video) {
+            return response()->json(['message' => 'No promotion video available for this session', 'status' => 404], 404);
+        }
+        $user_promoter_session = UserPromoterSession::find($user_promoter_session->id);
+        $data = [
+            'promotion_video' => $promotion_video,
+            "user_promoter_session" => $user_promoter_session
+        ];
+
+        return response()->json([
+            'success' => true,
+            'data' => $data,
+        ], 200);
+    }
+    public function userPromoterQuizResult(Request $request)
+    {
+        // Log::info($request->all());
+        $auth_user_id = auth()->user()->id;
+        $auth_user = User::find($auth_user_id);
+        $questions_with_selected_choice = $request->questions;
+        $promotion_video_id = $request->promotion_video_id;
+
+        $promotion_video = PromotionVideo::find($promotion_video_id);
+        if (!$promotion_video) {
+            return response()->json(['message' => 'Promotion video not found', 'status' => 404], 404);
+        }
+        // Determine session type: 1=morning, 2=evening
+        $current_session_type = (Carbon::now()->hour < 12) ? 1 : 2;
+        if ($current_session_type != $promotion_video->session_type) {
+            return response()->json(['message' => 'Session Expired', 'status' => 400], 400);
+        }
+        $user_promoter = UserPromoter::where('user_id', $auth_user_id)
+            ->where('status', UserPromoter::PIN_STATUS_ACTIVATED)->first();
+        if (!$user_promoter) {
+            return response()->json(['message' => 'User promoter not found', 'status' => 400], 400);
+        }
+
+        // Retrieve or create promoter session for today and current session type
+        $user_promoter_session = UserPromoterSession::where('user_id', $auth_user_id)
+            ->where('user_promoter_id', $user_promoter->id)->where('attend_at', today())
+            ->where('session_type', $current_session_type)
+            ->orderBy('id', 'desc')
+            ->first();
+        if (!$user_promoter_session) {
+            return response()->json(['message' => 'User promoter session expired', 'status' => 400], 400);
+        }
+        $total_earning = 0;
+        $default_video_total_earnable_amount = 2.5;
+        $max_earnable_per_video = 2.5;
+        switch ($user_promoter->level) {
+            case 0:
+                $default_video_total_earnable_amount = 2.5;
+                // max limit per day split by 2
+                $max_earnable_per_video = 2.5;
+                break;
+            case 1:
+                $default_video_total_earnable_amount = 5;
+                // max limit per day split by 2
+                $max_earnable_per_video = 5;
+                break;
+            case 2:
+                $default_video_total_earnable_amount = 50;
+                // max limit per day split by 2
+                $max_earnable_per_video = 50;
+                break;
+            case 3:
+                $default_video_total_earnable_amount = 62.5;
+                // max limit per day split by 4
+                $max_earnable_per_video = 62.5;
+                break;
+            case 4:
+                $default_video_total_earnable_amount = 92.5;
+                // max limit per day split by 4
+                $max_earnable_per_video = 92.5;
+                break;
+        }
+        $video_total_earnable_amount = $default_video_total_earnable_amount;
+        if ($user_promoter->level > 0) {
+            $referred_users = User::where([
+                'referred_by' => $auth_user_id,
+                'is_deleted' => 0,
+                "is_active" => 1,
+                "promoter_status" => User::PROMOTER_STATUS_ACTIVATED
+            ])->where('current_promoter_level', '<=', $user_promoter->level)
+                ->where('current_promoter_level', '!=', 0)->get();
+            foreach ($referred_users as $referred_user) {
+                $add_amount = match ($referred_user->current_promoter_level) {
+                    1 => 2.5,
+                    2 => 25,
+                    3 => 17.5,
+                    4 => 25,
+                    default => 0,
+                };
+                // Check how much room is left before adding
+                $remaining_allowance = $max_earnable_per_video - $video_total_earnable_amount;
+
+                if ($remaining_allowance <= 0) {
+                    // Already at or above max — stop loop
+                    break;
+                }
+                if ($add_amount > $remaining_allowance) {
+                    // Only add what's left to hit the max exactly
+                    $video_total_earnable_amount += $remaining_allowance;
+                    break;
+                } else {
+                    // Safe to add full amount
+                    $video_total_earnable_amount += $add_amount;
+                }
+            }
+        }
+        $correct_count = 0;
+        $failed_questions_count = 0;
+        $total_questions = count($questions_with_selected_choice);
+
+        foreach ($questions_with_selected_choice as $question) {
+            $choice = PromotionQuizChoice::find($question['choice_id']);
+
+            if ($choice && $choice->is_correct == 1) {
+                $correct_count++;
+            } else {
+                $failed_questions_count++;
+            }
+        }
+        // Percentage based earning
+        $percentage_correct = ($total_questions > 0) ? ($correct_count / $total_questions) : 0;
+        $total_earning = round($video_total_earnable_amount * $percentage_correct, 2);
+
+
+        $user_promoter_session = UserPromoterSession::where('user_id', $auth_user_id)
+            ->where('user_promoter_id', $user_promoter->id)->where('attend_at', today())
+            ->where('session_type', $current_session_type)
+            ->orderBy('id', 'desc')
+            ->first();
+        $currentSet = ($user_promoter_session->set1_status > 1) ? 2 : 1;
+        if ($currentSet == 1) {
+            // 2- quiz completed but not confirmed
+            $user_promoter_session->set1_status = 2;
+            $user_promoter_session->earned_amount_set1 = $total_earning;
+            $user_promoter_session->save();
+        } else {
+            $user_promoter_session->set2_status = 2;
+            $user_promoter_session->earned_amount_set2 = $total_earning;
+            $user_promoter_session->save();
+        }
+        $data = [
+            'total_questions' => $total_questions,
+            'correct_count' => $correct_count,
+            'failed_questions_count' => $failed_questions_count,
+            'percentage_correct' => $percentage_correct * 100,
+            'total_earning' => $total_earning,
+            'user_promoter_session' => $user_promoter_session
+        ];
+
+        return response()->json([
+            'message' => 'Promotion video quiz result calculated successfully',
+            'status' => 200,
+            'data' => $data
+        ], 200);
+    }
+    public function userPromoterQuizResultConfirmation(Request $request)
+    {
+        $session_id = $request->user_promoter_session_id;
+        $user_promoter_session = UserPromoterSession::find($session_id);
+        if (!$user_promoter_session) {
+            return response()->json(['message' => 'User promoter session not found', 'status' => 400], 400);
+        }
+        $earned_amount = 0;
+        $earning_type = 1;
+        if ($user_promoter_session->set1_status == 2) {
+            $user_promoter_session->set1_status = 3;
+            $user_promoter_session->session_status = 3;
+            $user_promoter_session->save();
+            $earned_amount = $user_promoter_session->earned_amount_set1;
+            if ($user_promoter_session->session_type == 1) {
+                $earning_type = 1;
+            } else {
+                $earning_type = 3;
+            }
+        } else {
+            $user_promoter_session->set2_status = 3;
+            $user_promoter_session->session_status = 3;
+            $user_promoter_session->save();
+            $earned_amount = $user_promoter_session->earned_amount_set2;
+            if ($user_promoter_session->session_type == 2) {
+                $earning_type = 2;
+            } else {
+                $earning_type = 4;
+            }
+        }
+        // decimal handling pending
+        $saving_percentage = 5; // 5%
+        $saving_amount = ($earned_amount * $saving_percentage) / 100;
+        $main_wallet_amount = $earned_amount - $saving_amount;
+        $earning_history = new EarningHistory();
+        $earning_history->user_id = $user_promoter_session->user_id;
+        $earning_history->amount = $main_wallet_amount;
+        $earning_history->earning_date = today();
+        $earning_history->earning_type = $earning_type;
+        $earning_history->earning_status = 1;
+        $earning_history->save();
+        // saving earning history
+        $saving_earning_history = new EarningHistory();
+        $saving_earning_history->user_id = $user_promoter_session->user_id;
+        $saving_earning_history->amount = $saving_amount;
+        $saving_earning_history->earning_date = today();
+        $saving_earning_history->earning_type =6;
+        $saving_earning_history->earning_status = 1;
+        $saving_earning_history->save();
+        $user = User::find($user_promoter_session->user_id);
+        $user->quiz_total_earning += $main_wallet_amount;
+        $user->saving_total_earning += $saving_amount;
+        $user->save();
+        return response()->json([
+            'message' => 'User promoter session confirmed successfully',
+            'status' => 200,
+            'data' => $user_promoter_session
+        ], 200);
     }
 }
