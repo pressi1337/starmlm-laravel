@@ -389,7 +389,7 @@ class PromotionVideoController extends Controller
         }
 
         // Determine set and video order
-        $currentSet = ($user_promoter_session->set1_status > 1) ? 2 : 1;
+        $currentSet = ($user_promoter_session->set1_status > 2) ? 2 : 1;
 
         $currentOrder = ($currentSet === 1)
             ? $user_promoter_session->current_video_order_set1
@@ -609,7 +609,7 @@ class PromotionVideoController extends Controller
             ->where('session_type', $current_session_type)
             ->orderBy('id', 'desc')
             ->first();
-        $currentSet = ($user_promoter_session->set1_status > 1) ? 2 : 1;
+        $currentSet = ($user_promoter_session->set1_status > 2) ? 2 : 1;
         if ($currentSet == 1) {
             // 2- quiz completed but not confirmed
             $user_promoter_session->set1_status = 2;
