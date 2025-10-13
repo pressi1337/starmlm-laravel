@@ -213,7 +213,7 @@ class UserPromoterController extends Controller
         }
 
         $user = User::find($promoter->user_id);
-        $user->promoter_status = UserPromoter::PROMOTER_STATUS_SHOW_TERM;
+        $user->promoter_status = User::PROMOTER_STATUS_SHOW_TERM;
         $user->save();
 
         return response()->json([
@@ -231,7 +231,7 @@ class UserPromoterController extends Controller
         }
 
         $user = User::find($promoter->user_id);
-        $user->promoter_status = UserPromoter::PROMOTER_STATUS_ACCEPTED_TERM;
+        $user->promoter_status = User::PROMOTER_STATUS_ACCEPTED_TERM;
         $user->save();
 
         return response()->json([
@@ -256,7 +256,7 @@ class UserPromoterController extends Controller
 
         $user = User::find($promoter->user_id);
         $user->current_promoter_level = $promoter->level;
-        $user->promoter_status = UserPromoter::PROMOTER_STATUS_APPROVED;
+        $user->promoter_status = User::PROMOTER_STATUS_APPROVED;
         $user->save();
 
         return response()->json([
@@ -308,6 +308,7 @@ class UserPromoterController extends Controller
 
         $promoter->status = UserPromoter::PIN_STATUS_ACTIVATED;
         $promoter->gift_delivery_type = $request->gift_delivery_type;
+        $promoter->direct_pick_date = $request->direct_pick_date;
         $promoter->gift_delivery_address = $request->gift_delivery_address;
         $promoter->wh_number = $request->wh_number;
         $promoter->activated_at = now();
@@ -315,7 +316,7 @@ class UserPromoterController extends Controller
         $promoter->save();
         $user = User::find($promoter->user_id);
         $user->current_promoter_level = $promoter->level;
-        $user->promoter_status = UserPromoter::PROMOTER_STATUS_CLOSED;
+        $user->promoter_status = User::PROMOTER_STATUS_CLOSED;
         $user->promoter_activated_at = now();
         $user->save();
         return response()->json([

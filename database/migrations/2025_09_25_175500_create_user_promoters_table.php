@@ -18,6 +18,7 @@ return new class extends Migration
 
             // Optional user details required when starting promoter
             $table->tinyInteger('gift_delivery_type')->nullable();  //1-pic from shop ,2-place delivery
+            $table->date('direct_pick_date')->nullable();
             $table->text('gift_delivery_address')->nullable();
             $table->string('wh_number')->nullable();
             // Control fields
