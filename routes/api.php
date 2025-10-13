@@ -37,7 +37,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::resource('training-videos', TrainingVideoController::class);
     Route::resource('training-video-quizzes', TrainingQuizController::class);
     Route::resource('promotion-videos', PromotionVideoController::class);
-    Route::resource('promotion-video-quizzes', [PromotionQuizController::class]);
+    Route::resource('promotion-video-quizzes', PromotionQuizController::class);
 
     Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
 

@@ -104,7 +104,7 @@ class UserTrainingController extends Controller
             $user_training->training_video_id = $nextVideo->id;
             $user_training->day = $nextDay;
             $user_training->status = UserTrainingVideo::STATUS_ASSIGNED;
-            $user_training->assigned_at = now();
+            $user_training->assigned_at = now()->addDay();
             $user_training->created_by = $user->id;
             $user_training->updated_by = $user->id;
             $user_training->save();
@@ -136,7 +136,7 @@ class UserTrainingController extends Controller
     {
         $user = User::find(Auth::id());
         $training = UserTrainingVideo::where('user_id', $user->id)
-            ->where('assigned_at','<',today())
+            ->where('assigned_at','<=',today())
             ->with([
                 'trainingVideo' => function ($q) {
                     $q->where('is_deleted', 0)
