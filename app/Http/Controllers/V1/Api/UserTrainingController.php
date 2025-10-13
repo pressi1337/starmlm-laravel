@@ -80,7 +80,7 @@ class UserTrainingController extends Controller
             return response()->json([
                 'message' => 'No current training found for this user',
                 'status' => false,
-            ], 404);
+            ], 400);
         }
        
         if($request->status == 2){

@@ -23,10 +23,10 @@ return new class extends Migration
             $table->tinyInteger('session_status')->default(0); 
             // status: 0 = assigned, 1 = video watched, 2 = quiz completed,3 = submitted 
             $table->tinyInteger('set1_status')->default(0); 
-             $table->float('earned_amount_set1')->default(0); 
+             $table->decimal('earned_amount_set1', 10, 2)->default(0); 
             // status: 0 = assigned, 1 = video watched, 2 = quiz completed,3 = submitted 
             $table->tinyInteger('set2_status')->default(0); 
-            $table->float('earned_amount_set2')->default(0); 
+            $table->decimal('earned_amount_set2', 10, 2)->default(0); 
             $table->timestamp('attend_at')->nullable();
             $table->timestamp('completed_at')->nullable();
             $table->integer('created_by')->nullable();

@@ -16,7 +16,7 @@ return new class extends Migration
             $table->integer('referral_scratch_level_id')->nullable();
             $table->integer('start_range')->default(0);
             $table->integer('end_range')->default(0);
-            $table->integer('amount')->default(0);
+            $table->decimal('amount', 10, 2)->default(0);
             $table->string('msg')->nullable();
             $table->integer('created_by')->nullable();
             $table->integer('updated_by')->nullable();

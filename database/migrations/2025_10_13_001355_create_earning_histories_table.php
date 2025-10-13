@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('earning_histories', function (Blueprint $table) {
             $table->id();
             $table->integer('user_id')->nullable();
-             $table->float('amount')->nullable();
+            $table->decimal('amount', 10, 2)->default(0);
             $table->date('earning_date')->nullable();
             // 1-session1 set1 video,2-session1 set2 video,3-session2 set1 video,
             // 4-session2 set2 video ,5-scratch earning,6-savings earning

@@ -209,7 +209,7 @@ class UserPromoterController extends Controller
         $promoter = UserPromoter::find($request->id);
 
         if (!$promoter || $promoter->is_deleted) {
-            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
 
         $promoter->pin = strtoupper('PROM' . rand(1000, 9999));
@@ -263,7 +263,7 @@ class UserPromoterController extends Controller
             ->first();
 
         if (!$promoter) {
-            return response()->json(['success' => false, 'message' => 'Promoter not found'], 404);
+            return response()->json(['success' => false, 'message' => 'Promoter not found'], 400);
         }
 
         if ($promoter->pin !== $request->pin || $promoter->status != UserPromoter::PIN_STATUS_APPROVED) {

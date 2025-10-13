@@ -222,7 +222,7 @@ class ScratchSetupController extends Controller
                 ->first();
 
             if (!$item) {
-                return response()->json(['message' => 'Not found', 'status' => 404], 404);
+                return response()->json(['message' => 'Not found', 'status' => 400], 400);
             }
 
             $item->created_at_formatted = $item->created_at ? $item->created_at->format('d-m-Y h:i A') : '-';
@@ -255,7 +255,7 @@ class ScratchSetupController extends Controller
                 ->first();
 
             if (!$item) {
-                return response()->json(['message' => 'Not found', 'status' => 404], 404);
+                return response()->json(['message' => 'Not found', 'status' => 400], 400);
             }
 
             $item->created_at_formatted = $item->created_at ? $item->created_at->format('d-m-Y h:i A') : '-';

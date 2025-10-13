@@ -295,7 +295,7 @@ class ReferralController extends Controller
                 ->first();
 
             if (!$referral) {
-                return response()->json(['success' => false, 'message' => 'Not found'], 404);
+                return response()->json(['success' => false, 'message' => 'Not found'], 400);
             }
 
             return response()->json([
@@ -328,7 +328,7 @@ class ReferralController extends Controller
                 ->first();
 
             if (!$referral) {
-                return response()->json(['success' => false, 'message' => 'Not found'], 404);
+                return response()->json(['success' => false, 'message' => 'Not found'], 400);
             }
 
             return response()->json([

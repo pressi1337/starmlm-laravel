@@ -39,12 +39,12 @@ return new class extends Migration
             $table->tinyInteger('current_promoter_level')->nullable(); // 0,1,2,3,4
             $table->tinyInteger('promoter_status')->nullable();       // 0=pending, 1=approved, 2=activated, 3=rejected
             $table->timestamp('promoter_activated_at')->nullable();
-            $table->float('quiz_total_earning')->default(0);
-            $table->float('quiz_total_withdraw')->default(0);
-            $table->float('scratch_total_earning')->default(0);
-            $table->float('scratch_total_withdraw')->default(0);
-            $table->float('saving_total_earning')->default(0);
-            $table->float('saving_total_withdraw')->default(0);
+            $table->decimal('quiz_total_earning', 10, 2)->default(0);
+            $table->decimal('quiz_total_withdraw', 10, 2)->default(0);
+            $table->decimal('scratch_total_earning', 10, 2)->default(0);
+            $table->decimal('scratch_total_withdraw', 10, 2)->default(0);
+            $table->decimal('saving_total_earning', 10, 2)->default(0);
+            $table->decimal('saving_total_withdraw', 10, 2)->default(0);
             $table->tinyInteger('is_deleted')->default(0);
             $table->string('password_reset_token')->nullable();
             $table->timestamp('password_reset_token_expires_at')->nullable();
