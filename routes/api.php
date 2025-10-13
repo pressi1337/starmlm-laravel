@@ -40,6 +40,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::resource('promotion-video-quizzes', PromotionQuizController::class);
 
     Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
+    Route::post('term-raised', [UserPromoterController::class, 'termRaised']);
 
     // unified endpoint: handles chunk upload and auto-merge
     Route::post('upload', [VideoUploadController::class, 'upload']);
@@ -54,6 +55,7 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     
     Route::get('user-training-current', [UserTrainingController::class, 'getCurrentTrainingVideo']);
     Route::post('user-day-training-mark-as-completed', [UserTrainingController::class, 'completeTraining']);
+    Route::post('term-accepted', [UserPromoterController::class, 'termrAccepted']);
     Route::post('activate-pin', [UserPromoterController::class, 'activatePin']);
     Route::get('user-promoters/list', [UserPromoterController::class, 'userPromotersList']);
     Route::get('user-promoter-video-get', [PromotionVideoController::class, 'userPromotionVideo']);

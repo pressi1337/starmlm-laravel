@@ -204,6 +204,42 @@ class UserPromoterController extends Controller
     {
         //
     }
+    public function termRaised(Request $request)
+    {
+        $promoter = UserPromoter::find($request->id);
+
+        if (!$promoter || $promoter->is_deleted) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 400);
+        }
+
+        $user = User::find($promoter->user_id);
+        $user->promoter_status = UserPromoter::PROMOTER_STATUS_SHOW_TERM;
+        $user->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Term Raised successfully',
+        ], 200);
+    }
+
+    public function termrAccepted(Request $request)
+    {
+        $promoter = UserPromoter::find($request->id);
+
+        if (!$promoter || $promoter->is_deleted) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 400);
+        }
+
+        $user = User::find($promoter->user_id);
+        $user->promoter_status = UserPromoter::PROMOTER_STATUS_ACCEPTED_TERM;
+        $user->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Term Accepted successfully',
+        ], 200);
+    }
+
     public function generatePin(Request $request)
     {
         $promoter = UserPromoter::find($request->id);
@@ -220,7 +256,7 @@ class UserPromoterController extends Controller
 
         $user = User::find($promoter->user_id);
         $user->current_promoter_level = $promoter->level;
-        $user->promoter_status = UserPromoter::PIN_STATUS_APPROVED;
+        $user->promoter_status = UserPromoter::PROMOTER_STATUS_APPROVED;
         $user->save();
 
         return response()->json([
@@ -279,7 +315,7 @@ class UserPromoterController extends Controller
         $promoter->save();
         $user = User::find($promoter->user_id);
         $user->current_promoter_level = $promoter->level;
-        $user->promoter_status = UserPromoter::PIN_STATUS_ACTIVATED;
+        $user->promoter_status = UserPromoter::PROMOTER_STATUS_CLOSED;
         $user->promoter_activated_at = now();
         $user->save();
         return response()->json([

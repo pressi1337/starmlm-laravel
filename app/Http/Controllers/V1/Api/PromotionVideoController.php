@@ -472,7 +472,7 @@ class PromotionVideoController extends Controller
         }
 
         if (!$promotion_video) {
-            return response()->json(['message' => 'No promotion video available for this session', 'status' => 404], 404);
+            return response()->json(['message' => 'No promotion video available for this session', 'status' => 400], 400);
         }
         $user_promoter_session = UserPromoterSession::find($user_promoter_session->id);
         $data = [
@@ -495,7 +495,7 @@ class PromotionVideoController extends Controller
 
         $promotion_video = PromotionVideo::find($promotion_video_id);
         if (!$promotion_video) {
-            return response()->json(['message' => 'Promotion video not found', 'status' => 404], 404);
+            return response()->json(['message' => 'Promotion video not found', 'status' => 400], 400);
         }
         // Determine session type: 1=morning, 2=evening
         $current_session_type = (Carbon::now()->hour < 12) ? 1 : 2;
