@@ -51,7 +51,7 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     Route::get('daily-videos-today', [DailyVideoController::class, 'todayVideo']);
     Route::get('daily-videos-status', [DailyVideoController::class, 'todayVideostatus']);
     Route::post('daily-videos-watched', [DailyVideoController::class, 'todayVideoWatched']);
-    Route::resource('referrals', ReferralController::class);
+    
     Route::get('user-training-current', [UserTrainingController::class, 'getCurrentTrainingVideo']);
     Route::post('user-day-training-mark-as-completed', [UserTrainingController::class, 'completeTraining']);
     Route::post('activate-pin', [UserPromoterController::class, 'activatePin']);
@@ -68,4 +68,5 @@ Route::prefix('v1')->middleware('auth:jwt,userjwt')->group(function () {
     Route::patch('changepassword', [JwtAuthController::class, 'changePassword']);
     Route::patch('update-personal-details', [JwtAuthController::class, 'updatePersonalDetails']);
     Route::resource('user-promoters', UserPromoterController::class);
+    Route::resource('referrals', ReferralController::class);
 });
