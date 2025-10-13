@@ -155,7 +155,7 @@ class UserPromoterController extends Controller
             $promoter->save();
             // confirm to enable
             $user = User::find($authId);
-            $user->current_promoter_level = $promoter->level;
+            // $user->current_promoter_level = $promoter->level;
             $user->promoter_status = UserPromoter::PIN_STATUS_PENDING;
             $user->save();
             DB::commit();
