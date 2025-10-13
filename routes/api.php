@@ -12,6 +12,7 @@ use App\Http\Controllers\V1\Api\PromotionQuizController;
 use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
 use App\Http\Controllers\V1\Api\UserTrainingController;
+use App\Http\Controllers\V1\Api\AdditionalScratchReferralController;
 use App\Http\Controllers\VideoUploadController;
 
 Route::prefix('v1')->group(function () {
@@ -38,6 +39,10 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::resource('training-video-quizzes', TrainingQuizController::class);
     Route::resource('promotion-videos', PromotionVideoController::class);
     Route::resource('promotion-video-quizzes', PromotionQuizController::class);
+
+    // Additional Scratch Referral (admin)
+    Route::post('additional-scratch-referrals/upsert', [AdditionalScratchReferralController::class, 'upsert']);
+    Route::get('additional-scratch-referrals/{id}', [AdditionalScratchReferralController::class, 'show']);
 
     Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
     Route::post('term-raised', [UserPromoterController::class, 'termRaised']);
