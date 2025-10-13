@@ -18,7 +18,6 @@ class AdditionalScratchReferralController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'referral_code' => 'required',
-            'is_active' => 'nullable|in:0,1',
         ]);
 
         if ($validator->fails()) {
@@ -42,7 +41,7 @@ class AdditionalScratchReferralController extends Controller
         $data = [
             'userid' => $userid,
             'referral_code' => $request->referral_code,
-            'is_active' => $request->has('is_active') ? (int) $request->is_active : 1,
+            'is_active' => $request->has('is_active') ? (int) $request->is_active : 0,
         ];
         $id = $request->input('id');
 
