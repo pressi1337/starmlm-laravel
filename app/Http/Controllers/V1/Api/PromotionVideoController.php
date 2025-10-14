@@ -380,9 +380,10 @@ class PromotionVideoController extends Controller
         }
         // 0-pending,1-in-progress,2-completed,3-expired
         // Validate session status
-        if ($user_promoter_session->set1_status > 2 && $user_promoter_session->current_promoter_level<3) { // completed or expired
+
+        if ($user_promoter_session->set1_status > 2 && $user->current_promoter_level<3) { // completed or expired
             return response()->json(['message' => 'Session already completed or expired', 'status' => 200], 200);
-        }elseif($user_promoter_session->set2_status > 2 && $user_promoter_session->current_promoter_level >2){ // completed or expired
+        }elseif($user_promoter_session->set2_status > 2 && $user->current_promoter_level >2){ // completed or expired
             return response()->json(['message' => 'Session already completed or expired', 'status' => 200], 200);
         }
       
