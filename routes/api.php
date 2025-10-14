@@ -77,6 +77,10 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     Route::post('user-bank-detail/upsert', [UserBankDetailController::class, 'upsert']);
     Route::get('user-bank-detail', [UserBankDetailController::class, 'show']);
 
+    // scratch cards
+    Route::get('get-scratch-cards', [UserPromoterController::class, 'getScratchCards']);
+    Route::post('scratched-status-update', [UserPromoterController::class, 'scratchedStatusUpdate']);
+
 });
 
 //Common route for both admin and user panel (Option 1: auth with multiple guards)

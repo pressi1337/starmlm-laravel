@@ -54,6 +54,9 @@ return new class extends Migration
             $table->tinyInteger('mobile_verified')->default(0);
             $table->timestamp('mobile_verified_at')->nullable();
             $table->tinyInteger('is_profile_updated')->default(0);
+            $table->tinyInteger('is_distributor')->default(0);
+            $table->timestamp('distributor_activated_at')->nullable();
+
             $table->rememberToken();
             $table->timestamps();
         });

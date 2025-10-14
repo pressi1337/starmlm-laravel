@@ -3,6 +3,11 @@
 namespace App\Http\Controllers\V1\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\AdditionalScratchReferral;
+use App\Models\EarningHistory;
+use App\Models\ReferralScratchLevel;
+use App\Models\ReferralScratchRange;
+use App\Models\ScratchCard;
 use App\Models\User;
 use App\Models\UserPromoter;
 use Illuminate\Http\Request;
@@ -270,7 +275,7 @@ class UserPromoterController extends Controller
      */
     public function activatePin(Request $request)
     {
-      
+
         $validator = Validator::make($request->all(), [
             'pin' => 'required|string',
             'gift_delivery_type' => 'required|integer|in:1,2',
@@ -291,12 +296,12 @@ class UserPromoterController extends Controller
         // scratch assign
         // copy to duba
 
-
+        $auth_user_id = Auth::id();
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
         $promoter = UserPromoter::where('id', $request->id)
-            ->where('user_id', Auth::id())
+            ->where('user_id', $auth_user_id)
             ->first();
 
         if (!$promoter) {
@@ -313,16 +318,74 @@ class UserPromoterController extends Controller
         $promoter->gift_delivery_address = $request->gift_delivery_address;
         $promoter->wh_number = $request->wh_number;
         $promoter->activated_at = now();
-        $promoter->updated_by = Auth::id();
+        $promoter->updated_by = $auth_user_id;
         $promoter->save();
         $user = User::find($promoter->user_id);
         $user->current_promoter_level = $promoter->level;
         $user->promoter_status = User::PROMOTER_STATUS_ACTIVATED;
         $user->promoter_activated_at = now();
         $user->save();
-        // check parent referrral and add scratch card to them and after sctrach update wallet 
-        // copy scratch to somebody
-        
+
+        $referrer = $user->referrer;
+        if ($referrer) {
+            $referred_user = User::find($referrer->id);
+            if ($referred_user->current_promoter_level >= $user->current_promoter_level) {
+                $scratch_level = ReferralScratchLevel::where(
+                    'promotor_level',
+                    $user->current_promoter_level
+                )->where('is_active', 1)
+                    ->where('is_deleted', 0)->first();
+                if ($scratch_level) {
+                    $parent_total_referrals_insame_level = User::where('referred_by', $referrer->id)
+                        ->where('current_promoter_level', $user->current_promoter_level)
+                        ->where('is_active', 1)
+                        ->where('is_deleted', 0)
+                        ->where('promoter_status', User::PROMOTER_STATUS_ACTIVATED)
+                        ->count();
+                    $scratch_range = ReferralScratchRange::where(
+                        'referral_scratch_level_id',
+                        $scratch_level->id
+                    )
+                        ->where('is_active', 1)
+                        ->where('is_deleted', 0)
+                        ->where('start_range', '<=', $parent_total_referrals_insame_level)
+                        ->where('end_range', '>=', $parent_total_referrals_insame_level)
+                        ->first();
+                    if ($scratch_range) {
+                        $scratchCard = new ScratchCard();
+                        $scratchCard->user_id = $referrer->id;
+                        $scratchCard->child_id = $user->id;
+                        $scratchCard->is_copy = 0;
+                        $scratchCard->is_scratched = 0;
+                        $scratchCard->amount = $scratch_range->amount;
+                        $scratchCard->notification_msg = 'from ' . $user->username . ' ' . 'upgraded to ' . $user->current_promoter_level;
+                        $scratchCard->msg = $scratch_range->msg;
+                        $scratchCard->created_by = $auth_user_id;
+                        $scratchCard->updated_by = $auth_user_id;
+                        $scratchCard->save();
+                        // now get copy person and assign
+                        $duplicate_getter = AdditionalScratchReferral::where('is_active', 1)
+                            ->where('is_all_user', 1)
+                            ->where('is_deleted', 0)->get();
+
+                        foreach ($duplicate_getter as $duplicate) {
+                            $scratchCard = new ScratchCard();
+                            $scratchCard->user_id = $duplicate->userid;
+                            $scratchCard->child_id = $user->id;
+                            $scratchCard->is_copy = 1;
+                            $scratchCard->is_scratched = 0;
+                            $scratchCard->amount = $scratch_range->amount;
+                            $scratchCard->notification_msg = 'cloned card from ' . $user->username . ' ' . 'upgraded to ' . $user->current_promoter_level;
+                            $scratchCard->msg = $scratch_range->msg;
+                            $scratchCard->created_by = $auth_user_id;
+                            $scratchCard->updated_by = $auth_user_id;
+                            $scratchCard->save();
+                        }
+                    }
+                }
+            }
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Promoter plan activated',
@@ -346,6 +409,54 @@ class UserPromoterController extends Controller
             'success' => true,
             'message' => 'User promoters list',
             'data' => $promoters
+        ], 200);
+    }
+    public function getScratchCards()
+    {
+        $userId = Auth::id();
+
+        $scratchCards = ScratchCard::with('user')
+            ->where('user_id', $userId)
+            ->where('is_deleted', 0)
+            ->orderBy('id', 'desc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'User scratch cards list',
+            'data' => $scratchCards
+        ], 200);
+    }
+    public function scratchedStatusUpdate(Request $request)
+    {
+        $userId = Auth::id();
+
+        $scratchCard = ScratchCard::find($request->scratch_card_id);
+        if (!$scratchCard || $scratchCard->user_id != $userId || $scratchCard->is_scratched == 1) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Scratch card not found or already scratched',
+            ], 404);
+        }
+        $scratchCard->is_scratched =1;
+        $scratchCard->save();
+            // saving earning history
+        $saving_earning_history = new EarningHistory();
+        $saving_earning_history->user_id = $userId;
+        $saving_earning_history->amount = $scratchCard->amount;
+        $saving_earning_history->earning_date = today();
+        $saving_earning_history->earning_type = EarningHistory::EARNING_TYPE_SCRATCH_EARNING;
+        $saving_earning_history->description = $scratchCard->notification_msg;
+        $saving_earning_history->earning_status = 1;
+        $saving_earning_history->save();
+        $user = User::find($scratchCard->user_id);
+        $user->scratch_total_earning += $scratchCard->amount;
+        $user->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Scratch card scratched successfully',
+            'data' => $scratchCard
         ], 200);
     }
 }
