@@ -278,6 +278,7 @@ class UserPromoterController extends Controller
             'wh_number' => 'nullable|max:50',
 
         ], $this->messages);
+        // pending
         // after 25 days 
         //igf gift_delivery_type ==1 date :address
         // auth user =10
@@ -316,9 +317,12 @@ class UserPromoterController extends Controller
         $promoter->save();
         $user = User::find($promoter->user_id);
         $user->current_promoter_level = $promoter->level;
-        $user->promoter_status = User::PROMOTER_STATUS_CLOSED;
+        $user->promoter_status = User::PROMOTER_STATUS_ACTIVATED;
         $user->promoter_activated_at = now();
         $user->save();
+        // check parent referrral and add scratch card to them and after sctrach update wallet 
+        // copy scratch to somebody
+        
         return response()->json([
             'success' => true,
             'message' => 'Promoter plan activated',

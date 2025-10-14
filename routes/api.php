@@ -13,6 +13,7 @@ use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
 use App\Http\Controllers\V1\Api\UserTrainingController;
 use App\Http\Controllers\V1\Api\AdditionalScratchReferralController;
+use App\Http\Controllers\V1\Api\WithdrawController;
 use App\Http\Controllers\VideoUploadController;
 
 Route::prefix('v1')->group(function () {
@@ -50,6 +51,8 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     // unified endpoint: handles chunk upload and auto-merge
     Route::post('upload', [VideoUploadController::class, 'upload']);
     Route::post('upload/delete', [VideoUploadController::class, 'delete']);
+    Route::post('withdraw-status-update', [WithdrawController::class, 'withdrawStatusUpdate']);
+    
 });
 
 Route::middleware('userjwt')->prefix('v1')->group(function () {
@@ -66,6 +69,9 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     Route::get('user-promoter-video-get', [PromotionVideoController::class, 'userPromotionVideo']);
     Route::post('user-promoter-quiz-result-get', [PromotionVideoController::class, 'userPromoterQuizResult']);
     Route::post('user-promoter-quiz-result-confirmation', [PromotionVideoController::class, 'userPromoterQuizResultConfirmation']);
+    Route::get('earning-histories', [WithdrawController::class, 'earningHistory']);
+    Route::get('withdraw-histories', [WithdrawController::class, 'withdrawHistory']);
+
 
 });
 
@@ -76,4 +82,5 @@ Route::prefix('v1')->middleware('auth:jwt,userjwt')->group(function () {
     Route::patch('update-personal-details', [JwtAuthController::class, 'updatePersonalDetails']);
     Route::resource('user-promoters', UserPromoterController::class);
     Route::resource('referrals', ReferralController::class);
+    Route::resource('withdraws', WithdrawController::class);
 });

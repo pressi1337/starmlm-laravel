@@ -15,6 +15,7 @@ use App\Models\UserReferral;
 use Illuminate\Support\Facades\Validator;
 use App\Rules\UniqueActive;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -174,7 +175,7 @@ class PromotionVideoController extends Controller
 
             DB::beginTransaction();
 
-            $auth_user_id = auth()->user()->id;
+            $auth_user_id = Auth::id();
             $w = new PromotionVideo();
             $w->title = $request->title;
             $w->description = $request->description;
@@ -259,7 +260,7 @@ class PromotionVideoController extends Controller
 
             DB::beginTransaction();
 
-            $auth_user_id = auth()->user()->id;
+            $auth_user_id = Auth::id();
             $w = PromotionVideo::find($id);
             if (!$w) {
                 DB::rollBack();
@@ -305,7 +306,7 @@ class PromotionVideoController extends Controller
                 return response()->json(['message' => 'Data not found', 'status' => 400], 400);
             }
             $u->is_deleted = 1;
-            $u->updated_by = auth()->user()->id;
+            $u->updated_by = Auth::id();
             $u->save();
 
             DB::commit();
@@ -320,7 +321,7 @@ class PromotionVideoController extends Controller
     public function StatusUpdate(Request $request)
     {
 
-        $auth_user_id = auth()->user()->id;
+        $auth_user_id = Auth::id();
         $w = PromotionVideo::find($request->id);
         // Use provided is_active/active when present; default to 1 when absent
         $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
@@ -333,7 +334,7 @@ class PromotionVideoController extends Controller
     public function userPromotionVideo()
     {
         // we want to check auth user promotor status
-        $auth_user_id = auth()->user()->id;
+        $auth_user_id = Auth::id();
         $user = User::find($auth_user_id);
         // Log::info($user);
         // Log::info($user->current_promoter_level == null);
@@ -371,7 +372,7 @@ class PromotionVideoController extends Controller
             $user_promoter_session = new UserPromoterSession();
             $user_promoter_session->user_id = $auth_user_id;
             $user_promoter_session->user_promoter_id = $user_promoter->id;
-            $user_promoter_session->current_video_order_set1 = 1;
+            $user_promoter_session->current_video_order_set1 = UserPromoterSession::SET1_VIDEO_ORDER_1;
             $user_promoter_session->session_type = $current_session_type;
             $user_promoter_session->session_status = 0;
             $user_promoter_session->attend_at = today();
@@ -394,8 +395,8 @@ class PromotionVideoController extends Controller
             $user_promoter_session->set1_status == 2
         ) {
             // default mark as retry because quiz completed but no response
-            $user_promoter_session->current_video_order_set1 = 2;
-            $currentOrder = 2;
+            $user_promoter_session->current_video_order_set1 = UserPromoterSession::SET1_VIDEO_ORDER_2;
+            $currentOrder = UserPromoterSession::SET1_VIDEO_ORDER_2;
             $user_promoter_session->earned_amount_set1 = 0;
             $user_promoter_session->save();
         }
@@ -488,7 +489,7 @@ class PromotionVideoController extends Controller
     public function userPromoterQuizResult(Request $request)
     {
         // Log::info($request->all());
-        $auth_user_id = auth()->user()->id;
+        $auth_user_id = Auth::id();
         $auth_user = User::find($auth_user_id);
         $questions_with_selected_choice = $request->questions;
         $promotion_video_id = $request->promotion_video_id;
@@ -639,25 +640,31 @@ class PromotionVideoController extends Controller
         }
         $earned_amount = 0;
         $earning_type = 1;
-        if ($user_promoter_session->set1_status == 2) {
-            $user_promoter_session->set1_status = 3;
-            $user_promoter_session->session_status = 3;
+        $description = '';
+        // set1 base now confirming 
+        if ($user_promoter_session->set1_status == UserPromoterSession::SET1_STATUS_QUIZ_COMPLETED) {
+            $user_promoter_session->set1_status = UserPromoterSession::SET1_STATUS_SUBMITTED;
+            $user_promoter_session->session_status =3;
             $user_promoter_session->save();
             $earned_amount = $user_promoter_session->earned_amount_set1;
-            if ($user_promoter_session->session_type == 1) {
-                $earning_type = 1;
+            if ($user_promoter_session->session_type == UserPromoterSession::SESSION_TYPE_MORNING) {
+                $earning_type = EarningHistory::EARNING_TYPE_SESSION_1_SET_1_VIDEO;
+                $description = 'Morning Session Video Quiz ' . now()->toDateString();
             } else {
-                $earning_type = 3;
+                $earning_type = EarningHistory::EARNING_TYPE_SESSION_2_SET_1_VIDEO;
+                $description = 'Evening Session Video Quiz  ' . now()->toDateString();
             }
         } else {
-            $user_promoter_session->set2_status = 3;
+            $user_promoter_session->set2_status = UserPromoterSession::SET2_STATUS_SUBMITTED;
             $user_promoter_session->session_status = 3;
             $user_promoter_session->save();
             $earned_amount = $user_promoter_session->earned_amount_set2;
-            if ($user_promoter_session->session_type == 2) {
-                $earning_type = 2;
+            if ($user_promoter_session->session_type == UserPromoterSession::SESSION_TYPE_MORNING) {
+                $earning_type = EarningHistory::EARNING_TYPE_SESSION_1_SET_2_VIDEO;
+                $description = 'Morning Session Video  Quiz set2 ' . now()->toDateString();
             } else {
-                $earning_type = 4;
+                $earning_type = EarningHistory::EARNING_TYPE_SESSION_2_SET_2_VIDEO;
+                $description = 'Evening Session Video Quiz set2 ' . now()->toDateString();
             }
         }
         // decimal handling pending
@@ -669,6 +676,7 @@ class PromotionVideoController extends Controller
         $earning_history->amount = $main_wallet_amount;
         $earning_history->earning_date = today();
         $earning_history->earning_type = $earning_type;
+        $earning_history->description = $description;
         $earning_history->earning_status = 1;
         $earning_history->save();
         // saving earning history
@@ -676,7 +684,8 @@ class PromotionVideoController extends Controller
         $saving_earning_history->user_id = $user_promoter_session->user_id;
         $saving_earning_history->amount = $saving_amount;
         $saving_earning_history->earning_date = today();
-        $saving_earning_history->earning_type =6;
+        $saving_earning_history->earning_type = EarningHistory::EARNING_TYPE_SAVINGS_EARNING;
+        $saving_earning_history->description = $description;
         $saving_earning_history->earning_status = 1;
         $saving_earning_history->save();
         $user = User::find($user_promoter_session->user_id);
