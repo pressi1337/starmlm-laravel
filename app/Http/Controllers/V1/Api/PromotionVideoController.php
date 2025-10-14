@@ -401,6 +401,7 @@ class PromotionVideoController extends Controller
             $user_promoter_session->current_video_order_set1 = UserPromoterSession::SET1_VIDEO_ORDER_2;
             $currentOrder = UserPromoterSession::SET1_VIDEO_ORDER_2;
             $user_promoter_session->earned_amount_set1 = 0;
+            $user_promoter_session->set1_status = 0;
             $user_promoter_session->save();
         }
         if (
@@ -411,6 +412,7 @@ class PromotionVideoController extends Controller
             $user_promoter_session->current_video_order_set2 = 4;
             $currentOrder = 4;
             $user_promoter_session->earned_amount_set2 = 0;
+            $user_promoter_session->set2_status = 0;
             $user_promoter_session->save();
         }
         // incase last video and  quiz completed and not confirmed from user end can we mark as close 
