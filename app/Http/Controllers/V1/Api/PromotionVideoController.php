@@ -390,7 +390,7 @@ class PromotionVideoController extends Controller
 
         // Determine set and video order
         $currentSet = ($user_promoter_session->set1_status > 2) ? 2 : 1;
-
+        $retry=false;
         $currentOrder = ($currentSet === 1)
             ? $user_promoter_session->current_video_order_set1
             : $user_promoter_session->current_video_order_set2;
@@ -404,6 +404,7 @@ class PromotionVideoController extends Controller
             $user_promoter_session->earned_amount_set1 = 0;
             $user_promoter_session->set1_status = 0;
             $user_promoter_session->save();
+            $retry=true;
         }
         if (
             $currentSet == 2 && $currentOrder == 3 &&
@@ -415,6 +416,7 @@ class PromotionVideoController extends Controller
             $user_promoter_session->earned_amount_set2 = 0;
             $user_promoter_session->set2_status = 0;
             $user_promoter_session->save();
+            $retry=true;
         }
         // incase last video and  quiz completed and not confirmed from user end can we mark as close 
         // earned amount or mark as expird wit 0 or allow user to retry quiz confirm with client to handle
@@ -484,7 +486,8 @@ class PromotionVideoController extends Controller
         $user_promoter_session = UserPromoterSession::find($user_promoter_session->id);
         $data = [
             'promotion_video' => $promotion_video,
-            "user_promoter_session" => $user_promoter_session
+            "user_promoter_session" => $user_promoter_session,
+            'retry'=>$retry
         ];
 
         return response()->json([
