@@ -622,13 +622,16 @@ class PromotionVideoController extends Controller
             $user_promoter_session->save();
         }
         $retry=false;
-        if($currentSet == 1 && $user_promoter_session->current_video_order_set1 == 1){
+        if($user_promoter_session->set1_status <= 2){
+
+         if($user_promoter_session->current_video_order_set1 == 1){
             $retry=true;
+        }
         }else{
-            if($user_promoter_session->current_video_order_set2 == 3){
+        if($user_promoter_session->set2_status <= 2 && $user_promoter_session->current_video_order_set2 == 3){  
             $retry=true;
         }
-        }
+    }
       
 
 
