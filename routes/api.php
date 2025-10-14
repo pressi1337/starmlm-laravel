@@ -12,6 +12,7 @@ use App\Http\Controllers\V1\Api\PromotionQuizController;
 use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
 use App\Http\Controllers\V1\Api\UserTrainingController;
+use App\Http\Controllers\V1\Api\UserBankDetailController;
 use App\Http\Controllers\V1\Api\AdditionalScratchReferralController;
 use App\Http\Controllers\V1\Api\WithdrawController;
 use App\Http\Controllers\VideoUploadController;
@@ -72,6 +73,9 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     Route::get('earning-histories', [WithdrawController::class, 'earningHistory']);
     Route::get('withdraw-histories', [WithdrawController::class, 'withdrawHistory']);
 
+    // User bank detail upsert and fetch
+    Route::post('user-bank-detail/upsert', [UserBankDetailController::class, 'upsert']);
+    Route::get('user-bank-detail', [UserBankDetailController::class, 'show']);
 
 });
 
