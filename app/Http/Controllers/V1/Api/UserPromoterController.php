@@ -270,6 +270,25 @@ class UserPromoterController extends Controller
             'data' => $promoter,
         ], 200);
     }
+    public function pinRejected(Request $request)
+    {
+       
+        $promoter = UserPromoter::find($request->id);
+        if (!$promoter || $promoter->is_deleted) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 400);
+        }
+        $promoter->status = UserPromoter::PIN_STATUS_REJECTED;
+        $promoter->updated_by = Auth::id();
+        $promoter->save();
+        $user = User::find($promoter->user_id);
+        $user->promoter_status = User::PROMOTER_STATUS_REJECTED;
+        $user->save();
+        return response()->json([
+            'success' => true,
+            'message' => 'PIN rejected successfully',
+            'data' => $promoter,
+        ], 200);
+    }
     /**
      * Activate promoter plan using PIN (user action).
      */
