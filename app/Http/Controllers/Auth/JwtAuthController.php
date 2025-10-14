@@ -147,9 +147,6 @@ class JwtAuthController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'User registered successfully',
-                'data' => [
-                    'access_token' => $token
-                ]
             ], 200);
         } catch (\Throwable $e) {
             DB::rollBack();
