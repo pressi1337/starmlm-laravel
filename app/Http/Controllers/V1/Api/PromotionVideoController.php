@@ -364,7 +364,7 @@ class PromotionVideoController extends Controller
         $current_session_type = (Carbon::now()->hour < 12) ? 1 : 2;
         // Retrieve or create promoter session for today and current session type
         $user_promoter_session = UserPromoterSession::where('user_id', $auth_user_id)
-            ->where('user_promoter_id', $user_promoter->id)->where('attend_at', today())
+            ->where('user_promoter_id', $user_promoter->id)->whereDate('attend_at', today())
             ->where('session_type', $current_session_type)
             ->orderBy('id', 'desc')
             ->first();
@@ -420,7 +420,7 @@ class PromotionVideoController extends Controller
 
         // question suffle  and no of questions 3
         $promotion_video = PromotionVideo::where('is_active', 1)
-            ->where('showing_date', today())
+            ->whereDate('showing_date', today())
             ->where('session_type', $current_session_type)
             ->where('video_order', $currentOrder)
             ->with([
@@ -516,7 +516,7 @@ class PromotionVideoController extends Controller
 
         // Retrieve or create promoter session for today and current session type
         $user_promoter_session = UserPromoterSession::where('user_id', $auth_user_id)
-            ->where('user_promoter_id', $user_promoter->id)->where('attend_at', today())
+            ->where('user_promoter_id', $user_promoter->id)->whereDate('attend_at', today())
             ->where('session_type', $current_session_type)
             ->orderBy('id', 'desc')
             ->first();
@@ -606,7 +606,7 @@ class PromotionVideoController extends Controller
 
 
         $user_promoter_session = UserPromoterSession::where('user_id', $auth_user_id)
-            ->where('user_promoter_id', $user_promoter->id)->where('attend_at', today())
+            ->where('user_promoter_id', $user_promoter->id)->whereDate('attend_at', today())
             ->where('session_type', $current_session_type)
             ->orderBy('id', 'desc')
             ->first();

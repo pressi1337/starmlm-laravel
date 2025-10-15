@@ -136,7 +136,7 @@ class UserTrainingController extends Controller
     {
         $user = User::find(Auth::id());
         $training = UserTrainingVideo::where('user_id', $user->id)
-            ->where('assigned_at','<=',today())
+            ->whereDate('assigned_at', '<=', today())
             ->with([
                 'trainingVideo' => function ($q) {
                     $q->where('is_deleted', 0)
