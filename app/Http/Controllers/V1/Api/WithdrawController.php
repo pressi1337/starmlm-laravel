@@ -93,6 +93,7 @@ class WithdrawController extends Controller
                         ->take($page_size);
                 })
                 ->with('user')
+                ->with('bankDetail')
                 ->get()
                 ->map(function ($withdraw_history) {
                     $withdraw_history->created_at_formatted = $withdraw_history->created_at
