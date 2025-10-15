@@ -304,99 +304,118 @@ class DailyVideoController extends Controller
 
     public function StatusUpdate(Request $request)
     {
+        try {
+            $auth_user_id = Auth::id();
+            $w = DailyVideo::find($request->id);
+            if (!$w) {
+                return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+            $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
+            $w->is_active = (int) $isActiveInput ? 1 : 0;
+            $w->updated_by =  $auth_user_id;
+            $w->save();
 
-        $auth_user_id = Auth::id();
-        $w = DailyVideo::find($request->id);
-        // Use provided is_active/active when present; default to 1 when absent
-        $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
-        $w->is_active = (int) $isActiveInput ? 1 : 0;
-        $w->updated_by =  $auth_user_id;
-        $w->save();
-
-        return response()->json(['message' => 'Daily Video Status updated successfully', 'status' => 200]);
+            return response()->json(['message' => 'Daily Video Status updated successfully', 'status' => 200]);
+        } catch (\Throwable $e) {
+            Log::error('DailyVideo status update failed', ['id' => $request->id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
     }
     public function todayVideo()
     {
-        $today = date('Y-m-d'); // Get today's date in Y-m-d format
+        try {
+            $today = date('Y-m-d');
 
-        $daily_video = DailyVideo::where('is_active', 1)
-            ->where('is_deleted', 0)
-            ->whereDate('showing_date', $today)
-            ->first();
+            $daily_video = DailyVideo::where('is_active', 1)
+                ->where('is_deleted', 0)
+                ->whereDate('showing_date', $today)
+                ->first();
 
-        if ($daily_video) {
-            $daily_video->created_at_formatted = $daily_video->created_at->format('d-m-Y h:i A');
-            $daily_video->updated_at_formatted = $daily_video->updated_at->format('d-m-Y h:i A');
-            
-            $checkvideowatched = DB::table('daily_video_watch_details')
-            ->where('daily_video_id', $daily_video->id)
-            ->where('user_id', Auth::id())
-            ->whereDate('watched_date', $today)
-            ->first();
-            $daily_video->watched = $checkvideowatched ? 1 : 0;
-            return response()->json([
-                'success' => true,
-                'message' => 'Success',
-                'data' => $daily_video,
+            if ($daily_video) {
+                $daily_video->created_at_formatted = $daily_video->created_at->format('d-m-Y h:i A');
+                $daily_video->updated_at_formatted = $daily_video->updated_at->format('d-m-Y h:i A');
 
-            ], 200);
-        } else {
-            return response()->json([
-                'message' => 'No Data found',
-                'success' => false
-            ], 400);
+                $checkvideowatched = DB::table('daily_video_watch_details')
+                    ->where('daily_video_id', $daily_video->id)
+                    ->where('user_id', Auth::id())
+                    ->whereDate('watched_date', $today)
+                    ->first();
+                $daily_video->watched = $checkvideowatched ? 1 : 0;
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Success',
+                    'data' => $daily_video,
+                ], 200);
+            } else {
+                return response()->json([
+                    'message' => 'No Data found',
+                    'success' => false
+                ], 400);
+            }
+        } catch (\Throwable $e) {
+            Log::error('DailyVideo todayVideo failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
     }
 
     public function todayVideostatus()
     {
-        $today = date('Y-m-d'); // Get today's date in Y-m-d format
+        try {
+            $today = date('Y-m-d');
 
-        $daily_video = DailyVideo::where('is_active', 1)
-            ->where('is_deleted', 0)
-            ->whereDate('showing_date', $today)
-            ->first();
+            $daily_video = DailyVideo::where('is_active', 1)
+                ->where('is_deleted', 0)
+                ->whereDate('showing_date', $today)
+                ->first();
 
-        if ($daily_video) {
-            $checkvideowatched = DB::table('daily_video_watch_details')
-            ->where('daily_video_id', $daily_video->id)
-            ->where('user_id', Auth::id())
-            ->whereDate('watched_date', $today)
-            ->first();
-           $data = ['watched' => $checkvideowatched ? 1 : 0];
-            return response()->json([
-                'success' => true,
-                'message' => 'Success',
-                'data' => $data,
-
-            ], 200);
-        } else {
-            return response()->json([
-                'message' => 'No Data found',
-                'success' => false
-            ], 400);
+            if ($daily_video) {
+                $checkvideowatched = DB::table('daily_video_watch_details')
+                    ->where('daily_video_id', $daily_video->id)
+                    ->where('user_id', Auth::id())
+                    ->whereDate('watched_date', $today)
+                    ->first();
+                $data = ['watched' => $checkvideowatched ? 1 : 0];
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Success',
+                    'data' => $data,
+                ], 200);
+            } else {
+                return response()->json([
+                    'message' => 'No Data found',
+                    'success' => false
+                ], 400);
+            }
+        } catch (\Throwable $e) {
+            Log::error('DailyVideo todayVideostatus failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
     }
 
     public function todayVideoWatched(Request $request)
     {
-        $auth_user_id = Auth::id();
-        $w = DailyVideoWatchDetail::where('daily_video_id',$request->daily_video_id)->where('user_id',$auth_user_id)->first();
-        if($w){
-        $w->watchedcount = (float)$w->watchedcount+1;
-        $w->save();
-        }else{
-        $w = new DailyVideoWatchDetail();
-        $w->daily_video_id = $request->daily_video_id;
-        $w->user_id = $auth_user_id;
-        $w->watched_date = date('Y-m-d');
-        $w->watchedstatus = $request->watchedstatus ?? 1;
-        $w->created_by =  $auth_user_id;
-        $w->updated_by =  $auth_user_id;
-        $w->save();
-        }
+        try {
+            $auth_user_id = Auth::id();
+            $w = DailyVideoWatchDetail::where('daily_video_id', $request->daily_video_id)->where('user_id', $auth_user_id)->first();
+            if ($w) {
+                $w->watchedcount = (float)$w->watchedcount + 1;
+                $w->save();
+            } else {
+                $w = new DailyVideoWatchDetail();
+                $w->daily_video_id = $request->daily_video_id;
+                $w->user_id = $auth_user_id;
+                $w->watched_date = date('Y-m-d');
+                $w->watchedstatus = $request->watchedstatus ?? 1;
+                $w->created_by =  $auth_user_id;
+                $w->updated_by =  $auth_user_id;
+                $w->save();
+            }
 
-        return response()->json(['message' => 'Daily Video Watched Added successfully', 'status' => 200]);
+            return response()->json(['message' => 'Daily Video Watched Added successfully', 'status' => 200]);
+        } catch (\Throwable $e) {
+            Log::error('DailyVideo todayVideoWatched failed', ['daily_video_id' => $request->daily_video_id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
 
     }
 }
