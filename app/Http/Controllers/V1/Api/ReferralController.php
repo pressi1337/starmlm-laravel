@@ -163,6 +163,102 @@ class ReferralController extends Controller
         }
     }
 
+    public function allReferral(Request $request)
+    {
+        try {
+            if (!Auth::check()) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            }
+
+            // Default sorting
+            $sort_column = $request->query('sort_column', 'created_at');
+            $sort_direction = strtoupper($request->query('sort_direction', 'DESC')) === 'ASC' ? 'ASC' : 'DESC';
+            if (!in_array($sort_column, $this->sortable, true)) {
+                $sort_column = 'created_at';
+            }
+
+            // Pagination parameters
+            $page_size = max(0, (int) $request->query('page_size', 10)); // 0 disables pagination
+            $page_number = max(1, (int) $request->query('page_number', 1));
+            $search_term = trim((string) $request->query('search', ''));
+
+            // Parse search_param JSON
+            $search_param_raw = $request->query('search_param', '{}');
+            $search_param = [];
+            try {
+                $decoded = json_decode($search_param_raw, true);
+                if (is_array($decoded)) {
+                    $search_param = $decoded;
+                }
+            } catch (\Throwable $e) {
+                $search_param = [];
+            }
+
+            // Start building the query
+            $query = User::query();
+
+            // Apply default filters
+            $query->where('is_deleted', 0);
+
+            // Apply search_param filters (whitelisted)
+            foreach (($search_param ?? []) as $key => $value) {
+                if ($value === '' || $value === null) {
+                    continue;
+                }
+                if (in_array($key, $this->filterable, true)) {
+                    $query->where($key, $value);
+                }
+            }
+
+            // Apply search filter across common fields
+            if ($search_term !== '') {
+                $query->where(function ($q) use ($search_term) {
+                    $q->where('username', 'LIKE', '%' . $search_term . '%')
+                        ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
+                        ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
+                        ->orWhere('name', 'LIKE', '%' . $search_term . '%')
+                        ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
+                });
+            }
+
+            // Get total records for pagination
+            $total_records = $query->count();
+
+            // Apply sorting and pagination
+            $users = $query->orderBy($sort_column, $sort_direction)
+                ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
+                    return $q->skip(($page_number - 1) * $page_size)
+                        ->take($page_size);
+                })
+                ->get()
+                ->map(function ($user) {
+                    $user->created_at_formatted = $user->created_at
+                        ? $user->created_at->format('d-m-Y h:i A')
+                        : '-';
+                    $user->updated_at_formatted = $user->updated_at
+                        ? $user->updated_at->format('d-m-Y h:i A')
+                        : '-';
+                    return $user;
+                });
+
+            // Build the response
+            return response()->json([
+                'success' => true,
+                'message' => 'Success',
+                'data' => $users,
+                'pageInfo' => [
+                    'page_size' => $page_size,
+                    'page_number' => $page_number,
+                    'total_pages' => $page_size > 0 ? (int) ceil($total_records / max(1, $page_size)) : 1,
+                    'total_records' => $total_records
+                ]
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Referral index failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
 
     /**
      * Show the form for creating a new resource.

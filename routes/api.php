@@ -91,6 +91,7 @@ Route::prefix('v1')->middleware('auth:jwt,userjwt')->group(function () {
     Route::patch('update-personal-details', [JwtAuthController::class, 'updatePersonalDetails']);
     Route::resource('user-promoters', UserPromoterController::class);
     Route::resource('referrals', ReferralController::class);
+    Route::get('all-referrals', [JwtAuthController::class, 'allReferral']);
     Route::resource('withdraws', WithdrawController::class);
     Route::resource('youtube-channels', YoutubeController::class);
 });
