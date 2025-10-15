@@ -35,7 +35,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::patch('delete-account', [JwtAuthController::class, 'DeleteAccount']);
     //
     Route::resource('daily-videos', DailyVideoController::class);
-    Route::resource('youtube-channels', YoutubeController::class);
+    
     Route::resource('scratch-setup', ScratchSetupController::class);
     Route::resource('training-videos', TrainingVideoController::class);
     Route::resource('training-video-quizzes', TrainingQuizController::class);
@@ -92,4 +92,5 @@ Route::prefix('v1')->middleware('auth:jwt,userjwt')->group(function () {
     Route::resource('user-promoters', UserPromoterController::class);
     Route::resource('referrals', ReferralController::class);
     Route::resource('withdraws', WithdrawController::class);
+    Route::resource('youtube-channels', YoutubeController::class);
 });
