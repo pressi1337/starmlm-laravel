@@ -281,7 +281,7 @@ class UserPromoterController extends Controller
         $promoter->updated_by = Auth::id();
         $promoter->save();
         $user = User::find($promoter->user_id);
-        $user->promoter_status = ($user->current_promoter_level == null) ? null : 4;
+        $user->promoter_status = ($user->current_promoter_level === null) ? null : 4;
         $user->save();
         return response()->json([
             'success' => true,
