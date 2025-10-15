@@ -154,13 +154,13 @@ class WithdrawController extends Controller
             //    each wallet base different validation applicable
             // WALLET_TYPE_MAIN  -->min 100 amount ,30 days once only 
             if ($request->amount < 100) {
-                return response()->json(['success' => false, 'message' => 'Minimum amount is 100'], 422);
+                return response()->json(['success' => false, 'message' => 'Minimum amount is 100'], 400);
             }
             $quiz_total_earning = $user->quiz_total_earning;
             $quiz_total_withdraw = $user->quiz_total_withdraw;
             $available = $quiz_total_earning - $quiz_total_withdraw;
             if ($available < $request->amount) {
-                return response()->json(['success' => false, 'message' => 'Insufficient balance'], 422);
+                return response()->json(['success' => false, 'message' => 'Insufficient balance'], 400);
             }
             $last_withdraw_request = WithdrawRequest::where('user_id', $user->id)
                 ->where('wallet_type', WithdrawRequest::WALLET_TYPE_MAIN)
@@ -175,20 +175,20 @@ class WithdrawController extends Controller
                 } elseif ($last_withdraw_request->status == WithdrawRequest::STATUS_COMPLETED) {
                     $message = "You have already withdrawn within 30 days try after date" . $last_withdraw_request->request_at->addDays(30)->format('Y-m-d');
                 }
-                return response()->json(['success' => false, 'message' => $message], 422);
+                return response()->json(['success' => false, 'message' => $message], 400);
             }
         }
         if ($request->wallet_type == WithdrawRequest::WALLET_TYPE_SCRATCH) {
             // WALLET_TYPE_SCRATCH-->min 100 amount,weekly once
 
             if ($request->amount < 100) {
-                return response()->json(['success' => false, 'message' => 'Minimum amount is 100'], 422);
+                return response()->json(['success' => false, 'message' => 'Minimum amount is 100'], 400);
             }
             $quiz_total_earning = $user->quiz_total_earning;
             $quiz_total_withdraw = $user->quiz_total_withdraw;
             $available = $quiz_total_earning - $quiz_total_withdraw;
             if ($available < $request->amount) {
-                return response()->json(['success' => false, 'message' => 'Insufficient balance'], 422);
+                return response()->json(['success' => false, 'message' => 'Insufficient balance'], 400);
             }
             $last_withdraw_request = WithdrawRequest::where('user_id', $user->id)
                 ->where('wallet_type', WithdrawRequest::WALLET_TYPE_SCRATCH)
@@ -203,20 +203,20 @@ class WithdrawController extends Controller
                 } elseif ($last_withdraw_request->status == WithdrawRequest::STATUS_COMPLETED) {
                     $message = "You have already withdrawn within 7 days try after date" . $last_withdraw_request->request_at->addDays(7)->format('Y-m-d');
                 }
-                return response()->json(['success' => false, 'message' => $message], 422);
+                return response()->json(['success' => false, 'message' => $message], 400);
             }
         }
         if ($request->wallet_type == WithdrawRequest::WALLET_TYPE_GROW) {
             // WALLET_TYPE_GROW-->min 100000 amount,30 days once only
 
             if ($request->amount < 100000) {
-                return response()->json(['success' => false, 'message' => 'Minimum amount is 100000'], 422);
+                return response()->json(['success' => false, 'message' => 'Minimum amount is 100000'], 400);
             }
             $quiz_total_earning = $user->quiz_total_earning;
             $quiz_total_withdraw = $user->quiz_total_withdraw;
             $available = $quiz_total_earning - $quiz_total_withdraw;
             if ($available < $request->amount) {
-                return response()->json(['success' => false, 'message' => 'Insufficient balance'], 422);
+                return response()->json(['success' => false, 'message' => 'Insufficient balance'], 400);
             }
             $last_withdraw_request = WithdrawRequest::where('user_id', $user->id)
                 ->where('wallet_type', WithdrawRequest::WALLET_TYPE_GROW)
@@ -231,7 +231,7 @@ class WithdrawController extends Controller
                 } elseif ($last_withdraw_request->status == WithdrawRequest::STATUS_COMPLETED) {
                     $message = "You have already withdrawn within 30 days try after date" . $last_withdraw_request->request_at->addDays(30)->format('Y-m-d');
                 }
-                return response()->json(['success' => false, 'message' => $message], 422);
+                return response()->json(['success' => false, 'message' => $message], 400);
             }
         }
 
