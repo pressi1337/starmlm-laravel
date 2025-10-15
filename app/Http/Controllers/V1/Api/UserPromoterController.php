@@ -211,163 +211,70 @@ class UserPromoterController extends Controller
     }
     public function termRaised(Request $request)
     {
-        try {
-            $promoter = UserPromoter::find($request->id);
-            if (!$promoter || $promoter->is_deleted) {
-                return response()->json(['success' => false, 'message' => 'Not found'], 400);
-            }
-            $user = User::find($promoter->user_id);
-            $user->promoter_status = User::PROMOTER_STATUS_SHOW_TERM;
-            $user->save();
-            return response()->json([
-                'success' => true,
-                'message' => 'Term Raised successfully',
-            ], 200);
-        } catch (\Throwable $e) {
-            Log::error('UserPromoter termRaised failed', ['id' => $request->id, 'error' => $e->getMessage()]);
-            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        $promoter = UserPromoter::find($request->id);
+
+        if (!$promoter || $promoter->is_deleted) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
+
+        $user = User::find($promoter->user_id);
+        $user->promoter_status = User::PROMOTER_STATUS_SHOW_TERM;
+        $user->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Term Raised successfully',
+        ], 200);
     }
 
     public function termrAccepted(Request $request)
     {
-        try {
-            $promoter = UserPromoter::find($request->id);
-            if (!$promoter || $promoter->is_deleted) {
-                return response()->json(['success' => false, 'message' => 'Not found'], 400);
-            }
-            $user = User::find($promoter->user_id);
-            $user->promoter_status = User::PROMOTER_STATUS_ACCEPTED_TERM;
-            $user->save();
-            return response()->json([
-                'success' => true,
-                'message' => 'Term Accepted successfully',
-            ], 200);
-        } catch (\Throwable $e) {
-            Log::error('UserPromoter termrAccepted failed', ['id' => $request->id, 'error' => $e->getMessage()]);
-            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
-        }
-    }
-
-    public function generatePin(Request $request)
-    {
-        try {
-            DB::beginTransaction();
-            $promoter = UserPromoter::find($request->id);
-            if (!$promoter || $promoter->is_deleted) {
-                DB::rollBack();
-                return response()->json(['success' => false, 'message' => 'Not found'], 400);
-            }
-            $promoter->pin = strtoupper('PROM' . rand(1000, 9999));
-            $promoter->status = UserPromoter::PIN_STATUS_APPROVED;
-            $promoter->pin_generated_at = now();
-            $promoter->updated_by = Auth::id();
-            $promoter->save();
-            $user = User::find($promoter->user_id);
-            $user->current_promoter_level = $promoter->level;
-            $user->promoter_status = User::PROMOTER_STATUS_APPROVED;
-            $user->save();
-            DB::commit();
-            return response()->json([
-                'success' => true,
-                'message' => 'PIN generated successfully',
-                'data' => $promoter,
-            ], 200);
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('UserPromoter generatePin failed', ['id' => $request->id, 'error' => $e->getMessage()]);
-            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
-        }
-    }
-    public function pinRejected(Request $request)
-    {
-        try {
-            DB::beginTransaction();
-            $promoter = UserPromoter::find($request->id);
-            if (!$promoter || $promoter->is_deleted) {
-                DB::rollBack();
-                return response()->json(['success' => false, 'message' => 'Not found'], 400);
-            }
-            $promoter->status = UserPromoter::PIN_STATUS_REJECTED;
-            $promoter->updated_by = Auth::id();
-            $promoter->save();
-            $user = User::find($promoter->user_id);
-            $user->promoter_status = ($user->current_promoter_level === null) ? null : 4;
-            $user->save();
-            DB::commit();
-            return response()->json([
-                'success' => true,
-                'message' => 'PIN rejected successfully',
-                'data' => $promoter,
-            ], 200);
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('UserPromoter pinRejected failed', ['id' => $request->id, 'error' => $e->getMessage()]);
-            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
-        }
-    }
-
-public function termrAccepted(Request $request)
-{
-    try {
-        DB::beginTransaction();
         $promoter = UserPromoter::find($request->id);
+
         if (!$promoter || $promoter->is_deleted) {
-            DB::rollBack();
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
+
         $user = User::find($promoter->user_id);
         $user->promoter_status = User::PROMOTER_STATUS_ACCEPTED_TERM;
         $user->save();
-        DB::commit();
+
         return response()->json([
             'success' => true,
             'message' => 'Term Accepted successfully',
         ], 200);
-    } catch (\Throwable $e) {
-        DB::rollBack();
-        Log::error('UserPromoter termrAccepted failed', ['id' => $request->id, 'error' => $e->getMessage()]);
-        return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
     }
-}
 
-public function generatePin(Request $request)
-{
-    try {
-        DB::beginTransaction();
+    public function generatePin(Request $request)
+    {
         $promoter = UserPromoter::find($request->id);
+
         if (!$promoter || $promoter->is_deleted) {
-            DB::rollBack();
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
+
         $promoter->pin = strtoupper('PROM' . rand(1000, 9999));
         $promoter->status = UserPromoter::PIN_STATUS_APPROVED;
         $promoter->pin_generated_at = now();
         $promoter->updated_by = Auth::id();
         $promoter->save();
+
         $user = User::find($promoter->user_id);
         $user->current_promoter_level = $promoter->level;
         $user->promoter_status = User::PROMOTER_STATUS_APPROVED;
         $user->save();
-        DB::commit();
+
         return response()->json([
             'success' => true,
             'message' => 'PIN generated successfully',
             'data' => $promoter,
         ], 200);
-    } catch (\Throwable $e) {
-        DB::rollBack();
-        Log::error('UserPromoter generatePin failed', ['id' => $request->id, 'error' => $e->getMessage()]);
-        return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
     }
-}
-public function pinRejected(Request $request)
-{
-    try {
-        DB::beginTransaction();
+    public function pinRejected(Request $request)
+    {
+       
         $promoter = UserPromoter::find($request->id);
         if (!$promoter || $promoter->is_deleted) {
-            DB::rollBack();
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
         $promoter->status = UserPromoter::PIN_STATUS_REJECTED;
@@ -376,30 +283,24 @@ public function pinRejected(Request $request)
         $user = User::find($promoter->user_id);
         $user->promoter_status = ($user->current_promoter_level === null) ? null : 4;
         $user->save();
-        DB::commit();
         return response()->json([
             'success' => true,
             'message' => 'PIN rejected successfully',
             'data' => $promoter,
         ], 200);
-    } catch (\Throwable $e) {
-        DB::rollBack();
-        Log::error('UserPromoter pinRejected failed', ['id' => $request->id, 'error' => $e->getMessage()]);
-        return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
     }
-}
-/**
- * Activate promoter plan using PIN (user action).
- */
-public function activatePin(Request $request)
-{
-    try {
-        DB::beginTransaction();
+    /**
+     * Activate promoter plan using PIN (user action).
+     */
+    public function activatePin(Request $request)
+    {
+
         $validator = Validator::make($request->all(), [
             'pin' => 'required|string',
             'gift_delivery_type' => 'required|integer|in:1,2',
             'gift_delivery_address' => 'nullable|string|max:500',
             'wh_number' => 'nullable|max:50',
+
         ], $this->messages);
         // pending
         // after 25 days 
@@ -504,17 +405,11 @@ public function activatePin(Request $request)
             }
         }
 
-        DB::commit();
         return response()->json([
             'success' => true,
             'message' => 'Promoter plan activated',
             'data' => $promoter,
         ], 200);
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('UserPromoter activatePin failed', ['id' => $request->id, 'error' => $e->getMessage()]);
-            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
-        }
     }
     /**
      * Get all promoters for the authenticated user, latest first
@@ -553,40 +448,34 @@ public function activatePin(Request $request)
     }
     public function scratchedStatusUpdate(Request $request)
     {
-        try {
-            DB::beginTransaction();
-            $userId = Auth::id();
-            $scratchCard = ScratchCard::find($request->scratch_card_id);
-            if (!$scratchCard || $scratchCard->user_id != $userId || $scratchCard->is_scratched == 1) {
-                DB::rollBack();
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Scratch card not found or already scratched',
-                ], 404);
-            }
-            $scratchCard->is_scratched = 1;
-            $scratchCard->save();
-            $saving_earning_history = new EarningHistory();
-            $saving_earning_history->user_id = $userId;
-            $saving_earning_history->amount = $scratchCard->amount;
-            $saving_earning_history->earning_date = today();
-            $saving_earning_history->earning_type = EarningHistory::EARNING_TYPE_SCRATCH_EARNING;
-            $saving_earning_history->description = $scratchCard->notification_msg;
-            $saving_earning_history->earning_status = 1;
-            $saving_earning_history->save();
-            $user = User::find($scratchCard->user_id);
-            $user->scratch_total_earning += $scratchCard->amount;
-            $user->save();
-            DB::commit();
+        $userId = Auth::id();
+
+        $scratchCard = ScratchCard::find($request->scratch_card_id);
+        if (!$scratchCard || $scratchCard->user_id != $userId || $scratchCard->is_scratched == 1) {
             return response()->json([
-                'success' => true,
-                'message' => 'Scratch card scratched successfully',
-                'data' => $scratchCard
-            ], 200);
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('UserPromoter scratchedStatusUpdate failed', ['scratch_card_id' => $request->scratch_card_id, 'error' => $e->getMessage()]);
-            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+                'success' => false,
+                'message' => 'Scratch card not found or already scratched',
+            ], 404);
         }
+        $scratchCard->is_scratched =1;
+        $scratchCard->save();
+            // saving earning history
+        $saving_earning_history = new EarningHistory();
+        $saving_earning_history->user_id = $userId;
+        $saving_earning_history->amount = $scratchCard->amount;
+        $saving_earning_history->earning_date = today();
+        $saving_earning_history->earning_type = EarningHistory::EARNING_TYPE_SCRATCH_EARNING;
+        $saving_earning_history->description = $scratchCard->notification_msg;
+        $saving_earning_history->earning_status = 1;
+        $saving_earning_history->save();
+        $user = User::find($scratchCard->user_id);
+        $user->scratch_total_earning += $scratchCard->amount;
+        $user->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Scratch card scratched successfully',
+            'data' => $scratchCard
+        ], 200);
     }
 }

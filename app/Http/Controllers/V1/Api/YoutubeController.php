@@ -288,22 +288,15 @@ class YoutubeController extends Controller
 
     public function StatusUpdate(Request $request)
     {
-        try {
-            $auth_user_id = auth()->user()->id;
-            $w = YoutubeChannel::find($request->id);
-            if (!$w) {
-                return response()->json(['message' => 'Data not found', 'status' => 400], 400);
-            }
-            // Use provided is_active/active when present; default to 1 when absent
-            $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
-            $w->is_active = (int) $isActiveInput ? 1 : 0;
-            $w->updated_by =  $auth_user_id;
-            $w->save();
 
-            return response()->json(['message' => 'Youtube Channel Details updated successfully', 'status' => 200]);
-        } catch (\Throwable $e) {
-            Log::error('YoutubeChannel status update failed', ['id' => $request->id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
-            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
-        }
+        $auth_user_id = auth()->user()->id;
+        $w = YoutubeChannel::find($request->id);
+        // Use provided is_active/active when present; default to 1 when absent
+        $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
+        $w->is_active = (int) $isActiveInput ? 1 : 0;
+        $w->updated_by =  $auth_user_id;
+        $w->save();
+
+        return response()->json(['message' => 'Youtube Channel Details updated successfully', 'status' => 200]);
     }
 }
