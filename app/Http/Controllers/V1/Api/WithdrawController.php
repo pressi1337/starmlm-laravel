@@ -448,6 +448,7 @@ class WithdrawController extends Controller
                     return $q->skip(($page_number - 1) * $page_size)
                         ->take($page_size);
                 })
+                ->with('bankDetail')
                 ->get()
                 ->map(function ($withdraw_history) {
                     $withdraw_history->created_at_formatted = $withdraw_history->created_at

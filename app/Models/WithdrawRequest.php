@@ -19,4 +19,8 @@ class WithdrawRequest extends Model
     {
         return $this->belongsTo(User::class);
     }
+    public function bankDetail()
+    {
+        return $this->hasOne(UserBankDetail::class, 'user_id', 'user_id');
+    }
 }
