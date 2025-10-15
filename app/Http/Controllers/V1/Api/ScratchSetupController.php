@@ -355,29 +355,45 @@ class ScratchSetupController extends Controller
      */
     public function destroy($id)
     {
-        // Soft delete the quiz
-        $u = ReferralScratchLevel::where('promotor_level', $id)->first();
-        $u->is_deleted = 1;
-        $u->updated_by = Auth::id();
-        $u->save();
+        try {
+            DB::beginTransaction();
+            $u = ReferralScratchLevel::where('promotor_level', $id)->first();
+            if (!$u) {
+                DB::rollBack();
+                return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+            $u->is_deleted = 1;
+            $u->updated_by = Auth::id();
+            $u->save();
 
-        ReferralScratchRange::where('referral_scratch_level_id', $u->id)->update(['is_deleted' => 1]);
-
-        return response()->json(['status' => 200]);
+            ReferralScratchRange::where('referral_scratch_level_id', $u->id)->update(['is_deleted' => 1]);
+            DB::commit();
+            return response()->json(['message' => 'Deleted successfully', 'status' => 200]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('ScratchSetup destroy failed', ['id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
     }
 
 
     public function StatusUpdate(Request $request)
     {
+        try {
+            $auth_user_id = Auth::id();
+            $w = ReferralScratchLevel::where('promotor_level', $request->id)->first();
+            if (!$w) {
+                return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+            $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
+            $w->is_active = (int) $isActiveInput ? 1 : 0;
+            $w->updated_by =  $auth_user_id;
+            $w->save();
 
-        $auth_user_id = Auth::id();
-        $w = ReferralScratchLevel::where('promotor_level', $id)->first();
-        // Use provided is_active/active when present; default to 1 when absent
-        $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
-        $w->is_active = (int) $isActiveInput ? 1 : 0;
-        $w->updated_by =  $auth_user_id;
-        $w->save();
-
-        return response()->json(['message' => 'Referral Scratch Level updated successfully', 'status' => 200]);
+            return response()->json(['message' => 'Referral Scratch Level updated successfully', 'status' => 200]);
+        } catch (\Throwable $e) {
+            Log::error('ScratchSetup status update failed', ['id' => $request->id, 'error' => $e->getMessage()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
     }
 }
