@@ -19,5 +19,45 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        $exceptions->render(function (Throwable $e, $request) {
+            if ($e instanceof \Illuminate\Auth\AuthenticationException) {
+                if ($request->is('api/*') || $request->expectsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Unauthorized',
+                        'code' => 'unauthorized'
+                    ], 401);
+                }
+            }
+
+            if ($e instanceof \Tymon\JWTAuth\Exceptions\JWTException) {
+                if ($request->is('api/*') || $request->expectsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Token error: ' . $e->getMessage(),
+                        'code' => 'token_error'
+                    ], 401);
+                }
+            }
+
+            if ($e instanceof \Tymon\JWTAuth\Exceptions\TokenExpiredException) {
+                if ($request->is('api/*') || $request->expectsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Token has expired',
+                        'code' => 'token_expired'
+                    ], 401);
+                }
+            }
+
+            if ($e instanceof \Tymon\JWTAuth\Exceptions\TokenInvalidException) {
+                if ($request->is('api/*') || $request->expectsJson()) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Token is invalid',
+                        'code' => 'token_invalid'
+                    ], 401);
+                }
+            }
+        });
     })->create();

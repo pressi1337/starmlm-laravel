@@ -445,7 +445,86 @@ class ReferralController extends Controller
      * @param  int  $id
      * @return \Illuminate\Http\Response
      */
-    public function update(Request $request, $id) {}
+    public function update(Request $request, $id)
+    {
+        try {
+            if (!Auth::check()) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            }
+
+            // Find the referral user
+            $referral = User::where('id', $id)
+                ->where('is_deleted', 0)
+                ->where('referred_by', Auth::id())
+                ->first();
+
+            if (!$referral) {
+                return response()->json(['success' => false, 'message' => 'Not found'], 400);
+            }
+
+            // Validation rules - similar to store but adjusted for update
+            $validator = Validator::make($request->all(), [
+                'first_name'    => 'required|string|max:100',
+                'last_name'     => 'required|string|max:100',
+                'dob'           => 'nullable|date',
+                'mobile'        => ['required', new UniqueActive('users', 'mobile', $id, [])],
+                'nationality'   => 'nullable|string|max:100',
+                'state'         => 'nullable|string|max:100',
+                'city'          => 'nullable|string|max:100',
+                'district'      => 'nullable|string|max:100',
+                'pin_code'      => 'nullable|string|max:20',
+                'language'      => 'nullable|string|max:50',
+                'is_active'     => 'nullable|boolean',
+            ], $this->messages);
+
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
+            }
+
+            DB::beginTransaction();
+
+            $auth_user_id = Auth::id();
+
+            // Update user fields
+            $referral->first_name = $request->first_name;
+            $referral->last_name = $request->last_name;
+            $referral->dob = $request->dob;
+            $referral->mobile = $request->mobile;
+            $referral->nationality = $request->nationality;
+            $referral->state = $request->state;
+            $referral->city = $request->city;
+            $referral->district = $request->district;
+            $referral->pin_code = $request->pin_code;
+            $referral->language = $request->language;
+            $referral->updated_by = $auth_user_id;
+
+
+            // Handle is_active field
+            if ($request->has('is_active')) {
+                $referral->is_active = (int) $request->is_active ? 1 : 0;
+            }
+
+            $referral->save();
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Updated successfully'
+            ], 200);
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('Referral update failed', [
+                'error' => $e->getMessage(),
+                'user_id' => $id
+            ]);
+            return response()->json([
+                'success' => false,
+                'message' => 'Something went wrong'
+            ], 500);
+        }
+    }
 
     /**
      * Remove the specified resource from storage.
