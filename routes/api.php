@@ -20,6 +20,9 @@ use App\Http\Controllers\VideoUploadController;
 Route::prefix('v1')->group(function () {
     require __DIR__ . '/auth.php';
 });
+Route::get('/login', function () {
+    return response()->json(['message' => 'Please log in.'], 401);
+})->name('login');
 // Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 //     return $request->user();
 // });
