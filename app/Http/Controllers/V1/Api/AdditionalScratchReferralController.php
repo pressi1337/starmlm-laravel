@@ -61,9 +61,9 @@ class AdditionalScratchReferralController extends Controller
     /**
      * Fetch a single record by id
      */
-    public function show($id)
+    public function show()
     {
-        $record = AdditionalScratchReferral::find($id);
+        $record = AdditionalScratchReferral::first();
 
         return response()->json([
             'status' => true,
