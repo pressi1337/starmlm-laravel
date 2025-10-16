@@ -43,10 +43,10 @@ class AdditionalScratchReferralController extends Controller
             'referral_code' => $request->referral_code,
             'is_active' => $request->has('is_active') ? (int) $request->is_active : 0,
         ];
-        $id = $request->input('id');
+        $recordexist = AdditionalScratchReferral::where('is_deleted',0)->first();
 
-        if ($id) {
-            $record = AdditionalScratchReferral::updateOrCreate(['id' => $id], $data);
+        if ($recordexist) {
+            $record = AdditionalScratchReferral::updateOrCreate(['id' => $recordexist->id], $data);
         } else {
             $record = AdditionalScratchReferral::create($data);
         }
@@ -63,7 +63,7 @@ class AdditionalScratchReferralController extends Controller
      */
     public function show()
     {
-        $record = AdditionalScratchReferral::first();
+        $record = AdditionalScratchReferral::where('is_deleted',0)->first();
 
         return response()->json([
             'status' => true,
