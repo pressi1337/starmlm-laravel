@@ -381,10 +381,12 @@ class DailyVideoController extends Controller
                     'data' => $data,
                 ], 200);
             } else {
+                $data = ['watched' => 0];
                 return response()->json([
                     'message' => 'No Data found',
-                    'success' => false
-                ], 400);
+                    'success' => true,
+                    'data'=>$data,
+                ], 200);
             }
         } catch (\Throwable $e) {
             Log::error('DailyVideo todayVideostatus failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
