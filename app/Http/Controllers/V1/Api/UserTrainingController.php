@@ -158,10 +158,16 @@ class UserTrainingController extends Controller
             ->where('status', '!=', UserTrainingVideo::STATUS_COMPLETED)
             ->orderBy('day', 'asc')
             ->first();
+
+        $nextdaydata = UserTrainingVideo::where('user_id', $user->id)
+            ->where('status', '=', UserTrainingVideo::STATUS_COMPLETED)
+            ->orderBy('day', 'desc')
+            ->first();
+
         $data = [
             'training' => $training ?? null,
             'training_status' => $user->training_status,
-            'nextday' => ($training && $training->day !== null) ? $training->day + 1 : null,
+            'nextday' => ($nextdaydata && $nextdaydata->day !== null) ? $nextdaydata->day + 1 : null,
         ];
         return response()->json([
             'message' => 'Training data',
