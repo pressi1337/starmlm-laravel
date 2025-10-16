@@ -162,7 +162,7 @@ class TrainingVideoController extends Controller
                 "video_path" => 'required_without:youtube_link',
                 "youtube_link" => 'required_without:video_path',
                 // "showing_date" => ['required', new UniqueActive('training_videos', 'showing_date', null, [])],
-                "day" => 'required',
+                "day" => ['required', new UniqueActive('training_videos', 'day', null, [])],
             ], $this->messages);
 
             if ($validator->fails()) {
@@ -244,7 +244,7 @@ class TrainingVideoController extends Controller
                 "title" => 'required',
                 "description" => 'required',
                 // "showing_date" => ['required', new UniqueActive('training_videos', 'showing_date', $id, [])],
-                "day" => 'required',
+                "day" => ['required', new UniqueActive('training_videos', 'day', $id, [])],
             ], $this->messages);
 
             if ($validator->fails()) {
