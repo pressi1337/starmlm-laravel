@@ -44,7 +44,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
 
     // Additional Scratch Referral (admin)
     Route::post('additional-scratch-referrals/upsert', [AdditionalScratchReferralController::class, 'upsert']);
-    Route::get('additional-scratch-referrals/{id}', [AdditionalScratchReferralController::class, 'show']);
+    Route::get('additional-scratch-referrals', [AdditionalScratchReferralController::class, 'show']);
 
     Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
     Route::post('term-raised', [UserPromoterController::class, 'termRaised']);
