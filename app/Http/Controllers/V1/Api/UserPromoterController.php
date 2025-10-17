@@ -40,6 +40,59 @@ class UserPromoterController extends Controller
             "wh_number.max" => "WH number must be at most 50 characters",
         ];
     }
+
+    public function dashboard(Request $request)
+    {
+        try {
+            $user = Auth::user();
+
+            // Fetch user financial data
+            $userData = $user->only([
+                'quiz_total_earning',
+                'quiz_total_withdraw',
+                'scratch_total_earning',
+                'scratch_total_withdraw',
+                'saving_total_earning',
+                'saving_total_withdraw',
+            ]);
+
+            // Wallet mappings
+            $wallets = [
+                'cash_wallet' => $userData['quiz_total_earning'] - $userData['quiz_total_withdraw'],
+                'scratch_wallet' => $userData['scratch_total_earning'] - $userData['scratch_total_withdraw'],
+                'grow_wallet' => $userData['saving_total_earning'] - $userData['saving_total_withdraw'],
+            ];
+
+            // Daily video status
+            $dailyVideoController = new DailyVideoController();
+            $dailyVideoResponse = $dailyVideoController->todayVideostatus();
+            $dailyVideoData = json_decode($dailyVideoResponse->getContent(), true);
+            $dailyVideoWatched = $dailyVideoData['data']['watched'] ?? 0;
+
+            // Training video status
+            $trainingController = new UserTrainingController();
+            $trainingResponse = $trainingController->getCurrentTrainingVideo();
+            $trainingData = json_decode($trainingResponse->getContent(), true);
+            $training = $trainingData['data']['training'] ?? null;
+            $trainingStatus = $trainingData['data']['training_status'] ?? 0;
+            $trainingAvailable = $training ? 1 : 0;
+            $finalTrainingStatus = ($trainingStatus == 2) ? 2 : $trainingAvailable;
+
+            $dashboardData = array_merge($userData, $wallets, [
+                'daily_video_watched' => $dailyVideoWatched,
+                'training_status' => $finalTrainingStatus,
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Dashboard data retrieved successfully',
+                'data' => $dashboardData,
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Dashboard API failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
+    }
     public function index(Request $request)
     {
 

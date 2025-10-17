@@ -85,6 +85,9 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     Route::get('get-scratch-cards', [UserPromoterController::class, 'getScratchCards']);
     Route::post('scratched-status-update', [UserPromoterController::class, 'scratchedStatusUpdate']);
 
+    // Dashboard API
+    Route::get('user-dashboard', [UserPromoterController::class, 'dashboard']);
+
 });
 
 //Common route for both admin and user panel (Option 1: auth with multiple guards)
