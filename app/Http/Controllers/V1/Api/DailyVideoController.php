@@ -398,7 +398,7 @@ class DailyVideoController extends Controller
     {
         try {
             $auth_user_id = Auth::id();
-            $w = DailyVideoWatchDetail::where('daily_video_id', $request->daily_video_id)->where('user_id', $auth_user_id)->first();
+            $w = DailyVideoWatchDetail::where('daily_video_id', $request->daily_video_id)->whereDate('watched_date',date('Y-m-d'))->where('user_id', $auth_user_id)->first();
             if ($w) {
                 $w->watchedcount = (float)$w->watchedcount + 1;
                 $w->save();
