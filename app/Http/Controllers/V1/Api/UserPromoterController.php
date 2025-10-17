@@ -348,7 +348,7 @@ class UserPromoterController extends Controller
         $referrer = $user->referrer;
         if ($referrer) {
             $referred_user = User::find($referrer->id);
-            if ($referred_user->current_promoter_level >= $user->current_promoter_level) {
+            if (isset($referred_user->current_promoter_level) && $referred_user->current_promoter_level >= $user->current_promoter_level) {
                 $scratch_level = ReferralScratchLevel::where(
                     'promotor_level',
                     $user->current_promoter_level
