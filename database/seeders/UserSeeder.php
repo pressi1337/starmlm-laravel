@@ -25,16 +25,6 @@ class UserSeeder extends Seeder
                 'password' => Hash::make('12345678'),
                 'pwd_text' => '12345678',
             ],
-            [
-                'first_name' => 'Test User 1',
-                'username' => 'user1',
-                'email' => 'user1@example.com',
-                'mobile' => '9876543211',
-                'role' => 2,
-                'mobile_verified' => 1,
-                'password' => Hash::make('12345678'),
-                'pwd_text' => '12345678',
-            ],
         ];
 
         foreach ($user as $key => $value) {
