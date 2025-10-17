@@ -303,7 +303,18 @@ class ReferralController extends Controller
             $validator = Validator::make($request->all(), [
                 'first_name'    => 'required|string|max:100',
                 'last_name'     => 'required|string|max:100',
-                'dob'           => 'nullable|date',
+                'dob'           => [
+                    'nullable',
+                    'date',
+                    function ($attribute, $value, $fail) {
+                        if ($value) {
+                            $age = \Carbon\Carbon::parse($value)->age;
+                            if ($age < 18) {
+                                $fail('The ' . $attribute . ' must indicate that the user is at least 18 years old.');
+                            }
+                        }
+                    },
+                ],
                 'mobile'        => ['required', new UniqueActive('users', 'mobile', null, [])],
                 'nationality'   => 'nullable|string|max:100',
                 'state'         => 'nullable|string|max:100',
@@ -313,10 +324,7 @@ class ReferralController extends Controller
                 'language'      => 'nullable|string|max:50',
                 'username'      => 'required|string|max:100|unique:users,username',
                 'password'      => 'required|min:6|confirmed',
-
-
-            ], $this->messages);
-
+], $this->messages);
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
             }
@@ -464,7 +472,18 @@ class ReferralController extends Controller
             $validator = Validator::make($request->all(), [
                 'first_name'    => 'required|string|max:100',
                 'last_name'     => 'required|string|max:100',
-                'dob'           => 'nullable|date',
+                'dob'           => [
+                    'nullable',
+                    'date',
+                    function ($attribute, $value, $fail) {
+                        if ($value) {
+                            $age = \Carbon\Carbon::parse($value)->age;
+                            if ($age < 18) {
+                                $fail('The ' . $attribute . ' must indicate that the user is at least 18 years old.');
+                            }
+                        }
+                    },
+                ],
                 'mobile'        => ['required', new UniqueActive('users', 'mobile', $id, [])],
                 'nationality'   => 'nullable|string|max:100',
                 'state'         => 'nullable|string|max:100',

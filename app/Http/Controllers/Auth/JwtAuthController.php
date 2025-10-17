@@ -34,7 +34,18 @@ class JwtAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'first_name'    => 'required|string|max:100',
             'last_name'     => 'required|string|max:100',
-            'dob'           => 'nullable|date',
+            'dob'           => [
+                'nullable',
+                'date',
+                function ($attribute, $value, $fail) {
+                    if ($value) {
+                        $age = \Carbon\Carbon::parse($value)->age;
+                        if ($age < 18) {
+                            $fail('The ' . $attribute . ' must indicate that the user is at least 18 years old.');
+                        }
+                    }
+                },
+            ],
             'mobile'        => ['required', new UniqueActive('users', 'mobile', null, [])],
             'nationality'   => 'nullable|string|max:100',
             'state'         => 'nullable|string|max:100',
@@ -296,7 +307,19 @@ class JwtAuthController extends Controller
         $validator = Validator::make($request->all(), [
             'first_name' => 'sometimes|nullable|string|max:100',
             'last_name' => 'sometimes|nullable|string|max:100',
-            'dob' => 'sometimes|nullable|date',
+            'dob' => [
+                'sometimes',
+                'nullable',
+                'date',
+                function ($attribute, $value, $fail) {
+                    if ($value) {
+                        $age = \Carbon\Carbon::parse($value)->age;
+                        if ($age < 18) {
+                            $fail('The ' . $attribute . ' must indicate that the user is at least 18 years old.');
+                        }
+                    }
+                },
+            ],
             'mobile' => 'sometimes|required|string|max:15|unique:users,mobile,' . $user->id,
             'nationality' => 'sometimes|nullable|string|max:100',
             'state' => 'sometimes|nullable|string|max:100',
