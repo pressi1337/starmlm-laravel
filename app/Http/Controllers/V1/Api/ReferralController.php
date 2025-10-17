@@ -120,7 +120,6 @@ class ReferralController extends Controller
                     $q->where('username', 'LIKE', '%' . $search_term . '%')
                         ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
                         ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('name', 'LIKE', '%' . $search_term . '%')
                         ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
                 });
             }
@@ -216,7 +215,6 @@ class ReferralController extends Controller
                     $q->where('username', 'LIKE', '%' . $search_term . '%')
                         ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
                         ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('name', 'LIKE', '%' . $search_term . '%')
                         ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
                 });
             }
