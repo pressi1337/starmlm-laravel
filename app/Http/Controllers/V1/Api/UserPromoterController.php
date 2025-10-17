@@ -64,6 +64,13 @@ class UserPromoterController extends Controller
                 'grow_wallet' => $userData['saving_total_earning'] - $userData['saving_total_withdraw'],
             ];
 
+             // Additional user data
+            $totalReferrals = User::where('referred_by', $user->id)->where('is_deleted', 0)->count();
+            $activeReferrals = User::where('referred_by', $user->id)
+                ->where('is_deleted', 0)
+                ->where('is_active', 1)
+                ->count();
+
             // Daily video status
             $dailyVideoController = new DailyVideoController();
             $dailyVideoResponse = $dailyVideoController->todayVideostatus();
@@ -82,6 +89,8 @@ class UserPromoterController extends Controller
             $dashboardData = array_merge($userData, $wallets, [
                 'daily_video_watched' => $dailyVideoWatched,
                 'training_status' => $finalTrainingStatus,
+                'total_referrals' => $totalReferrals,
+                'active_referrals' => $activeReferrals,
             ]);
 
             return response()->json([
