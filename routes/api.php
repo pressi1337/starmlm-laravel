@@ -16,6 +16,7 @@ use App\Http\Controllers\V1\Api\UserBankDetailController;
 use App\Http\Controllers\V1\Api\AdditionalScratchReferralController;
 use App\Http\Controllers\V1\Api\WithdrawController;
 use App\Http\Controllers\VideoUploadController;
+use App\Http\Controllers\V1\Api\AdminDashboardController;
 
 Route::prefix('v1')->group(function () {
     require __DIR__ . '/auth.php';
@@ -57,6 +58,8 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::post('upload', [VideoUploadController::class, 'upload']);
     Route::post('upload/delete', [VideoUploadController::class, 'delete']);
     Route::post('withdraw-status-update', [WithdrawController::class, 'withdrawStatusUpdate']);
+    // Admin Dashboard
+    Route::get('admin-dashboard', [AdminDashboardController::class, 'index']);
     
 });
 
