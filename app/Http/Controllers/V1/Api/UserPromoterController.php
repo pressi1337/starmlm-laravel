@@ -48,6 +48,12 @@ class UserPromoterController extends Controller
 
             // Fetch user financial data
             $userData = $user->only([
+                'quiz_total_earning',
+                'quiz_total_withdraw',
+                'scratch_total_earning',
+                'scratch_total_withdraw',
+                'saving_total_earning',
+                'saving_total_withdraw',
                 'current_promoter_level',
             ]);
 
