@@ -18,7 +18,7 @@ class JwtMiddleware
             $user = JWTAuth::parseToken()->authenticate();
 
             // Check if user exists and meets conditions
-            if (!$user || $user->role !== 0 || $user->is_deleted !== 0) {
+            if (!$user || $user->role !== 0 || $user->is_deleted !== 0 || $user->is_active !==1) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',

@@ -198,7 +198,7 @@ class ReferralController extends Controller
             $query = User::query();
 
             // Apply default filters
-            $query->where('is_deleted', 0);
+            $query->where('is_deleted', 0)->where('role',2);
 
             // Apply search_param filters (whitelisted)
             foreach (($search_param ?? []) as $key => $value) {

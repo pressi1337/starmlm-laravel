@@ -173,6 +173,7 @@ class JwtAuthController extends Controller
 
         // Check if email exists
         $user = User::where('username', $request->username)
+            ->where('is_active',1)
             ->where('is_deleted', 0)
             ->first();
 

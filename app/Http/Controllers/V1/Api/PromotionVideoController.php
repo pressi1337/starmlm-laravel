@@ -414,6 +414,7 @@ class PromotionVideoController extends Controller
 
             $promotion_video = PromotionVideo::where('is_active', 1)
                 ->whereDate('showing_date', today())
+                ->where('is_deleted', 0)
                 ->where('session_type', $current_session_type)
                 ->where('video_order', $currentOrder)
                 ->with([
