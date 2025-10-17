@@ -167,7 +167,7 @@ class UserTrainingController extends Controller
         $data = [
             'training' => $training ?? null,
             'training_status' => $user->training_status,
-            'nextday' => ($nextdaydata && $nextdaydata->day !== null) ? $nextdaydata->day + 1 : null,
+            'nextday' = ($nextdaydata && $nextdaydata->day !== null) ? $nextdaydata->day + 2: 1
         ];
         return response()->json([
             'message' => 'Training data',
