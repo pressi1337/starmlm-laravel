@@ -13,6 +13,7 @@ use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
 use App\Http\Controllers\V1\Api\UserTrainingController;
 use App\Http\Controllers\V1\Api\UserBankDetailController;
+use App\Http\Controllers\V1\Api\AdminBankDetailController;
 use App\Http\Controllers\V1\Api\AdditionalScratchReferralController;
 use App\Http\Controllers\V1\Api\WithdrawController;
 use App\Http\Controllers\VideoUploadController;
@@ -60,6 +61,10 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::post('withdraw-status-update', [WithdrawController::class, 'withdrawStatusUpdate']);
     // Admin Dashboard
     Route::get('admin-dashboard', [AdminDashboardController::class, 'index']);
+    
+    // Admin Bank Details
+    Route::post('admin-bank-details/upsert', [AdminBankDetailController::class, 'manage']);
+    Route::get('admin-bank-details', [AdminBankDetailController::class, 'getActive']);
     
 });
 
