@@ -185,8 +185,8 @@ class WithdrawController extends Controller
             if ($request->amount < 100) {
                 return response()->json(['success' => false, 'message' => 'Minimum amount is 100'], 400);
             }
-            $quiz_total_earning = $user->quiz_total_earning;
-            $quiz_total_withdraw = $user->quiz_total_withdraw;
+            $quiz_total_earning = $user->quiz_scratch_earning;
+            $quiz_total_withdraw = $user->quiz_scratch_withdraw;
             $available = $quiz_total_earning - $quiz_total_withdraw;
             if ($available < $request->amount) {
                 return response()->json(['success' => false, 'message' => 'Insufficient balance'], 400);
@@ -213,8 +213,8 @@ class WithdrawController extends Controller
             if ($request->amount < 100000) {
                 return response()->json(['success' => false, 'message' => 'Minimum amount is 100000'], 400);
             }
-            $quiz_total_earning = $user->quiz_total_earning;
-            $quiz_total_withdraw = $user->quiz_total_withdraw;
+            $quiz_total_earning = $user->quiz_savings_earning;
+            $quiz_total_withdraw = $user->quiz_savings_withdraw;
             $available = $quiz_total_earning - $quiz_total_withdraw;
             if ($available < $request->amount) {
                 return response()->json(['success' => false, 'message' => 'Insufficient balance'], 400);
