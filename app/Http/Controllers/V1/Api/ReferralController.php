@@ -25,7 +25,7 @@ class ReferralController extends Controller
      */
     protected $messages;
     protected array $sortable = ['created_at', 'username', 'first_name', 'last_name', 'mobile', 'id'];
-    protected array $filterable = ['username', 'first_name', 'last_name', 'mobile', 'is_active', 'id'];
+    protected array $filterable = ['username', 'first_name', 'last_name', 'mobile', 'is_active', 'id', 'date_between', 'current_promoter_level'];
     public function __construct()
     {
         $this->messages = [
@@ -110,7 +110,17 @@ class ReferralController extends Controller
                     continue;
                 }
                 if (in_array($key, $this->filterable, true)) {
-                    $query->where($key, $value);
+                    if (is_array($value)) {
+                        if ($key === 'date_between' && count($value) === 2) {
+                            // Handle date range filter for created_at
+                            $query->whereBetween('created_at', $value);
+                        } elseif (!empty($value)) {
+                            // Use whereIn for array values
+                            $query->whereIn($key, $value);
+                        }
+                    } else {
+                        $query->where($key, $value);
+                    }
                 }
             }
 
@@ -205,7 +215,17 @@ class ReferralController extends Controller
                     continue;
                 }
                 if (in_array($key, $this->filterable, true)) {
-                    $query->where($key, $value);
+                    if (is_array($value)) {
+                        if ($key === 'date_between' && count($value) === 2) {
+                            // Handle date range filter for created_at
+                            $query->whereBetween('created_at', $value);
+                        } elseif (!empty($value)) {
+                            // Use whereIn for array values
+                            $query->whereIn($key, $value);
+                        }
+                    } else {
+                        $query->where($key, $value);
+                    }
                 }
             }
 
