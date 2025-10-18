@@ -346,18 +346,20 @@ class PromotionVideoController extends Controller
                 return response()->json(['message' => 'User is not a promoter', 'status' => 400], 400);
             }
 
-            switch ($user->promoter_status) {
-                case User::PROMOTER_STATUS_PENDING:
-                    return response()->json(['message' => 'User promoter approval pending', 'status' => 400], 400);
-                case User::PROMOTER_STATUS_REJECTED:
-                    return response()->json(['message' => 'User promoter approval rejected', 'status' => 400], 400);
-                case User::PROMOTER_STATUS_SHOW_TERM:
-                    return response()->json(['message' => 'User promoter show term pending', 'status' => 400], 400);
-                case User::PROMOTER_STATUS_ACCEPTED_TERM:
-                    return response()->json(['message' => 'User promoter  accepted term pending', 'status' => 400], 400);
-                case User::PROMOTER_STATUS_APPROVED:
-                    return response()->json(['message' => 'User promoter approved but not yet activated', 'status' => 400], 400);
-            }
+            // commented this code to bypass the alrearedy promotor to view promotions
+
+            // switch ($user->promoter_status) {
+            //     case User::PROMOTER_STATUS_PENDING:
+            //         return response()->json(['message' => 'User promoter approval pending', 'status' => 400], 400);
+            //     case User::PROMOTER_STATUS_REJECTED:
+            //         return response()->json(['message' => 'User promoter approval rejected', 'status' => 400], 400);
+            //     case User::PROMOTER_STATUS_SHOW_TERM:
+            //         return response()->json(['message' => 'User promoter show term pending', 'status' => 400], 400);
+            //     case User::PROMOTER_STATUS_ACCEPTED_TERM:
+            //         return response()->json(['message' => 'User promoter  accepted term pending', 'status' => 400], 400);
+            //     case User::PROMOTER_STATUS_APPROVED:
+            //         return response()->json(['message' => 'User promoter approved but not yet activated', 'status' => 400], 400);
+            // }
 
             $user_promoter = UserPromoter::where('user_id', $auth_user_id)
                 ->where('status', UserPromoter::PIN_STATUS_ACTIVATED)->first();
