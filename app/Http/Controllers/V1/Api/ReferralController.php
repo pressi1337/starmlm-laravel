@@ -25,7 +25,7 @@ class ReferralController extends Controller
      */
     protected $messages;
     protected array $sortable = ['created_at', 'username', 'first_name', 'last_name', 'mobile', 'id'];
-    protected array $filterable = ['username', 'first_name', 'last_name', 'mobile', 'is_active', 'id', 'date_between', 'current_promoter_level'];
+    protected array $filterable = ['username', 'first_name', 'last_name', 'mobile', 'is_active', 'id', 'fromdate', 'todate', 'current_promoter_level'];
     public function __construct()
     {
         $this->messages = [
@@ -111,17 +111,30 @@ class ReferralController extends Controller
                 }
                 if (in_array($key, $this->filterable, true)) {
                     if (is_array($value)) {
-                        if ($key === 'date_between' && count($value) === 2) {
-                            // Handle date range filter for created_at
-                            $query->whereBetween('created_at', $value);
-                        } elseif (!empty($value)) {
+                        if (!empty($value)) {
                             // Use whereIn for array values
                             $query->whereIn($key, $value);
                         }
                     } else {
-                        $query->where($key, $value);
+                        if ($key === 'fromdate' || $key === 'todate') {
+                            // Handle date range filtering
+                            continue; // Skip individual processing, handle together below
+                        } else {
+                            $query->where($key, $value);
+                        }
                     }
                 }
+            }
+
+            // Handle date range filtering separately
+            $fromDate = $search_param['fromdate'] ?? null;
+            $toDate = $search_param['todate'] ?? null;
+            if ($fromDate && $toDate) {
+                $query->whereBetween('created_at', [$fromDate, $toDate]);
+            } elseif ($fromDate) {
+                $query->whereDate('created_at', '>=', $fromDate);
+            } elseif ($toDate) {
+                $query->whereDate('created_at', '<=', $toDate);
             }
 
             // Apply search filter across common fields
@@ -216,17 +229,30 @@ class ReferralController extends Controller
                 }
                 if (in_array($key, $this->filterable, true)) {
                     if (is_array($value)) {
-                        if ($key === 'date_between' && count($value) === 2) {
-                            // Handle date range filter for created_at
-                            $query->whereBetween('created_at', $value);
-                        } elseif (!empty($value)) {
+                        if (!empty($value)) {
                             // Use whereIn for array values
                             $query->whereIn($key, $value);
                         }
                     } else {
-                        $query->where($key, $value);
+                        if ($key === 'fromdate' || $key === 'todate') {
+                            // Handle date range filtering
+                            continue; // Skip individual processing, handle together below
+                        } else {
+                            $query->where($key, $value);
+                        }
                     }
                 }
+            }
+
+            // Handle date range filtering separately
+            $fromDate = $search_param['fromdate'] ?? null;
+            $toDate = $search_param['todate'] ?? null;
+            if ($fromDate && $toDate) {
+                $query->whereBetween('created_at', [$fromDate, $toDate]);
+            } elseif ($fromDate) {
+                $query->whereDate('created_at', '>=', $fromDate);
+            } elseif ($toDate) {
+                $query->whereDate('created_at', '<=', $toDate);
             }
 
             // Apply search filter across common fields
