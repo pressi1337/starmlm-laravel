@@ -22,6 +22,8 @@ class UserPromoterController extends Controller
      * Display a listing of the resource.
      */
     protected $messages;
+    protected array $sortable = ['created_at', 'level', 'status', 'updated_at'];
+    protected array $filterable = ['level', 'status', 'user_id', 'date_between'];
     public function __construct()
     {
         $this->messages = [
@@ -134,14 +136,19 @@ class UserPromoterController extends Controller
 
         // Apply search_param filters
         foreach ($search_param as $key => $value) {
-            if (is_array($value)) {
-                if (!empty($value)) {
-                    // Use whereIn for array values
-                    $query->whereIn($key, $value);
-                }
-            } else {
-                if ($value !== '') {
-                    // Use where for single values
+            if ($value === '' || $value === null) {
+                continue;
+            }
+            if (in_array($key, $this->filterable, true)) {
+                if (is_array($value)) {
+                    if ($key === 'date_between' && count($value) === 2) {
+                        // Handle date range filter for created_at
+                        $query->whereBetween('created_at', $value);
+                    } elseif (!empty($value)) {
+                        // Use whereIn for array values
+                        $query->whereIn($key, $value);
+                    }
+                } else {
                     $query->where($key, $value);
                 }
             }
@@ -162,7 +169,8 @@ class UserPromoterController extends Controller
             ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
                 return $q->skip(($page_number - 1) * $page_size)
                     ->take($page_size);
-            })->with('user')
+            })
+            ->with('user')
             ->get()
             ->map(function ($user_promoter) {
                 $user_promoter->created_at_formatted = $user_promoter->created_at
