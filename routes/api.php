@@ -108,4 +108,5 @@ Route::prefix('v1')->middleware('auth:jwt,userjwt')->group(function () {
     Route::get('all-referrals', [ReferralController::class, 'allReferral']);
     Route::resource('withdraws', WithdrawController::class);
     Route::resource('youtube-channels', YoutubeController::class);
+    Route::get('admin-bank-details', [AdminBankDetailController::class, 'getActive']);
 });
