@@ -505,7 +505,7 @@ class ReferralController extends Controller
             // Find the referral user
             $referral = User::where('id', $id)
                 ->where('is_deleted', 0)
-                ->where('referred_by', Auth::id())
+                // ->where('referred_by', Auth::id())
                 ->first();
 
             if (!$referral) {
