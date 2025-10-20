@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\V1\Api;
 
 use App\Http\Controllers\Controller;
+use App\Traits\HandlesJson;
 use App\Models\TrainingVideo;
 use Illuminate\Http\Request;
 
@@ -18,6 +19,7 @@ use Illuminate\Support\Facades\Log;
 
 class ReferralController extends Controller
 {
+    use HandlesJson;
     /**
      * Display a listing of the resource.
      *
@@ -86,18 +88,8 @@ class ReferralController extends Controller
             $page_number = max(1, (int) $request->query('page_number', 1));
             $search_term = trim((string) $request->query('search', ''));
 
-            // Parse search_param JSON
-            $search_param_raw = $request->query('search_param', '{}');
-            $search_param = [];
-            try {
-                $decoded = json_decode($search_param_raw, true);
-                if (is_array($decoded)) {
-                    $search_param = $decoded;
-                }
-            } catch (\Throwable $e) {
-                $search_param = [];
-            }
-
+            // Parse search_param JSON safely
+            $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
             // Start building the query
             $query = User::query();
 
@@ -204,18 +196,8 @@ class ReferralController extends Controller
             $page_number = max(1, (int) $request->query('page_number', 1));
             $search_term = trim((string) $request->query('search', ''));
 
-            // Parse search_param JSON
-            $search_param_raw = $request->query('search_param', '{}');
-            $search_param = [];
-            try {
-                $decoded = json_decode($search_param_raw, true);
-                if (is_array($decoded)) {
-                    $search_param = $decoded;
-                }
-            } catch (\Throwable $e) {
-                $search_param = [];
-            }
-
+            // Parse search_param JSON safely
+            $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));    
             // Start building the query
             $query = User::query();
 
@@ -274,6 +256,7 @@ class ReferralController extends Controller
                     return $q->skip(($page_number - 1) * $page_size)
                         ->take($page_size);
                 })
+                ->with('referrer')
                 ->get()
                 ->map(function ($user) {
                     $user->created_at_formatted = $user->created_at

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\V1\Api;
 
 use App\Http\Controllers\Controller;
+use App\Traits\HandlesJson;
 use App\Models\TrainingQuizChoice;
 use App\Models\TrainingQuizQuestion;
 use Illuminate\Http\Request;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\Log;
 
 class TrainingQuizController extends Controller
 {
+    use HandlesJson;
     /**
      * Display a listing of the resource.
      *
@@ -50,16 +52,8 @@ class TrainingQuizController extends Controller
         $page_number = (int) $request->query('page_number', 1);
         $search_term = $request->query('search', '');
 
-        // Parse search_param JSON
-        $search_param = $request->query('search_param', '{}');
-        try {
-            $search_param = json_decode($search_param, true);
-            if (!is_array($search_param)) {
-                $search_param = [];
-            }
-        } catch (\Exception $e) {
-            $search_param = [];
-        }
+        // Parse search_param JSON safely
+        $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
 
         // Start building the query
         $query = TrainingVideoQuiz::query();
