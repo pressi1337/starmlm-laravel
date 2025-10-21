@@ -164,7 +164,18 @@ class PromotionVideoController extends Controller
                 "description" => 'required',
                 "video_path" => 'required_without:youtube_link',
                 "youtube_link" => 'required_without:video_path',
-                "showing_date" => ['required', new UniqueActive('promotion_videos', 'showing_date', null, ['video_order'=>$request->video_order])],
+                "showing_date" => [
+                    'required',
+                    new UniqueActive(
+                        'promotion_videos',
+                        'showing_date',
+                        null,
+                        [
+                            'video_order' => $request->video_order,
+                            'session_type' => $request->session_type
+                        ]
+                    )
+                ],
                 "video_order" => 'required',
                 "session_type" => 'required',
             ], $this->messages);
@@ -248,7 +259,18 @@ class PromotionVideoController extends Controller
             $validator = Validator::make($request->all(), [
                 "title" => 'required',
                 "description" => 'required',
-                "showing_date" => ['required', new UniqueActive('promotion_videos', 'showing_date', $id, ['video_order'=>$request->video_order])],
+                "showing_date" => [
+                    'required',
+                    new UniqueActive(
+                        'promotion_videos',
+                        'showing_date',
+                        $id,
+                        [
+                            'video_order' => $request->video_order,
+                            'session_type' => $request->session_type
+                        ]
+                    )
+                ],
                 "video_order" => 'required',
                 "session_type" => 'required',
 
