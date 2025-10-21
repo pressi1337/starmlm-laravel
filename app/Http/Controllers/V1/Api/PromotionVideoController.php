@@ -362,7 +362,7 @@ class PromotionVideoController extends Controller
             // }
 
             $user_promoter = UserPromoter::where('user_id', $auth_user_id)
-                ->where('status', UserPromoter::PIN_STATUS_ACTIVATED)->first();
+                ->where('status', UserPromoter::PIN_STATUS_ACTIVATED)->orderBy('level','DESC')->first();
             if (!$user_promoter) {
                 return response()->json(['message' => 'User promoter not found', 'status' => 400], 400);
             }
@@ -501,7 +501,7 @@ class PromotionVideoController extends Controller
                 return response()->json(['message' => 'Session Expired', 'status' => 400], 400);
             }
             $user_promoter = UserPromoter::where('user_id', $auth_user_id)
-                ->where('status', UserPromoter::PIN_STATUS_ACTIVATED)->first();
+                ->where('status', UserPromoter::PIN_STATUS_ACTIVATED)->orderBy('level','DESC')->first();
             if (!$user_promoter) {
                 return response()->json(['message' => 'User promoter not found', 'status' => 400], 400);
             }
