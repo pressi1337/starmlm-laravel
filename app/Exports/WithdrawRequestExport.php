@@ -39,7 +39,6 @@ class WithdrawRequestExport implements FromCollection, WithHeadings, WithMapping
             'Request Date',
             'Status',
             'Amount',
-            'Reason'
         ];
     }
 
@@ -66,14 +65,13 @@ class WithdrawRequestExport implements FromCollection, WithHeadings, WithMapping
             $withdrawRequest->user->mobile ?? 'N/A',
             $this->formatAddress($withdrawRequest->user),
             $promoter_levels[$withdrawRequest->user->current_promoter_level] ?? 'Unknown',
-            $withdrawRequest->bank_detail->bank_name ?? 'N/A',
-            $withdrawRequest->bank_detail->acc_no ?? 'N/A',
-            $withdrawRequest->bank_detail->ifsc_code ?? 'N/A',
-            $withdrawRequest->bank_detail->branch_name ?? 'N/A',
+            $withdrawRequest->bankDetail->bank_name ?? 'N/A',
+            $withdrawRequest->bankDetail->acc_no ?? 'N/A',
+            $withdrawRequest->bankDetail->ifsc_code ?? 'N/A',
+            $withdrawRequest->bankDetail->branch_name ?? 'N/A',
             $withdrawRequest->request_at ? date('d-m-Y h:i A', strtotime($withdrawRequest->request_at)) : '-',
             $statuses[$withdrawRequest->status] ?? 'Unknown',
             number_format($withdrawRequest->amount, 2),
-            $withdrawRequest->reason ?? '',
         ];
     }
 
