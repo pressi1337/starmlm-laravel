@@ -28,7 +28,7 @@ Route::get('/login', function () {
 // Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 //     return $request->user();
 // });
-Route::get('withdraws/export/excel', [WithdrawController::class, 'exportExcel']);
+Route::get('v1/withdraws/export/excel', [WithdrawController::class, 'exportExcel']);
 Route::middleware('jwt')->prefix('v1')->group(function () {
     // Custom route 
     Route::patch('daily-videos/status-update', [DailyVideoController::class, 'StatusUpdate']);
