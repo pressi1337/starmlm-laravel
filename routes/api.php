@@ -28,6 +28,7 @@ Route::get('/login', function () {
 // Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 //     return $request->user();
 // });
+Route::get('withdraws/export/excel', [WithdrawController::class, 'exportExcel']);
 Route::middleware('jwt')->prefix('v1')->group(function () {
     // Custom route 
     Route::patch('daily-videos/status-update', [DailyVideoController::class, 'StatusUpdate']);
@@ -107,7 +108,6 @@ Route::prefix('v1')->middleware('auth:jwt,userjwt')->group(function () {
     Route::resource('referrals', ReferralController::class);
     Route::get('all-referrals', [ReferralController::class, 'allReferral']);
     Route::resource('withdraws', WithdrawController::class);
-    Route::get('withdraws/export/excel', [WithdrawController::class, 'exportExcel']);
     Route::resource('youtube-channels', YoutubeController::class);
     Route::get('admin-bank-details', [AdminBankDetailController::class, 'getActive']);
 });
