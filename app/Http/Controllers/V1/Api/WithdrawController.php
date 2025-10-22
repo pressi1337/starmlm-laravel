@@ -11,6 +11,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\WithdrawRequestExport;
 
 class WithdrawController extends Controller
 {
@@ -485,6 +487,35 @@ class WithdrawController extends Controller
         } catch (\Throwable $e) {
             Log::error('Withdraw Status Update failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    /**
+     * Export withdraw requests to Excel
+     *
+     * @return \Symfony\Component\HttpFoundation\BinaryFileResponse
+     */
+    public function exportExcel()
+    {
+        if (Auth::user()->role != User::ROLE_ADMIN) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        try {
+            // Get all withdraw requests with user and bank details
+            $withdrawRequests = WithdrawRequest::where('is_deleted', 0)
+                ->where('status', '=', WithdrawRequest::STATUS_PENDING)
+                ->with(['user', 'bankDetail'])
+                ->orderBy('created_at', 'DESC')
+                ->get();
+
+            return Excel::download(
+                new WithdrawRequestExport($withdrawRequests),
+                'withdraw_requests_' . date('Y-m-d_H-i-s') . '.xlsx'
+            );
+        } catch (\Exception $e) {
+            Log::error('Withdraw export failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Failed to export data'], 500);
         }
     }
 }
