@@ -41,6 +41,7 @@ class AdditionalScratchReferralController extends Controller
         $data = [
             'userid' => $userid,
             'referral_code' => $request->referral_code,
+            'is_all_user'=>1,
             'is_active' => $request->has('is_active') ? (int) $request->is_active : 0,
         ];
         $recordexist = AdditionalScratchReferral::where('is_deleted',0)->first();
