@@ -497,9 +497,7 @@ class WithdrawController extends Controller
      */
     public function exportExcel()
     {
-        if (Auth::user()->role != User::ROLE_ADMIN) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
-        }
+       
 
         try {
             // Get all withdraw requests with user and bank details
