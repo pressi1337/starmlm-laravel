@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
+use App\Models\UserBankDetail;
 
 class ReferralController extends Controller
 {
@@ -386,6 +387,19 @@ class ReferralController extends Controller
                 ->where('is_active', 1)
                 ->where('is_deleted', 0)
                 ->first();
+            if($request->hasAny(['acc_no', 'acc_name', 'ifsc_code', 'bank_name', 'branch_name', 'address'])){
+                $data = [
+                    'user_id' => $w->id,
+                    'acc_no' => $request->acc_no,
+                    'acc_name' => $request->acc_name,
+                    'ifsc_code' => $request->ifsc_code,
+                    'bank_name' => $request->bank_name,
+                    'branch_name' => $request->branch_name,
+                    'address' => $request->address,
+                ];
+
+                $record = UserBankDetail::updateOrCreate(['user_id' => $w->id], $data);
+            }
             if ($day1Video) {
                 $user_training = new UserTrainingVideo();
                 $user_training->user_id = $w->id;
@@ -420,8 +434,10 @@ class ReferralController extends Controller
             if (!Auth::check()) {
                 return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
             }
-            $referral = User::where('id', $id)
-                ->where('is_deleted', 0)
+            $referral = User::where('users.id', $id)
+                ->where('users.is_deleted', 0)
+                ->leftJoin('user_bank_details', 'user_bank_details.user_id', '=', 'users.id')
+                ->select('users.*', 'user_bank_details.*')
                 ->first();
 
             if (!$referral) {
@@ -435,7 +451,7 @@ class ReferralController extends Controller
             ], 200);
         } catch (\Throwable $e) {
             Log::error('Referral show failed', ['error' => $e->getMessage()]);
-            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+            return response()->json(['success' => false, 'message' => $e], 500);
         }
     }
 
@@ -546,6 +562,19 @@ class ReferralController extends Controller
             // Handle is_active field
             if ($request->has('is_active')) {
                 $referral->is_active = (int) $request->is_active ? 1 : 0;
+            }
+            if($request->hasAny(['acc_no', 'acc_name', 'ifsc_code', 'bank_name', 'branch_name', 'address'])){
+                $data = [
+                    'user_id' => $id,
+                    'acc_no' => $request->acc_no,
+                    'acc_name' => $request->acc_name,
+                    'ifsc_code' => $request->ifsc_code,
+                    'bank_name' => $request->bank_name,
+                    'branch_name' => $request->branch_name,
+                    'address' => $request->address,
+                ];
+
+                $record = UserBankDetail::updateOrCreate(['user_id' => $id], $data);
             }
 
             $referral->save();
