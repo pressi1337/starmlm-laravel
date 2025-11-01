@@ -164,7 +164,13 @@ class UserPromoterController extends Controller
         // Apply search filter on title and description
         if (!empty($search_term)) {
             $query->where(function ($q) use ($search_term) {
-                $q->where('level', 'LIKE', '%' . $search_term . '%');
+                $q->where('level', 'LIKE', '%' . $search_term . '%')
+                ->orWhereHas('user', function($userQuery) use ($search_term) {
+                    $userQuery->where('username', 'LIKE', '%' . $search_term . '%')
+                             ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
+                             ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
+                             ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
+                });
             });
         }
 
