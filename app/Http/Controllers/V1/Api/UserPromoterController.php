@@ -233,6 +233,9 @@ class UserPromoterController extends Controller
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
             }
+
+            $promoter = UserPromoter::where('status',0)->where('is_deleted',0)->where('user_id',$authId)->first();
+            if(empty($promoter)){
             DB::beginTransaction();
             $authId = Auth::id();
             $promoter = new UserPromoter();
@@ -248,12 +251,14 @@ class UserPromoterController extends Controller
             $user->promoter_status = UserPromoter::PIN_STATUS_PENDING;
             $user->save();
             DB::commit();
+            }
 
             return response()->json([
                 'success' => true,
                 'message' => 'User Promoter created successfully',
                 'data' => $promoter,
             ], 200);
+        
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error('UserPromoter store failed', ['error' => $e->getMessage()]);
