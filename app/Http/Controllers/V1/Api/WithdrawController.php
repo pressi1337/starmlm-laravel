@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\WithdrawRequestExport;
-
+use Carbon\Carbon;
 class WithdrawController extends Controller
 {
     use HandlesJson;
@@ -169,7 +169,7 @@ class WithdrawController extends Controller
                 } elseif ($last_withdraw_request->status == WithdrawRequest::STATUS_PROCESSING) {
                     $message = "You have already requested for  processing";
                 } elseif ($last_withdraw_request->status == WithdrawRequest::STATUS_COMPLETED) {
-                    $message = "You have already withdrawn within 30 days try after date" . $last_withdraw_request->request_at->addDays(30)->format('Y-m-d');
+                    $message = "You have already withdrawn within 30 days try after date 30days from last withdraw Date";
                 }
                 return response()->json(['success' => false, 'message' => $message], 400);
             }
@@ -197,7 +197,7 @@ class WithdrawController extends Controller
                 } elseif ($last_withdraw_request->status == WithdrawRequest::STATUS_PROCESSING) {
                     $message = "You have already requested for  processing";
                 } elseif ($last_withdraw_request->status == WithdrawRequest::STATUS_COMPLETED) {
-                    $message = "You have already withdrawn within 7 days try after date" . $last_withdraw_request->request_at->addDays(7)->format('Y-m-d');
+                    $message = "You have already withdrawn within 7 days try after date 7days from last withdraw Date";
                 }
                 return response()->json(['success' => false, 'message' => $message], 400);
             }
@@ -225,7 +225,7 @@ class WithdrawController extends Controller
                 } elseif ($last_withdraw_request->status == WithdrawRequest::STATUS_PROCESSING) {
                     $message = "You have already requested for  processing";
                 } elseif ($last_withdraw_request->status == WithdrawRequest::STATUS_COMPLETED) {
-                    $message = "You have already withdrawn within 30 days try after date" . $last_withdraw_request->request_at->addDays(30)->format('Y-m-d');
+                    $message = "You have already withdrawn within 30 days try after date 30days from last withdraw Date";
                 }
                 return response()->json(['success' => false, 'message' => $message], 400);
             }

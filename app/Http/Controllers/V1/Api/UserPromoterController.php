@@ -233,11 +233,10 @@ class UserPromoterController extends Controller
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
             }
-
+            $authId = Auth::id();
             $promoter = UserPromoter::where('status',0)->where('is_deleted',0)->where('user_id',$authId)->first();
             if(empty($promoter)){
             DB::beginTransaction();
-            $authId = Auth::id();
             $promoter = new UserPromoter();
             $promoter->user_id = $authId;
             $promoter->level = $request->level;
