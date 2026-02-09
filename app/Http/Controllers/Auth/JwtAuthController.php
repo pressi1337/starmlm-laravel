@@ -15,6 +15,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use App\Rules\UniqueActive;
 use Tymon\JWTAuth\Facades\JWTAuth;
+use App\Models\AdditionalScratchReferral;
 
 
 class JwtAuthController extends Controller
@@ -54,8 +55,7 @@ class JwtAuthController extends Controller
             'pin_code'      => 'nullable|string|max:20',
             'language'      => 'nullable|string|max:50',
             'username'      => 'required|string|max:100|unique:users,username',
-            'password'      => 'required|min:6|confirmed',
-            'referral_code' =>'required',
+            'password'      => 'required|min:6|confirmed'
         ], [
             "first_name.required" => "First Name Required",
             "last_name.required" => "Last Name Required",
@@ -69,7 +69,6 @@ class JwtAuthController extends Controller
             "language.required" => "Language Required",
             "username.required" => "Username Required",
             "password.required" => "Password Required",
-            "referral_code.required" => "Referral Required",
             "mobile.unique" => "Mobile Already Exists",
             "username.unique" => "Username Already Exists",
             "password.confirmed" => "Password Confirmation Mismatch",
@@ -100,9 +99,18 @@ class JwtAuthController extends Controller
 
         try {
             DB::beginTransaction();
+            
+            if($request->referral_code){
+            $referral_code = $referral_code;
+            }else{
+            $referral_code = AdditionalScratchReferral::where('is_active', 1)
+                            ->where('is_all_user', 1)
+                            ->where('is_deleted', 0)->value('referral_code');
+
+            }
 
             $referredBy = DB::table('users')
-            ->where('referral_code', $request->referral_code)
+            ->where('referral_code', $referral_code)
             ->value('id');
 
             if (is_null($referredBy)) {
