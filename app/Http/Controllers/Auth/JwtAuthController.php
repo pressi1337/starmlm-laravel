@@ -101,7 +101,7 @@ class JwtAuthController extends Controller
             DB::beginTransaction();
             
             if($request->referral_code){
-            $referral_code = $referral_code;
+            $referral_code = $request->referral_code;
             }else{
             $referral_code = AdditionalScratchReferral::where('is_active', 1)
                             ->where('is_all_user', 1)
@@ -112,7 +112,7 @@ class JwtAuthController extends Controller
             $referredBy = DB::table('users')
             ->where('referral_code', $referral_code)
             ->value('id');
-            
+
             if (!$referredBy) {
             return response()->json([
             'success' => false,
