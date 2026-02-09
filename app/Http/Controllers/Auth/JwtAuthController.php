@@ -112,8 +112,8 @@ class JwtAuthController extends Controller
             $referredBy = DB::table('users')
             ->where('referral_code', $referral_code)
             ->value('id');
-
-            if (is_null($referredBy)) {
+            
+            if (!$referredBy) {
             return response()->json([
             'success' => false,
             'message' => 'No referral user found. Please cross-check the referral code.'
