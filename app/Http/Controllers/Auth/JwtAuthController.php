@@ -219,18 +219,22 @@ class JwtAuthController extends Controller
         $credentials['is_deleted'] = 0;
 
         try {
-            // Update remember_token BEFORE attempting login to ensure JWT claim is correct
-            $user->remember_token = Str::random(60);
-            $user->save();
-
-            // Attempt JWT authentication with the updated user
-            if (!$token = JWTAuth::fromUser($user)) {
+            // Attempt JWT authentication
+            if (!$token = JWTAuth::attempt($credentials)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
                     'code' => 'unauthorized',
                 ], 400);
             }
+
+            // Get JTI from the generated token
+            $payload = JWTAuth::setToken($token)->getPayload();
+            $jti = $payload->get('jti');
+
+            // Save JTI to remember_token to enforce single session
+            $user->remember_token = $jti;
+            $user->save();
 
             // Fetch user data for response
             $userData = User::where('id', $user->id)
