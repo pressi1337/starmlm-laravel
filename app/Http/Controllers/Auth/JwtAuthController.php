@@ -219,7 +219,12 @@ class JwtAuthController extends Controller
         $credentials['is_deleted'] = 0;
 
         try {
-            if (!$token = JWTAuth::attempt($credentials)) {
+            // Update remember_token BEFORE attempting login to ensure JWT claim is correct
+            $user->remember_token = Str::random(60);
+            $user->save();
+
+            // Attempt JWT authentication with the updated user
+            if (!$token = JWTAuth::fromUser($user)) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',
@@ -227,12 +232,8 @@ class JwtAuthController extends Controller
                 ], 400);
             }
 
-            // Update remember_token to a new random value on every login
-            $user->remember_token = Str::random(60);
-            $user->save();
-
-            // Fetch user data
-            $user = User::where('id', $user->id)
+            // Fetch user data for response
+            $userData = User::where('id', $user->id)
                 ->select(
                     'id',
                     'username',
