@@ -29,9 +29,9 @@ class JwtMiddleware
                 ], 401);
             }
 
-            // Verify session version using remember_token
+            // Verify session version using JTI
             $payload = JWTAuth::getPayload();
-            if ($payload->get('session_id') !== $user->remember_token) {
+            if ($payload->get('jti') !== $user->remember_token) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Session expired. Please login again.',
