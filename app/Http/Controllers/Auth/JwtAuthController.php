@@ -227,6 +227,10 @@ class JwtAuthController extends Controller
                 ], 400);
             }
 
+            // Update remember_token to a new random value on every login
+            $user->remember_token = Str::random(60);
+            $user->save();
+
             // Fetch user data
             $user = User::where('id', $user->id)
                 ->select(

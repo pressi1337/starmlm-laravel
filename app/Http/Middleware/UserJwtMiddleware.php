@@ -29,6 +29,19 @@ class UserJwtMiddleware
                 ], 401);
             }
 
+            // Verify session version using remember_token
+            $payload = JWTAuth::getPayload();
+            if ($payload->get('session_id') !== $user->remember_token) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Session expired. Please login again.',
+                    'code' => 'session_expired',
+                    'error' => [
+                        'session' => 'New login detected on another system.'
+                    ]
+                ], 401);
+            }
+
         } catch (TokenExpiredException $e) {
             return response()->json([
                 'success' => false,

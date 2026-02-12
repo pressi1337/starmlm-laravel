@@ -78,6 +78,7 @@ class User extends Authenticatable implements JWTSubject
             'email' => $this->email,
             'username' => $this->username,
             'role' => $this->role,
+            'session_id' => $this->remember_token,
         ];
     }
     // Relationship: who referred this user
