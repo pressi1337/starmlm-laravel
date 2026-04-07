@@ -22,6 +22,7 @@ class User extends Authenticatable implements JWTSubject
     const TRAINING_STATUS_PENDING = 0;
     const TRAINING_STATUS_IN_PROGRESS = 1;
     const TRAINING_STATUS_COMPLETED = 2;
+    const TRAINING_TOTAL_DAYS = 5;
     const PROMOTER_STATUS_PENDING = 0;
     const PROMOTER_STATUS_SHOW_TERM = 1;
     const PROMOTER_STATUS_ACCEPTED_TERM = 2;

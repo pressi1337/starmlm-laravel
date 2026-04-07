@@ -328,17 +328,130 @@ class ReferralController extends Controller
                 'success' => true,
                 'message' => 'Success',
                 'data' => [
+                    'my_promotor' => $this->mapReferrer($this->getSummaryTargetUser((int) Auth::id())->referrer),
                     'direct_referrals' => $directReferrals,
                     'team_counts_by_depth' => $teamCountsByDepth,
                     'total_team_count' => (int) $teamCountsByDepth->sum('count'),
                     'configured_depth' => $configuredDepth ? (int) $configuredDepth : null,
                     'requested_depth' => $maxDepth,
+                    'ceiling_limit' => $configuredDepth ? (int) $configuredDepth : $maxDepth,
                 ],
             ], 200);
         } catch (\Throwable $e) {
             Log::error('Referral team summary failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
         }
+    }
+
+    public function userTeamDetails(Request $request, int $id, ReferralTreeService $referralTreeService)
+    {
+        try {
+            if (!Auth::check()) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            }
+
+            $authUser = User::find(Auth::id());
+            $targetUser = User::query()->where('id', $id)->where('is_deleted', 0)->first();
+
+            if (!$targetUser) {
+                return response()->json(['success' => false, 'message' => 'User not found'], 404);
+            }
+
+            $canViewAnyUser = in_array($authUser?->role, [User::ROLE_ADMIN, User::ROLE_SUPER_ADMIN], true);
+            if (!$canViewAnyUser && (int) Auth::id() !== $targetUser->id) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+            }
+
+            $activeOnly = $request->boolean('active_only', false);
+            $configuredDepth = LevelIncomeRule::query()
+                ->where('is_active', 1)
+                ->where('is_deleted', 0)
+                ->max('referral_depth');
+            $requestedDepth = $request->filled('max_depth') ? max(1, (int) $request->query('max_depth')) : null;
+            $maxDepth = $requestedDepth ?? ($configuredDepth ? (int) $configuredDepth : null);
+
+            $directReferrals = $referralTreeService->getDirectReferrals((int) $targetUser->id)
+                ->map(function ($user) {
+                    return [
+                        'id' => $user->id,
+                        'username' => $user->username,
+                        'first_name' => $user->first_name,
+                        'last_name' => $user->last_name,
+                        'mobile' => $user->mobile,
+                        'current_promoter_level' => $user->current_promoter_level,
+                        'promoter_label' => User::promoterLevelLabel($user->current_promoter_level),
+                        'promoter_status' => $user->promoter_status,
+                        'training_status' => $user->training_status,
+                        'is_active' => $user->is_active,
+                        'created_at' => $user->created_at,
+                    ];
+                })
+                ->values();
+
+            $teamCountsByDepth = $referralTreeService
+                ->getTeamCountsByDepth((int) $targetUser->id, $maxDepth, $activeOnly)
+                ->values();
+
+            $tree = $referralTreeService->getTeamTree((int) $targetUser->id, $maxDepth, $activeOnly);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Success',
+                'data' => [
+                    'user' => [
+                        'id' => $targetUser->id,
+                        'username' => $targetUser->username,
+                        'first_name' => $targetUser->first_name,
+                        'last_name' => $targetUser->last_name,
+                        'mobile' => $targetUser->mobile,
+                        'language' => $targetUser->language,
+                        'current_promoter_level' => $targetUser->current_promoter_level,
+                        'promoter_label' => User::promoterLevelLabel($targetUser->current_promoter_level),
+                        'promoter_status' => $targetUser->promoter_status,
+                        'training_status' => $targetUser->training_status,
+                        'is_active' => $targetUser->is_active,
+                        'quiz_total_earning' => $targetUser->quiz_total_earning,
+                        'scratch_total_earning' => $targetUser->scratch_total_earning,
+                        'saving_total_earning' => $targetUser->saving_total_earning,
+                        'created_at' => $targetUser->created_at,
+                    ],
+                    'my_promotor' => $this->mapReferrer($targetUser->referrer),
+                    'direct_referrals' => $directReferrals,
+                    'team_counts_by_depth' => $teamCountsByDepth,
+                    'total_team_count' => (int) $teamCountsByDepth->sum('count'),
+                    'configured_depth' => $configuredDepth ? (int) $configuredDepth : null,
+                    'requested_depth' => $maxDepth,
+                    'ceiling_limit' => $configuredDepth ? (int) $configuredDepth : $maxDepth,
+                    'team_tree' => $tree,
+                ],
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Referral userTeamDetails failed', ['user_id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    protected function mapReferrer(?User $user): ?array
+    {
+        if (!$user) {
+            return null;
+        }
+
+        return [
+            'id' => $user->id,
+            'username' => $user->username,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'mobile' => $user->mobile,
+            'current_promoter_level' => $user->current_promoter_level,
+            'promoter_label' => User::promoterLevelLabel($user->current_promoter_level),
+            'is_active' => $user->is_active,
+        ];
+    }
+
+    protected function getSummaryTargetUser(int $userId): User
+    {
+        return User::query()->with('referrer')->findOrFail($userId);
     }
 
 

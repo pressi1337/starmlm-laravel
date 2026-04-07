@@ -69,6 +69,7 @@ class UserTrainingController extends Controller
     public function completeTraining(Request $request)
     {
         $user = User::find(Auth::id());
+        $totalTrainingDays = User::TRAINING_TOTAL_DAYS;
 
         // Get the current training (not completed yet)
         $userTraining = UserTrainingVideo::where('user_id', $user->id)
@@ -93,10 +94,13 @@ class UserTrainingController extends Controller
         $currentDay = $userTraining->day;
         $nextDay = $currentDay + 1;
 
-        $nextVideo = TrainingVideo::where('day', $nextDay)
-            ->where('is_active', 1)
-            ->where('is_deleted', 0)
-            ->first();
+        $nextVideo = null;
+        if ($nextDay <= $totalTrainingDays) {
+            $nextVideo = TrainingVideo::where('day', $nextDay)
+                ->where('is_active', 1)
+                ->where('is_deleted', 0)
+                ->first();
+        }
      
         if ($nextVideo) {
             $user_training = new UserTrainingVideo();
@@ -125,6 +129,7 @@ class UserTrainingController extends Controller
         }
         $data = [
             'training_status' => $user->training_status,
+            'training_total_days' => $totalTrainingDays,
         ];
         return response()->json([
             'message'          => $msg,
@@ -135,6 +140,7 @@ class UserTrainingController extends Controller
     public function getCurrentTrainingVideo()
     {
         $user = User::find(Auth::id());
+        $totalTrainingDays = User::TRAINING_TOTAL_DAYS;
         $training = UserTrainingVideo::where('user_id', $user->id)
             ->whereDate('assigned_at', '<=', today()) // temp off for client test
             ->with([
@@ -168,6 +174,7 @@ class UserTrainingController extends Controller
             'training' => $training ?? null,
             'training_status' => $user->training_status,
             'nextday' => ($nextdaydata && $nextdaydata->day !== null) ? $nextdaydata->day + 2: 2,
+            'training_total_days' => $totalTrainingDays,
         ];
         return response()->json([
             'message' => 'Training data',

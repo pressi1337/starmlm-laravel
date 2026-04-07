@@ -11,13 +11,14 @@ use App\Models\PromotionVideo;
 use App\Models\User;
 use App\Models\UserPromoter;
 use App\Models\UserPromoterSession;
+use App\Models\UserPromotionVideoAssignment;
 use App\Models\UserReferral;
 use Illuminate\Support\Facades\Validator;
-use App\Rules\UniqueActive;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Services\PromotionVideoAssignmentService;
 
 class PromotionVideoController extends Controller
 {
@@ -164,18 +165,7 @@ class PromotionVideoController extends Controller
                 "description" => 'required',
                 "video_path" => 'required_without:youtube_link',
                 "youtube_link" => 'required_without:video_path',
-                "showing_date" => [
-                    'required',
-                    new UniqueActive(
-                        'promotion_videos',
-                        'showing_date',
-                        null,
-                        [
-                            'video_order' => $request->video_order,
-                            'session_type' => $request->session_type
-                        ]
-                    )
-                ],
+                "showing_date" => 'required',
                 "video_order" => 'required',
                 "session_type" => 'required',
             ], $this->messages);
@@ -259,18 +249,7 @@ class PromotionVideoController extends Controller
             $validator = Validator::make($request->all(), [
                 "title" => 'required',
                 "description" => 'required',
-                "showing_date" => [
-                    'required',
-                    new UniqueActive(
-                        'promotion_videos',
-                        'showing_date',
-                        $id,
-                        [
-                            'video_order' => $request->video_order,
-                            'session_type' => $request->session_type
-                        ]
-                    )
-                ],
+                "showing_date" => 'required',
                 "video_order" => 'required',
                 "session_type" => 'required',
 
@@ -359,7 +338,7 @@ class PromotionVideoController extends Controller
             return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
     }
-    public function userPromotionVideo()
+    public function userPromotionVideo(PromotionVideoAssignmentService $promotionVideoAssignmentService)
     {
         try {
             $auth_user_id = Auth::id();
@@ -436,43 +415,15 @@ class PromotionVideoController extends Controller
                 $user_promoter_session->save();
             }
 
-            $promotion_video = PromotionVideo::where('is_active', 1)
-                ->whereDate('showing_date', today())
-                ->where('is_deleted', 0)
-                ->where('session_type', $current_session_type)
-                ->where('video_order', $currentOrder)
-                ->with([
-                    'quiz' => function ($quizQuery) {
-                        $quizQuery->where('is_deleted', 0)
-                            ->select(
-                                "id",
-                                "promotion_video_id",
-                            )
-                            ->with([
-                                'questions' => function ($questionQuery) {
-                                    $questionQuery->where('is_deleted', 0)
-                                        ->select('id', 'promotion_video_quiz_id', 'lang_type', 'question', 'time_limit')
-                                        ->with([
-                                            'choices' => function ($choiceQuery) {
-                                                $choiceQuery->where('is_deleted', 0)
-                                                    ->select('id', 'promotion_quiz_question_id', 'lang_type', 'choice_value');
-                                            }
-                                        ]);
-                                }
-                            ]);
-                    }
-                ])
-                ->select(
-                    "id",
-                    "title",
-                    "description",
-                    "video_path",
-                    "youtube_link",
-                    "showing_date",
-                    "video_order",
-                    "session_type",
-                )
-                ->first();
+            $assignment = $promotionVideoAssignmentService->resolveAssignment(
+                $user,
+                $user_promoter_session,
+                $current_session_type,
+                $currentSet,
+                $currentOrder
+            );
+
+            $promotion_video = $assignment?->promotionVideo;
 
             if ($promotion_video && $promotion_video->quiz) {
                 $quiz = $promotion_video->quiz;
@@ -494,7 +445,8 @@ class PromotionVideoController extends Controller
             $user_promoter_session = UserPromoterSession::find($user_promoter_session->id);
             $data = [
                 'promotion_video' => $promotion_video,
-                "user_promoter_session" => $user_promoter_session
+                "user_promoter_session" => $user_promoter_session,
+                "assignment" => $assignment,
             ];
 
             return response()->json([
@@ -506,22 +458,13 @@ class PromotionVideoController extends Controller
             return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
     }
-    public function userPromoterQuizResult(Request $request)
+    public function userPromoterQuizResult(Request $request, PromotionVideoAssignmentService $promotionVideoAssignmentService)
     {
         try {
             $auth_user_id = Auth::id();
-            $auth_user = User::find($auth_user_id);
             $questions_with_selected_choice = $request->questions;
             $promotion_video_id = $request->promotion_video_id;
-
-            $promotion_video = PromotionVideo::find($promotion_video_id);
-            if (!$promotion_video) {
-                return response()->json(['message' => 'Promotion video not found', 'status' => 400], 400);
-            }
             $current_session_type = (Carbon::now()->hour < 12) ? 1 : 2;
-            if ($current_session_type != $promotion_video->session_type) {
-                return response()->json(['message' => 'Session Expired', 'status' => 400], 400);
-            }
             $user_promoter = UserPromoter::where('user_id', $auth_user_id)
                 ->where('status', UserPromoter::PIN_STATUS_ACTIVATED)->orderBy('level','DESC')->first();
             if (!$user_promoter) {
@@ -536,6 +479,30 @@ class PromotionVideoController extends Controller
             if (!$user_promoter_session) {
                 return response()->json(['message' => 'User promoter session expired', 'status' => 400], 400);
             }
+
+            $currentSet = ($user_promoter_session->set1_status > 2) ? 2 : 1;
+            $currentOrder = ($currentSet === 1)
+                ? $user_promoter_session->current_video_order_set1
+                : $user_promoter_session->current_video_order_set2;
+
+            $assignment = $promotionVideoAssignmentService->findAssignment(
+                $auth_user_id,
+                $user_promoter_session->id,
+                Carbon::parse($user_promoter_session->attend_at)->toDateString(),
+                $current_session_type,
+                $currentSet,
+                $currentOrder
+            );
+
+            if (!$assignment || (int) $assignment->promotion_video_id !== (int) $promotion_video_id) {
+                return response()->json(['message' => 'Assigned promotion video not found for this user', 'status' => 400], 400);
+            }
+
+            $promotion_video = PromotionVideo::find($promotion_video_id);
+            if (!$promotion_video) {
+                return response()->json(['message' => 'Promotion video not found', 'status' => 400], 400);
+            }
+
             $total_earning = 0;
             ['default' => $default_video_total_earnable_amount, 'max' => $max_earnable_per_video] = $this->promotionAmountForPromoterLevel((int) $user_promoter->level);
             $video_total_earnable_amount = $default_video_total_earnable_amount;
@@ -575,13 +542,6 @@ class PromotionVideoController extends Controller
             }
             $percentage_correct = ($total_questions > 0) ? ($correct_count / $total_questions) : 0;
             $total_earning = round($video_total_earnable_amount * $percentage_correct, 2);
-
-            $user_promoter_session = UserPromoterSession::where('user_id', $auth_user_id)
-                ->where('user_promoter_id', $user_promoter->id)->whereDate('attend_at', today())
-                ->where('session_type', $current_session_type)
-                ->orderBy('id', 'desc')
-                ->first();
-            $currentSet = ($user_promoter_session->set1_status > 2) ? 2 : 1;
             if ($currentSet == 1) {
                 $user_promoter_session->set1_status = 2;
                 $user_promoter_session->earned_amount_set1 = $total_earning;
@@ -591,6 +551,7 @@ class PromotionVideoController extends Controller
                 $user_promoter_session->earned_amount_set2 = $total_earning;
                 $user_promoter_session->save();
             }
+            $promotionVideoAssignmentService->markQuizCompleted($assignment, $auth_user_id);
             $retry = false;
             if ($user_promoter_session->set1_status <= 2) {
                 if ($user_promoter_session->current_video_order_set1 == 1) {
@@ -622,7 +583,7 @@ class PromotionVideoController extends Controller
             return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
     }
-    public function userPromoterQuizResultConfirmation(Request $request)
+    public function userPromoterQuizResultConfirmation(Request $request, PromotionVideoAssignmentService $promotionVideoAssignmentService)
     {
         try {
             DB::beginTransaction();
@@ -635,10 +596,14 @@ class PromotionVideoController extends Controller
             $earned_amount = 0;
             $earning_type = 1;
             $description = '';
+            $currentSet = 1;
+            $currentOrder = 1;
             if ($user_promoter_session->set1_status == UserPromoterSession::SET1_STATUS_QUIZ_COMPLETED) {
                 $user_promoter_session->set1_status = UserPromoterSession::SET1_STATUS_SUBMITTED;
                 $user_promoter_session->session_status = 3;
                 $user_promoter_session->save();
+                $currentSet = 1;
+                $currentOrder = $user_promoter_session->current_video_order_set1;
                 $earned_amount = $user_promoter_session->earned_amount_set1;
                 if ($user_promoter_session->session_type == UserPromoterSession::SESSION_TYPE_MORNING) {
                     $earning_type = EarningHistory::EARNING_TYPE_SESSION_1_SET_1_VIDEO;
@@ -651,6 +616,8 @@ class PromotionVideoController extends Controller
                 $user_promoter_session->set2_status = UserPromoterSession::SET2_STATUS_SUBMITTED;
                 $user_promoter_session->session_status = 3;
                 $user_promoter_session->save();
+                $currentSet = 2;
+                $currentOrder = $user_promoter_session->current_video_order_set2;
                 $earned_amount = $user_promoter_session->earned_amount_set2;
                 if ($user_promoter_session->session_type == UserPromoterSession::SESSION_TYPE_MORNING) {
                     $earning_type = EarningHistory::EARNING_TYPE_SESSION_1_SET_2_VIDEO;
@@ -683,6 +650,17 @@ class PromotionVideoController extends Controller
             $user->quiz_total_earning += $main_wallet_amount;
             $user->saving_total_earning += $saving_amount;
             $user->save();
+            $assignment = $promotionVideoAssignmentService->findAssignment(
+                (int) $user_promoter_session->user_id,
+                (int) $user_promoter_session->id,
+                Carbon::parse($user_promoter_session->attend_at)->toDateString(),
+                (int) $user_promoter_session->session_type,
+                $currentSet,
+                $currentOrder
+            );
+            if ($assignment) {
+                $promotionVideoAssignmentService->markConfirmed($assignment, (int) $user_promoter_session->user_id);
+            }
             DB::commit();
             return response()->json([
                 'message' => 'User promoter session confirmed successfully',

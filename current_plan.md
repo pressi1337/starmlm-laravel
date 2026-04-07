@@ -12,6 +12,23 @@ Build a new release feature for a config-driven `Level Income Matrix` with:
 
 This document is a planning artifact only. No feature code is included here.
 
+## Follow-Up Release Notes
+
+After the initial Level Income release work, the next production-safe enhancement scope was added and implemented in code with these directions:
+
+1. training flow reduced from 7 days to 5 days
+2. quiz selection labels standardized to `English` and `தமிழ்`
+3. quiz default timing standardized to 55 seconds
+4. user referral screen enhanced with:
+   - My Promotor
+   - direct-only emphasis
+   - total team count
+   - ceiling limit
+5. admin customer listing enhanced with a full-width team-tree modal
+6. promotion video delivery redesigned away from strict `today + session + order` lookup into tracked user-specific assignment history with replay fallback
+
+These changes are additive and intended to preserve existing production behavior as much as possible while making promotion delivery more flexible for new uploads.
+
 ## Production-Safety Principle
 
 This product is already running in production, so the Level Income feature must be introduced as an additive release, not a rewrite.

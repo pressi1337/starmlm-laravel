@@ -107,6 +107,7 @@ Route::prefix('v1')->middleware('auth:jwt,userjwt')->group(function () {
     Route::patch('changepassword', [JwtAuthController::class, 'changePassword']);
     Route::patch('update-personal-details', [JwtAuthController::class, 'updatePersonalDetails']);
     Route::get('referrals/team-summary', [ReferralController::class, 'teamSummary']);
+    Route::get('referrals/{id}/team-details', [ReferralController::class, 'userTeamDetails']);
     Route::resource('user-promoters', UserPromoterController::class);
     Route::resource('referrals', ReferralController::class);
     Route::get('all-referrals', [ReferralController::class, 'allReferral']);
