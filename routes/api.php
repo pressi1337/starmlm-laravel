@@ -19,6 +19,8 @@ use App\Http\Controllers\V1\Api\WithdrawController;
 use App\Http\Controllers\VideoUploadController;
 use App\Http\Controllers\V1\Api\AdminDashboardController;
 use App\Http\Controllers\V1\Api\LevelIncomeRuleController;
+use App\Http\Controllers\V1\Api\SupportHelpController;
+use App\Http\Controllers\V1\Api\UserSuggestionController;
 
 Route::prefix('v1')->group(function () {
     require __DIR__ . '/auth.php';
@@ -40,6 +42,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::patch('youtube-channels/status-update', [YoutubeController::class, 'StatusUpdate']);
     Route::patch('scratch-setup/status-update', [ScratchSetupController::class, 'StatusUpdate']);
     Route::patch('level-income-rules/status-update', [LevelIncomeRuleController::class, 'statusUpdate']);
+    Route::patch('support-help/status-update', [SupportHelpController::class, 'statusUpdate']);
     Route::patch('delete-account', [JwtAuthController::class, 'DeleteAccount']);
     //
     Route::resource('daily-videos', DailyVideoController::class);
@@ -68,6 +71,12 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     // Admin Bank Details
     Route::post('admin-bank-details/upsert', [AdminBankDetailController::class, 'manage']);
     Route::get('admin-bank-details', [AdminBankDetailController::class, 'getActive']);
+    Route::post('user-bank-detail/admin-reset', [UserBankDetailController::class, 'adminReset']);
+    Route::post('user-suggestions/react', [UserSuggestionController::class, 'react']);
+    Route::post('support-help', [SupportHelpController::class, 'store']);
+    Route::put('support-help/{id}', [SupportHelpController::class, 'update']);
+    Route::delete('support-help/{id}', [SupportHelpController::class, 'destroy']);
+    Route::get('support-help/{id}', [SupportHelpController::class, 'show']);
     
 });
 
@@ -91,6 +100,7 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     // User bank detail upsert and fetch
     Route::post('user-bank-detail/upsert', [UserBankDetailController::class, 'upsert']);
     Route::get('user-bank-detail', [UserBankDetailController::class, 'show']);
+    Route::post('user-suggestions', [UserSuggestionController::class, 'store']);
 
     // scratch cards
     Route::get('get-scratch-cards', [UserPromoterController::class, 'getScratchCards']);
@@ -115,4 +125,6 @@ Route::prefix('v1')->middleware('auth:jwt,userjwt')->group(function () {
     Route::get('withdraws/export/excel', [WithdrawController::class, 'exportExcel']);
     Route::resource('youtube-channels', YoutubeController::class);
     Route::get('admin-bank-details', [AdminBankDetailController::class, 'getActive']);
+    Route::get('support-help', [SupportHelpController::class, 'index']);
+    Route::get('user-suggestions', [UserSuggestionController::class, 'index']);
 });

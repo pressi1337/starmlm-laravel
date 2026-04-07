@@ -328,3 +328,10 @@ The first implementation of this feature is designed with these defaults:
 4. Upgrade requests no longer replace the currently active promoter access until final pin activation.
 5. Lifecycle automation command added:
    - `php artisan promoters:process-pending`
+
+## Additional Release Notes 2
+
+1. Support and Help now supports admin-configured repeated questions and answers for the user portal.
+2. Suggestions now allows users to submit ideas with a rolling limit of 3 pending suggestions until admin reacts.
+3. Admin can react to suggestions using text, emoji, or both.
+4. Admin can now clear a customer's bank account details and reopen the bank form so the customer can refill it again.

@@ -60,4 +60,34 @@ class UserBankDetailController extends Controller
             'data' => $record,
         ], 200);
     }
+
+    public function adminReset(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'user_id' => 'required|integer|exists:users,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => false,
+                'errors' => $validator->errors(),
+            ], 422);
+        }
+
+        $record = UserBankDetail::firstOrNew(['user_id' => $request->user_id]);
+        $record->acc_no = null;
+        $record->acc_name = null;
+        $record->ifsc_code = null;
+        $record->bank_name = null;
+        $record->branch_name = null;
+        $record->address = null;
+        $record->is_editable = 0;
+        $record->save();
+
+        return response()->json([
+            'status' => true,
+            'message' => 'Customer bank details cleared. Customer can refill again.',
+            'data' => $record,
+        ], 200);
+    }
 }
