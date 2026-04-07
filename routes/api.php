@@ -60,11 +60,14 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
     Route::post('term-raised', [UserPromoterController::class, 'termRaised']);
     Route::post('pin-rejected', [UserPromoterController::class, 'pinRejected']);
+    Route::post('pin-requests/product-delivery-status-update', [UserPromoterController::class, 'productDeliveryStatusUpdate']);
+    Route::get('pin-requests/export/excel', [UserPromoterController::class, 'exportExcel']);
 
     // unified endpoint: handles chunk upload and auto-merge
     Route::post('upload', [VideoUploadController::class, 'upload']);
     Route::post('upload/delete', [VideoUploadController::class, 'delete']);
     Route::post('withdraw-status-update', [WithdrawController::class, 'withdrawStatusUpdate']);
+    Route::post('withdraws/import/excel', [WithdrawController::class, 'importExcel']);
     // Admin Dashboard
     Route::get('admin-dashboard', [AdminDashboardController::class, 'index']);
     
@@ -90,6 +93,7 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     Route::post('user-day-training-mark-as-completed', [UserTrainingController::class, 'completeTraining']);
     Route::post('term-accepted', [UserPromoterController::class, 'termrAccepted']);
     Route::post('activate-pin', [UserPromoterController::class, 'activatePin']);
+    Route::post('pin-requests/customer-delivery-confirmation', [UserPromoterController::class, 'customerDeliveryConfirmation']);
     Route::get('user-promoters/list', [UserPromoterController::class, 'userPromotersList']);
     Route::get('user-promoter-video-get', [PromotionVideoController::class, 'userPromotionVideo']);
     Route::post('user-promoter-quiz-result-get', [PromotionVideoController::class, 'userPromoterQuizResult']);
@@ -122,6 +126,7 @@ Route::prefix('v1')->middleware('auth:jwt,userjwt')->group(function () {
     Route::resource('referrals', ReferralController::class);
     Route::get('all-referrals', [ReferralController::class, 'allReferral']);
     Route::resource('withdraws', WithdrawController::class);
+    Route::get('referrals/export/excel', [ReferralController::class, 'exportExcel']);
     Route::get('withdraws/export/excel', [WithdrawController::class, 'exportExcel']);
     Route::resource('youtube-channels', YoutubeController::class);
     Route::get('admin-bank-details', [AdminBankDetailController::class, 'getActive']);

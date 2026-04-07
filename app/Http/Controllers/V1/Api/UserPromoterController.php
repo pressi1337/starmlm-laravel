@@ -11,12 +11,14 @@ use App\Models\ReferralScratchRange;
 use App\Models\ScratchCard;
 use App\Models\User;
 use App\Models\UserPromoter;
+use App\Exports\PinRequestExport;
 use App\Services\LevelIncomePayoutService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Maatwebsite\Excel\Facades\Excel;
 
 class UserPromoterController extends Controller
 {
@@ -25,8 +27,8 @@ class UserPromoterController extends Controller
      * Display a listing of the resource.
      */
     protected $messages;
-    protected array $sortable = ['created_at', 'level', 'status', 'updated_at'];
-    protected array $filterable = ['level', 'status', 'user_id', 'fromdate', 'todate'];
+    protected array $sortable = ['created_at', 'level', 'status', 'updated_at', 'activated_at', 'pin_generated_at', 'product_delivery_status'];
+    protected array $filterable = ['level', 'status', 'user_id', 'fromdate', 'todate', 'product_delivery_status', 'gift_delivery_type'];
     public function __construct()
     {
         $this->messages = [
@@ -111,71 +113,11 @@ class UserPromoterController extends Controller
     {
         $this->applyLifecycleAutomation();
 
-        // Default sorting
-        $sort_column = $request->query('sort_column', 'created_at');
-        $sort_direction = $request->query('sort_direction', 'DESC');
-
-        // Pagination parameters
-        $page_size = (int) $request->query('page_size', 10); // Default to 10 items per page
+        $sort_column = $request->query('sort_column', $request->query('sortBy', 'created_at'));
+        $sort_direction = strtoupper($request->query('sort_direction', $request->query('sortDir', 'DESC'))) === 'ASC' ? 'ASC' : 'DESC';
+        $page_size = (int) $request->query('page_size', 10);
         $page_number = (int) $request->query('page_number', 1);
-        $search_term = $request->query('search', '');
-
-        // Parse search_param JSON safely
-        $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
-
-        // Start building the query
-        $query = UserPromoter::query();
-
-        // Apply default filters
-        $query->where('is_deleted', 0);
-
-        // Apply search_param filters
-        foreach ($search_param as $key => $value) {
-            if ($value === '' || $value === null) {
-                continue;
-            }
-            if (in_array($key, $this->filterable, true)) {
-                if (is_array($value)) {
-                    if (!empty($value)) {
-                        // Use whereIn for array values
-                        $query->whereIn($key, $value);
-                    }
-                } else {
-                    if ($key === 'fromdate' || $key === 'todate') {
-                        // Handle date range filtering
-                        continue; // Skip individual processing, handle together below
-                    } else {
-                        $query->where($key, $value);
-                    }
-                }
-            }
-        }
-
-        // Handle date range filtering separately
-        $fromDate = $search_param['fromdate'] ?? null;
-        $toDate = $search_param['todate'] ?? null;
-        if ($fromDate && $toDate) {
-            $query->whereBetween('created_at', [$fromDate, $toDate]);
-        } elseif ($fromDate) {
-            $query->whereDate('created_at', '>=', $fromDate);
-        } elseif ($toDate) {
-            $query->whereDate('created_at', '<=', $toDate);
-        }
-
-        // Apply search filter on title and description
-        if (!empty($search_term)) {
-            $query->where(function ($q) use ($search_term) {
-                $q->where('level', 'LIKE', '%' . $search_term . '%')
-                ->orWhereHas('user', function($userQuery) use ($search_term) {
-                    $userQuery->where('username', 'LIKE', '%' . $search_term . '%')
-                             ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
-                             ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
-                             ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
-                });
-            });
-        }
-
-        // Get total records for pagination
+        $query = $this->buildPromoterIndexQuery($request);
         $total_records = $query->count();
 
         // Apply sorting and pagination
@@ -208,6 +150,56 @@ class UserPromoterController extends Controller
                 'total_records' => $total_records
             ]
         ], 200);
+    }
+
+    private function buildPromoterIndexQuery(Request $request)
+    {
+        $search_term = $request->query('search', '');
+        $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
+
+        $query = UserPromoter::query()->where('is_deleted', 0);
+
+        foreach ($search_param as $key => $value) {
+            if ($value === '' || $value === null) {
+                continue;
+            }
+            if (in_array($key, $this->filterable, true)) {
+                if (is_array($value)) {
+                    if (!empty($value)) {
+                        $query->whereIn($key, $value);
+                    }
+                } else {
+                    if ($key === 'fromdate' || $key === 'todate') {
+                        continue;
+                    }
+                    $query->where($key, $value);
+                }
+            }
+        }
+
+        $fromDate = $search_param['fromdate'] ?? null;
+        $toDate = $search_param['todate'] ?? null;
+        if ($fromDate && $toDate) {
+            $query->whereBetween('created_at', [$fromDate, $toDate]);
+        } elseif ($fromDate) {
+            $query->whereDate('created_at', '>=', $fromDate);
+        } elseif ($toDate) {
+            $query->whereDate('created_at', '<=', $toDate);
+        }
+
+        if (!empty($search_term)) {
+            $query->where(function ($q) use ($search_term) {
+                $q->where('level', 'LIKE', '%' . $search_term . '%')
+                    ->orWhereHas('user', function ($userQuery) use ($search_term) {
+                        $userQuery->where('username', 'LIKE', '%' . $search_term . '%')
+                            ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
+                            ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
+                            ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
+                    });
+            });
+        }
+
+        return $query;
     }
 
     /**
@@ -540,6 +532,78 @@ class UserPromoterController extends Controller
             'message' => 'User promoters list',
             'data' => $promoters
         ], 200);
+    }
+
+    public function exportExcel(Request $request)
+    {
+        try {
+            $sort_column = $request->query('sort_column', $request->query('sortBy', 'created_at'));
+            $sort_direction = strtoupper($request->query('sort_direction', $request->query('sortDir', 'DESC'))) === 'ASC' ? 'ASC' : 'DESC';
+            $rows = $this->buildPromoterIndexQuery($request)
+                ->with('user')
+                ->orderBy($sort_column, $sort_direction)
+                ->get();
+
+            return Excel::download(
+                new PinRequestExport($rows),
+                'pin_requests_' . date('Y-m-d_H-i-s') . '.xlsx'
+            );
+        } catch (\Throwable $e) {
+            Log::error('Pin request export failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Failed to export data'], 500);
+        }
+    }
+
+    public function productDeliveryStatusUpdate(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'id' => 'required|integer',
+            'product_delivery_status' => 'required|integer|in:0,1,2,3',
+            'product_delivery_notes' => 'nullable|string|max:2000',
+            'bill_path' => 'nullable|string|max:500',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $promoter = UserPromoter::find($request->id);
+        if (!$promoter) {
+            return response()->json(['success' => false, 'message' => 'Promoter not found'], 400);
+        }
+
+        $promoter->product_delivery_status = (int) $request->product_delivery_status;
+        $promoter->product_delivery_notes = $request->product_delivery_notes;
+        $promoter->bill_path = $request->bill_path;
+        $promoter->product_delivery_updated_at = now();
+        $promoter->updated_by = Auth::id();
+        $promoter->save();
+
+        return response()->json(['success' => true, 'message' => 'Product delivery status updated successfully', 'data' => $promoter], 200);
+    }
+
+    public function customerDeliveryConfirmation(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'id' => 'required|integer',
+            'customer_delivery_status' => 'required|integer|in:1,2',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $promoter = UserPromoter::where('id', $request->id)->where('user_id', Auth::id())->first();
+        if (!$promoter) {
+            return response()->json(['success' => false, 'message' => 'Promoter not found'], 400);
+        }
+
+        $promoter->customer_delivery_status = (int) $request->customer_delivery_status;
+        $promoter->customer_delivery_confirmed_at = now();
+        $promoter->updated_by = Auth::id();
+        $promoter->save();
+
+        return response()->json(['success' => true, 'message' => 'Product receipt status saved successfully', 'data' => $promoter], 200);
     }
 
     private function applyLifecycleAutomation(?int $userId = null): void

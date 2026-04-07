@@ -8,6 +8,13 @@ class UserPromoter extends Model
 {
     const GIFT_DELIVERY_TYPE_PICKUP = 1;
     const GIFT_DELIVERY_TYPE_DELIVERY = 2;
+    const PRODUCT_DELIVERY_STATUS_PENDING = 0;
+    const PRODUCT_DELIVERY_STATUS_PROCESSING = 1;
+    const PRODUCT_DELIVERY_STATUS_DELIVERED = 2;
+    const PRODUCT_DELIVERY_STATUS_NOT_DELIVERED = 3;
+    const CUSTOMER_DELIVERY_STATUS_PENDING = 0;
+    const CUSTOMER_DELIVERY_STATUS_RECEIVED = 1;
+    const CUSTOMER_DELIVERY_STATUS_NOT_RECEIVED = 2;
     const PIN_STATUS_PENDING = 0;
     const PIN_STATUS_APPROVED = 1;
     const PIN_STATUS_ACTIVATED = 2;
@@ -27,6 +34,12 @@ class UserPromoter extends Model
         'terms_accepted_at',
         'auto_deleted_at',
         'deleted_reason',
+        'product_delivery_status',
+        'product_delivery_notes',
+        'bill_path',
+        'product_delivery_updated_at',
+        'customer_delivery_status',
+        'customer_delivery_confirmed_at',
         'activated_at',
         'created_by',
         'updated_by',

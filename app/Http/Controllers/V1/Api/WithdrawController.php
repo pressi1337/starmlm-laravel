@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\WithdrawRequestExport;
+use App\Imports\WithdrawStatusImport;
 use Carbon\Carbon;
 class WithdrawController extends Controller
 {
@@ -21,9 +22,9 @@ class WithdrawController extends Controller
      * Display a listing of the resource.
      */
 
-    protected array $sortable = ['created_at', 'amount', 'earning_date', 'earning_type', 'earning_status', 'id', 'description'];
+    protected array $sortable = ['created_at', 'amount', 'earning_date', 'earning_type', 'earning_status', 'id', 'description', 'request_at', 'status', 'wallet_type'];
     protected array $filterable = ['amount', 'earning_date', 'earning_type', 'earning_status', 'id', 'description'];
-    protected array $filterable1 = ['amount', 'request_at', 'status', 'wallet_type', 'id','reason'];
+    protected array $filterable1 = ['amount', 'request_at', 'status', 'wallet_type', 'id','reason', 'fromdate', 'todate'];
     protected $messages;
     public function __construct()
     {
@@ -37,10 +38,10 @@ class WithdrawController extends Controller
         if (Auth::user()->role == User::ROLE_ADMIN) {
           try {
             // Default sorting
-            $sort_column = $request->query('sort_column', 'created_at');
-            $sort_direction = strtoupper($request->query('sort_direction', 'DESC')) === 'ASC' ? 'ASC' : 'DESC';
+            $sort_column = $request->query('sort_column', $request->query('sortBy', 'request_at'));
+            $sort_direction = strtoupper($request->query('sort_direction', $request->query('sortDir', 'DESC'))) === 'ASC' ? 'ASC' : 'DESC';
             if (!in_array($sort_column, $this->sortable, true)) {
-                $sort_column = 'created_at';
+                $sort_column = 'request_at';
             }
 
             // Pagination parameters
@@ -48,37 +49,7 @@ class WithdrawController extends Controller
             $page_number = max(1, (int) $request->query('page_number', 1));
             $search_term = trim((string) $request->query('search', ''));
 
-            // Parse search_param JSON safely
-            $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
-
-            // Start building the query
-            $query = WithdrawRequest::query();
-
-            // Apply default filters
-            $query->where('is_deleted', 0);
-
-            // Apply search_param filters (whitelisted)
-            foreach (($search_param ?? []) as $key => $value) {
-                if ($value === '' || $value === null) {
-                    continue;
-                }
-                if (in_array($key, $this->filterable, true)) {
-                    $query->where($key, $value);
-                }
-            }
-
-            // Apply search filter across common fields
-            if ($search_term !== '') {
-                $query->where(function ($q) use ($search_term) {
-                    $q->where('amount', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('request_at', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('status', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('wallet_type', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('reason', 'LIKE', '%' . $search_term . '%');
-                });
-            }
-
-            // Get total records for pagination
+            $query = $this->buildAdminWithdrawQuery($request);
             $total_records = $query->count();
 
             // Apply sorting and pagination
@@ -461,6 +432,7 @@ class WithdrawController extends Controller
             $validator = Validator::make($request->all(), [
                 "id" => "required",
                 "status" => "required",
+                "details" => "nullable|string|max:3000",
             ], $this->messages);
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
@@ -469,10 +441,20 @@ class WithdrawController extends Controller
             if (!$withdraw_request) {
                 return response()->json(['success' => false, 'message' => 'Withdraw request not found'], 422);
             }
+            $wasRejected = (int) $withdraw_request->status === WithdrawRequest::STATUS_REJECTED;
             $withdraw_request->status = $request->status;
             $withdraw_request->reason = $request->reason;
+            $withdraw_request->status_updated_at = now();
+            $withdraw_request->status_updated_by = Auth::id();
+            if ((int) $request->status === WithdrawRequest::STATUS_PROCESSING) {
+                $withdraw_request->processing_details = $request->details;
+            } elseif ((int) $request->status === WithdrawRequest::STATUS_COMPLETED) {
+                $withdraw_request->completed_details = $request->details;
+            } elseif ((int) $request->status === WithdrawRequest::STATUS_REJECTED) {
+                $withdraw_request->rejected_details = $request->reason ?? $request->details;
+            }
             $withdraw_request->save();
-            if($request->status == WithdrawRequest::STATUS_REJECTED){
+            if($request->status == WithdrawRequest::STATUS_REJECTED && !$wasRejected){
                 $user = User::find($withdraw_request->user_id);
                 if($withdraw_request->wallet_type == WithdrawRequest::WALLET_TYPE_MAIN){        
                     $user->quiz_total_withdraw -= $withdraw_request->amount;
@@ -497,14 +479,13 @@ class WithdrawController extends Controller
      */
     public function exportExcel()
     {
-       
-
         try {
-            // Get all withdraw requests with user and bank details
-            $withdrawRequests = WithdrawRequest::where('is_deleted', 0)
-                ->where('status', '=', WithdrawRequest::STATUS_PENDING)
+            $request = request();
+            $sort_column = $request->query('sort_column', $request->query('sortBy', 'request_at'));
+            $sort_direction = strtoupper($request->query('sort_direction', $request->query('sortDir', 'DESC'))) === 'ASC' ? 'ASC' : 'DESC';
+            $withdrawRequests = $this->buildAdminWithdrawQuery($request)
                 ->with(['user', 'bankDetail'])
-                ->orderBy('created_at', 'DESC')
+                ->orderBy($sort_column, $sort_direction)
                 ->get();
 
             return Excel::download(
@@ -515,5 +496,73 @@ class WithdrawController extends Controller
             Log::error('Withdraw export failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Failed to export data'], 500);
         }
+    }
+
+    public function importExcel(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|file|mimes:xlsx,xls,csv',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        try {
+            Excel::import(new WithdrawStatusImport(Auth::id()), $request->file('file'));
+
+            return response()->json(['success' => true, 'message' => 'Withdraw status import completed successfully'], 200);
+        } catch (\Throwable $e) {
+            Log::error('Withdraw import failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Failed to import file'], 500);
+        }
+    }
+
+    private function buildAdminWithdrawQuery(Request $request)
+    {
+        $search_term = trim((string) $request->query('search', ''));
+        $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
+
+        $query = WithdrawRequest::query()->where('is_deleted', 0);
+
+        foreach (($search_param ?? []) as $key => $value) {
+            if ($value === '' || $value === null) {
+                continue;
+            }
+            if (in_array($key, $this->filterable1, true)) {
+                if ($key === 'fromdate' || $key === 'todate') {
+                    continue;
+                }
+                $query->where($key, $value);
+            }
+        }
+
+        $fromDate = $search_param['fromdate'] ?? null;
+        $toDate = $search_param['todate'] ?? null;
+        if ($fromDate && $toDate) {
+            $query->whereBetween('request_at', [$fromDate, $toDate]);
+        } elseif ($fromDate) {
+            $query->whereDate('request_at', '>=', $fromDate);
+        } elseif ($toDate) {
+            $query->whereDate('request_at', '<=', $toDate);
+        }
+
+        if ($search_term !== '') {
+            $query->where(function ($q) use ($search_term) {
+                $q->where('amount', 'LIKE', '%' . $search_term . '%')
+                    ->orWhere('request_at', 'LIKE', '%' . $search_term . '%')
+                    ->orWhere('status', 'LIKE', '%' . $search_term . '%')
+                    ->orWhere('wallet_type', 'LIKE', '%' . $search_term . '%')
+                    ->orWhere('reason', 'LIKE', '%' . $search_term . '%')
+                    ->orWhereHas('user', function ($userQuery) use ($search_term) {
+                        $userQuery->where('username', 'LIKE', '%' . $search_term . '%')
+                            ->orWhere('mobile', 'LIKE', '%' . $search_term . '%')
+                            ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
+                            ->orWhere('last_name', 'LIKE', '%' . $search_term . '%');
+                    });
+            });
+        }
+
+        return $query;
     }
 }

@@ -15,6 +15,23 @@ class WithdrawRequest extends Model
     const WALLET_TYPE_SCRATCH = 2;
     const WALLET_TYPE_GROW = 3;
 
+    protected $fillable = [
+        'user_id',
+        'amount',
+        'request_at',
+        'status',
+        'wallet_type',
+        'reason',
+        'processing_details',
+        'completed_details',
+        'rejected_details',
+        'status_updated_at',
+        'status_updated_by',
+        'created_by',
+        'updated_by',
+        'is_deleted',
+    ];
+
     public function user()
     {
         return $this->belongsTo(User::class);

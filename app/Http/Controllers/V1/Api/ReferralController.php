@@ -19,6 +19,8 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use App\Models\UserBankDetail;
 use App\Services\ReferralTreeService;
+use App\Exports\UserManagementExport;
+use Maatwebsite\Excel\Facades\Excel;
 
 class ReferralController extends Controller
 {
@@ -29,7 +31,7 @@ class ReferralController extends Controller
      * @return \Illuminate\Http\Response
      */
     protected $messages;
-    protected array $sortable = ['created_at', 'username', 'first_name', 'last_name', 'mobile', 'id'];
+    protected array $sortable = ['created_at', 'username', 'first_name', 'last_name', 'mobile', 'id', 'current_promoter_level', 'total_team_count'];
     protected array $filterable = ['username', 'first_name', 'last_name', 'mobile', 'is_active', 'id', 'fromdate', 'todate', 'current_promoter_level'];
     public function __construct()
     {
@@ -183,13 +185,13 @@ class ReferralController extends Controller
     public function allReferral(Request $request)
     {
         try {
-            if (!Auth::check()) {
+            if (!Auth::check() || !in_array(Auth::user()->role, [User::ROLE_ADMIN, User::ROLE_SUPER_ADMIN], true)) {
                 return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
             }
 
             // Default sorting
-            $sort_column = $request->query('sort_column', 'created_at');
-            $sort_direction = strtoupper($request->query('sort_direction', 'DESC')) === 'ASC' ? 'ASC' : 'DESC';
+            $sort_column = $request->query('sort_column', $request->query('sortBy', 'created_at'));
+            $sort_direction = strtoupper($request->query('sort_direction', $request->query('sortDir', 'DESC'))) === 'ASC' ? 'ASC' : 'DESC';
             if (!in_array($sort_column, $this->sortable, true)) {
                 $sort_column = 'created_at';
             }
@@ -199,77 +201,11 @@ class ReferralController extends Controller
             $page_number = max(1, (int) $request->query('page_number', 1));
             $search_term = trim((string) $request->query('search', ''));
 
-            // Parse search_param JSON safely
-            $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));    
-            // Start building the query
-            $query = User::query();
-
-            // Apply default filters
-            $query->where('is_deleted', 0)->where('role',2);
-
-            // Apply search_param filters (whitelisted)
-            foreach (($search_param ?? []) as $key => $value) {
-                if ($value === '' || $value === null) {
-                    continue;
-                }
-                if (in_array($key, $this->filterable, true)) {
-                    if (is_array($value)) {
-                        if (!empty($value)) {
-                            // Use whereIn for array values
-                            $query->whereIn($key, $value);
-                        }
-                    } else {
-                        if ($key === 'fromdate' || $key === 'todate') {
-                            // Handle date range filtering
-                            continue; // Skip individual processing, handle together below
-                        } else {
-                            $query->where($key, $value);
-                        }
-                    }
-                }
-            }
-
-            // Handle date range filtering separately
-            $fromDate = $search_param['fromdate'] ?? null;
-            $toDate = $search_param['todate'] ?? null;
-            if ($fromDate && $toDate) {
-                $query->whereBetween('created_at', [$fromDate, $toDate]);
-            } elseif ($fromDate) {
-                $query->whereDate('created_at', '>=', $fromDate);
-            } elseif ($toDate) {
-                $query->whereDate('created_at', '<=', $toDate);
-            }
-
-            // Apply search filter across common fields
-            if ($search_term !== '') {
-                $query->where(function ($q) use ($search_term) {
-                    $q->where('username', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
-                });
-            }
-
-            // Get total records for pagination
-            $total_records = $query->count();
-
-            // Apply sorting and pagination
-            $users = $query->orderBy($sort_column, $sort_direction)
-                ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
-                    return $q->skip(($page_number - 1) * $page_size)
-                        ->take($page_size);
-                })
-                ->with('referrer')
-                ->get()
-                ->map(function ($user) {
-                    $user->created_at_formatted = $user->created_at
-                        ? $user->created_at->format('d-m-Y h:i A')
-                        : '-';
-                    $user->updated_at_formatted = $user->updated_at
-                        ? $user->updated_at->format('d-m-Y h:i A')
-                        : '-';
-                    return $user;
-                });
+            $users = $this->buildAllReferralResults($request, $sort_column, $sort_direction);
+            $total_records = $users->count();
+            $users = $users->when($page_size > 0, function ($collection) use ($page_size, $page_number) {
+                return $collection->slice(($page_number - 1) * $page_size, $page_size)->values();
+            });
 
             // Build the response
             return response()->json([
@@ -287,6 +223,83 @@ class ReferralController extends Controller
             Log::error('Referral index failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
         }
+    }
+
+    public function exportExcel(Request $request, ReferralTreeService $referralTreeService)
+    {
+        try {
+            if (!Auth::check() || !in_array(Auth::user()->role, [User::ROLE_ADMIN, User::ROLE_SUPER_ADMIN], true)) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            }
+            $sort_column = $request->query('sort_column', $request->query('sortBy', 'created_at'));
+            $sort_direction = strtoupper($request->query('sort_direction', $request->query('sortDir', 'DESC'))) === 'ASC' ? 'ASC' : 'DESC';
+            $rows = $this->buildAllReferralResults($request, $sort_column, $sort_direction, $referralTreeService);
+
+            return Excel::download(
+                new UserManagementExport($rows),
+                'users_' . date('Y-m-d_H-i-s') . '.xlsx'
+            );
+        } catch (\Throwable $e) {
+            Log::error('User export failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Failed to export data'], 500);
+        }
+    }
+
+    private function buildAllReferralResults(Request $request, string $sort_column, string $sort_direction, ?ReferralTreeService $referralTreeService = null)
+    {
+        $referralTreeService = $referralTreeService ?? app(ReferralTreeService::class);
+        $search_term = trim((string) $request->query('search', ''));
+        $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
+
+        $query = User::query()
+            ->where('is_deleted', 0)
+            ->where('role', 2)
+            ->with('referrer')
+            ->withCount('referrals as direct_referrals_count');
+
+        foreach (($search_param ?? []) as $key => $value) {
+            if ($value === '' || $value === null) {
+                continue;
+            }
+            if (in_array($key, $this->filterable, true)) {
+                if ($key === 'fromdate' || $key === 'todate') {
+                    continue;
+                }
+                $query->where($key, $value);
+            }
+        }
+
+        $fromDate = $search_param['fromdate'] ?? null;
+        $toDate = $search_param['todate'] ?? null;
+        if ($fromDate && $toDate) {
+            $query->whereBetween('created_at', [$fromDate, $toDate]);
+        } elseif ($fromDate) {
+            $query->whereDate('created_at', '>=', $fromDate);
+        } elseif ($toDate) {
+            $query->whereDate('created_at', '<=', $toDate);
+        }
+
+        if ($search_term !== '') {
+            $query->where(function ($q) use ($search_term) {
+                $q->where('username', 'LIKE', '%' . $search_term . '%')
+                    ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
+                    ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
+                    ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
+            });
+        }
+
+        $users = $query->get()->map(function ($user) use ($referralTreeService) {
+            $user->total_team_count = $referralTreeService->getTeamCountsByDepth((int) $user->id, null, false)->sum('count');
+            $user->created_at_formatted = $user->created_at ? $user->created_at->format('d-m-Y h:i A') : '-';
+            $user->updated_at_formatted = $user->updated_at ? $user->updated_at->format('d-m-Y h:i A') : '-';
+            return $user;
+        });
+
+        return $users->sortBy(
+            fn ($row) => $row->{$sort_column} ?? null,
+            SORT_REGULAR,
+            $sort_direction === 'DESC'
+        )->values();
     }
 
     public function teamSummary(Request $request, ReferralTreeService $referralTreeService)

@@ -335,3 +335,9 @@ The first implementation of this feature is designed with these defaults:
 2. Suggestions now allows users to submit ideas with a rolling limit of 3 pending suggestions until admin reacts.
 3. Admin can react to suggestions using text, emoji, or both.
 4. Admin can now clear a customer's bank account details and reopen the bank form so the customer can refill it again.
+
+## Additional Release Notes 3
+
+1. Pin Requests now supports Excel export, product delivery status tracking, bill path storage, and customer receipt confirmation.
+2. Withdraw Requests now supports richer admin status details, Excel export with filters, and Excel import for bulk status updates.
+3. User Management now supports Excel export, active-status filtering, and total team member visibility per user.
