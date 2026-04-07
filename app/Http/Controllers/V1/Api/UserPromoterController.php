@@ -109,6 +109,7 @@ class UserPromoterController extends Controller
     }
     public function index(Request $request)
     {
+        $this->applyLifecycleAutomation();
 
         // Default sorting
         $sort_column = $request->query('sort_column', 'created_at');
@@ -223,8 +224,10 @@ class UserPromoterController extends Controller
     public function store(Request $request)
     {
         try {
+            $authId = Auth::id();
+            $this->applyLifecycleAutomation($authId);
+
             // validation pending already request available check
-            // Validation
             $validator = Validator::make($request->all(), [
                 'level' => 'required|integer|min:0',
 
@@ -233,23 +236,22 @@ class UserPromoterController extends Controller
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
             }
-            $authId = Auth::id();
-            $promoter = UserPromoter::where('status',0)->where('is_deleted',0)->where('user_id',$authId)->first();
-            if(empty($promoter)){
-            DB::beginTransaction();
-            $promoter = new UserPromoter();
-            $promoter->user_id = $authId;
-            $promoter->level = $request->level;
-            $promoter->status = UserPromoter::PIN_STATUS_PENDING;
-            $promoter->created_by = $authId;
-            $promoter->updated_by = $authId;
-            $promoter->save();
-            // confirm to enable
-            $user = User::find($authId);
-            // $user->current_promoter_level = $promoter->level;
-            $user->promoter_status = UserPromoter::PIN_STATUS_PENDING;
-            $user->save();
-            DB::commit();
+
+            $promoter = UserPromoter::whereIn('status', [
+                UserPromoter::PIN_STATUS_PENDING,
+                UserPromoter::PIN_STATUS_APPROVED,
+            ])->where('is_deleted', 0)->where('user_id', $authId)->latest('id')->first();
+
+            if (empty($promoter)) {
+                DB::beginTransaction();
+                $promoter = new UserPromoter();
+                $promoter->user_id = $authId;
+                $promoter->level = $request->level;
+                $promoter->status = UserPromoter::PIN_STATUS_PENDING;
+                $promoter->created_by = $authId;
+                $promoter->updated_by = $authId;
+                $promoter->save();
+                DB::commit();
             }
 
             return response()->json([
@@ -299,15 +301,18 @@ class UserPromoterController extends Controller
     }
     public function termRaised(Request $request)
     {
+        $this->applyLifecycleAutomation();
         $promoter = UserPromoter::find($request->id);
 
-        if (!$promoter || $promoter->is_deleted) {
+        if (!$promoter || $promoter->is_deleted || $promoter->status !== UserPromoter::PIN_STATUS_PENDING) {
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
 
-        $user = User::find($promoter->user_id);
-        $user->promoter_status = User::PROMOTER_STATUS_SHOW_TERM;
-        $user->save();
+        $promoter->term_raised_at = now();
+        $promoter->updated_by = Auth::id();
+        $promoter->save();
+
+        $this->syncUserPromoterStatus($promoter->user_id);
 
         return response()->json([
             'success' => true,
@@ -317,15 +322,24 @@ class UserPromoterController extends Controller
 
     public function termrAccepted(Request $request)
     {
+        $this->applyLifecycleAutomation(Auth::id());
         $promoter = UserPromoter::find($request->id);
 
-        if (!$promoter || $promoter->is_deleted) {
+        if (
+            !$promoter ||
+            $promoter->is_deleted ||
+            $promoter->user_id !== Auth::id() ||
+            $promoter->status !== UserPromoter::PIN_STATUS_PENDING ||
+            empty($promoter->term_raised_at)
+        ) {
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
 
-        $user = User::find($promoter->user_id);
-        $user->promoter_status = User::PROMOTER_STATUS_ACCEPTED_TERM;
-        $user->save();
+        $promoter->terms_accepted_at = now();
+        $promoter->updated_by = Auth::id();
+        $promoter->save();
+
+        $this->syncUserPromoterStatus($promoter->user_id);
 
         return response()->json([
             'success' => true,
@@ -335,10 +349,19 @@ class UserPromoterController extends Controller
 
     public function generatePin(Request $request)
     {
+        $this->applyLifecycleAutomation();
         $promoter = UserPromoter::find($request->id);
 
-        if (!$promoter || $promoter->is_deleted) {
+        if (
+            !$promoter ||
+            $promoter->is_deleted ||
+            $promoter->status !== UserPromoter::PIN_STATUS_PENDING
+        ) {
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
+        }
+
+        if (empty($promoter->terms_accepted_at)) {
+            return response()->json(['success' => false, 'message' => 'Terms must be accepted before PIN generation'], 400);
         }
 
         $promoter->pin = strtoupper('PROM' . rand(1000, 9999));
@@ -347,10 +370,7 @@ class UserPromoterController extends Controller
         $promoter->updated_by = Auth::id();
         $promoter->save();
 
-        $user = User::find($promoter->user_id);
-        $user->current_promoter_level = $promoter->level;
-        $user->promoter_status = User::PROMOTER_STATUS_APPROVED;
-        $user->save();
+        $this->syncUserPromoterStatus($promoter->user_id);
 
         return response()->json([
             'success' => true,
@@ -360,7 +380,7 @@ class UserPromoterController extends Controller
     }
     public function pinRejected(Request $request)
     {
-       
+        $this->applyLifecycleAutomation();
         $promoter = UserPromoter::find($request->id);
         if (!$promoter || $promoter->is_deleted) {
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
@@ -368,9 +388,7 @@ class UserPromoterController extends Controller
         $promoter->status = UserPromoter::PIN_STATUS_REJECTED;
         $promoter->updated_by = Auth::id();
         $promoter->save();
-        $user = User::find($promoter->user_id);
-        $user->promoter_status = ($user->current_promoter_level === null) ? null : 4;
-        $user->save();
+        $this->syncUserPromoterStatus($promoter->user_id);
         return response()->json([
             'success' => true,
             'message' => 'PIN rejected successfully',
@@ -383,6 +401,7 @@ class UserPromoterController extends Controller
     public function activatePin(Request $request, LevelIncomePayoutService $levelIncomePayoutService)
     {
         try {
+            $this->applyLifecycleAutomation(Auth::id());
             $validator = Validator::make($request->all(), [
                 'pin' => 'required|string',
                 'gift_delivery_type' => 'required|integer|in:1,2',
@@ -508,6 +527,7 @@ class UserPromoterController extends Controller
     public function userPromotersList()
     {
         $userId = Auth::id();
+        $this->applyLifecycleAutomation($userId);
 
         $promoters = UserPromoter::with('user')
             ->where('user_id', $userId)
@@ -520,6 +540,91 @@ class UserPromoterController extends Controller
             'message' => 'User promoters list',
             'data' => $promoters
         ], 200);
+    }
+
+    private function applyLifecycleAutomation(?int $userId = null): void
+    {
+        $this->autoRaiseTerms($userId);
+        $this->autoDeleteExpiredPendingRequests($userId);
+    }
+
+    private function autoRaiseTerms(?int $userId = null): void
+    {
+        $query = UserPromoter::query()
+            ->where('is_deleted', 0)
+            ->where('status', UserPromoter::PIN_STATUS_PENDING)
+            ->whereNull('term_raised_at')
+            ->where('created_at', '<=', now()->subMinutes(10));
+
+        if ($userId !== null) {
+            $query->where('user_id', $userId);
+        }
+
+        $promoters = $query->get();
+        foreach ($promoters as $promoter) {
+            $promoter->term_raised_at = now();
+            $promoter->save();
+            $this->syncUserPromoterStatus($promoter->user_id);
+        }
+    }
+
+    private function autoDeleteExpiredPendingRequests(?int $userId = null): void
+    {
+        $query = UserPromoter::query()
+            ->where('is_deleted', 0)
+            ->where('status', UserPromoter::PIN_STATUS_PENDING)
+            ->where('created_at', '<=', now()->subDays(3));
+
+        if ($userId !== null) {
+            $query->where('user_id', $userId);
+        }
+
+        $promoters = $query->get();
+        foreach ($promoters as $promoter) {
+            $promoter->status = UserPromoter::PIN_STATUS_AUTO_DELETED;
+            $promoter->is_active = 0;
+            $promoter->is_deleted = 1;
+            $promoter->auto_deleted_at = now();
+            $promoter->deleted_reason = 'Automatically deleted after 3 days without admin action';
+            $promoter->save();
+            $this->syncUserPromoterStatus($promoter->user_id);
+        }
+    }
+
+    private function syncUserPromoterStatus(int $userId): void
+    {
+        $user = User::find($userId);
+        if (!$user) {
+            return;
+        }
+
+        if ($user->current_promoter_level !== null) {
+            $user->promoter_status = User::PROMOTER_STATUS_ACTIVATED;
+            $user->save();
+            return;
+        }
+
+        $activeRequest = UserPromoter::query()
+            ->where('user_id', $userId)
+            ->where('is_deleted', 0)
+            ->orderByDesc('id')
+            ->first();
+
+        if (!$activeRequest) {
+            $user->promoter_status = null;
+        } elseif ($activeRequest->status === UserPromoter::PIN_STATUS_APPROVED) {
+            $user->promoter_status = User::PROMOTER_STATUS_APPROVED;
+        } elseif (!empty($activeRequest->terms_accepted_at)) {
+            $user->promoter_status = User::PROMOTER_STATUS_ACCEPTED_TERM;
+        } elseif (!empty($activeRequest->term_raised_at)) {
+            $user->promoter_status = User::PROMOTER_STATUS_SHOW_TERM;
+        } elseif ($activeRequest->status === UserPromoter::PIN_STATUS_REJECTED) {
+            $user->promoter_status = User::PROMOTER_STATUS_REJECTED;
+        } else {
+            $user->promoter_status = User::PROMOTER_STATUS_PENDING;
+        }
+
+        $user->save();
     }
     public function getScratchCards()
     {

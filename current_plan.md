@@ -311,3 +311,20 @@ The first implementation of this feature is designed with these defaults:
 2. Default payout wallet is the existing main wallet unless rule setup says otherwise.
 3. Existing scratch and promotion earning flows remain active and are not replaced by the level-income engine.
 4. Team summary is exposed through a separate reporting endpoint.
+
+## Additional Release Notes
+
+1. Daily video delivery now supports:
+   - `Scheduled Daily`
+   - `Common Fallback`
+   - `New Joiner Default`
+2. User daily video resolution now follows:
+   - joining-day default video
+   - date-matched scheduled video
+   - common fallback video
+3. Pin request lifecycle now supports:
+   - terms auto-raise after 10 minutes
+   - untouched pending requests auto-delete after 3 days
+4. Upgrade requests no longer replace the currently active promoter access until final pin activation.
+5. Lifecycle automation command added:
+   - `php artisan promoters:process-pending`

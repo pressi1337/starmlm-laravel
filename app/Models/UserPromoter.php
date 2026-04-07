@@ -11,7 +11,8 @@ class UserPromoter extends Model
     const PIN_STATUS_PENDING = 0;
     const PIN_STATUS_APPROVED = 1;
     const PIN_STATUS_ACTIVATED = 2;
-    const PIN_STATUS_REJECTED = 3; 
+    const PIN_STATUS_REJECTED = 3;
+    const PIN_STATUS_AUTO_DELETED = 4;
     const PROMOTER_STATUS_CLOSED = 4;
     protected $fillable = [
         'user_id',
@@ -22,6 +23,10 @@ class UserPromoter extends Model
         'pin',
         'status',
         'pin_generated_at',
+        'term_raised_at',
+        'terms_accepted_at',
+        'auto_deleted_at',
+        'deleted_reason',
         'activated_at',
         'created_by',
         'updated_by',

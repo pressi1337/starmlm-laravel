@@ -5,9 +5,9 @@ namespace App\Http\Controllers\V1\Api;
 use App\Http\Controllers\Controller;
 use App\Models\DailyVideo;
 use App\Models\DailyVideoWatchDetail;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
-use App\Rules\UniqueActive;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -27,8 +27,10 @@ class DailyVideoController extends Controller
             "description.required" => "Description Required",
             "video_path.required" => "Video Path Required",
             "youtube_link.required" => "Youtube Link Required",
-            "showing_date.required" => "Showing Date Required",
+            "showing_date.required_if" => "Showing Date Required for Scheduled Daily videos",
             "type.required" => "Type Required",
+            "delivery_mode.required" => "Delivery Mode Required",
+            "delivery_mode.in" => "Invalid Delivery Mode",
         ];
     }
     public function index(Request $request)
@@ -103,6 +105,7 @@ class DailyVideoController extends Controller
                 $daily_video->updated_at_formatted = $daily_video->updated_at
                     ? $daily_video->updated_at->format('d-m-Y h:i A')
                     : '-';
+                $daily_video->delivery_mode_label = DailyVideo::deliveryModeLabel($daily_video->delivery_mode);
                 return $daily_video;
             });
 
@@ -146,12 +149,18 @@ class DailyVideoController extends Controller
                 "description" => 'required',
                 "video_path" => 'required_without:youtube_link',
                 "youtube_link" => 'required_without:video_path',
-                "showing_date" => ['required', new UniqueActive('daily_videos', 'showing_date', null, [])],
+                "showing_date" => 'required_if:delivery_mode,' . DailyVideo::DELIVERY_MODE_SCHEDULED,
                 "type" => 'required',
+                "delivery_mode" => 'required|integer|in:1,2,3',
+                "priority" => 'nullable|integer|min:0',
             ], $this->messages);
 
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
+            }
+
+            if (!$this->isScheduledDateUnique($request->showing_date, null, (int) $request->delivery_mode)) {
+                return response()->json(['errors' => ['showing_date' => ['Showing date already exists for another active scheduled daily video']]], 422);
             }
 
             DB::beginTransaction();
@@ -163,6 +172,8 @@ class DailyVideoController extends Controller
             $w->youtube_link = $request->youtube_link;
             $w->showing_date = $request->showing_date;
             $w->type = $request->type ?? 1;
+            $w->delivery_mode = $request->delivery_mode ?? DailyVideo::DELIVERY_MODE_SCHEDULED;
+            $w->priority = $request->priority ?? 0;
             $w->video_path  =  $request->video_path;
 
             // Use provided is_active/active when present; default to 1 when absent
@@ -230,17 +241,18 @@ class DailyVideoController extends Controller
             $validator = Validator::make($request->all(), [
                 "title" => 'required',
                 "description" => 'required',
-                "showing_date" => ['required', new UniqueActive(
-                    'daily_videos',
-                    'showing_date',
-                    $id,
-                    []
-                )],
+                "showing_date" => 'required_if:delivery_mode,' . DailyVideo::DELIVERY_MODE_SCHEDULED,
                 "type" => 'required',
+                "delivery_mode" => 'required|integer|in:1,2,3',
+                "priority" => 'nullable|integer|min:0',
             ], $this->messages);
 
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
+            }
+
+            if (!$this->isScheduledDateUnique($request->showing_date, (int) $id, (int) $request->delivery_mode)) {
+                return response()->json(['errors' => ['showing_date' => ['Showing date already exists for another active scheduled daily video']]], 422);
             }
 
             DB::beginTransaction();
@@ -256,6 +268,8 @@ class DailyVideoController extends Controller
             $w->youtube_link = $request->youtube_link;
             $w->showing_date = $request->showing_date;
             $w->type = $request->type ?? 1;
+            $w->delivery_mode = $request->delivery_mode ?? DailyVideo::DELIVERY_MODE_SCHEDULED;
+            $w->priority = $request->priority ?? 0;
             $w->video_path  =  $request->video_path;
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
@@ -325,21 +339,13 @@ class DailyVideoController extends Controller
     {
         try {
             $today = date('Y-m-d');
-
-            $daily_video = DailyVideo::where('is_active', 1)
-                ->where('is_deleted', 0)
-                ->whereDate('showing_date', $today)
-                ->first();
+            $daily_video = $this->resolveTodayVideoForUser(Auth::id(), $today);
 
             if ($daily_video) {
                 $daily_video->created_at_formatted = $daily_video->created_at->format('d-m-Y h:i A');
                 $daily_video->updated_at_formatted = $daily_video->updated_at->format('d-m-Y h:i A');
-
-                $checkvideowatched = DB::table('daily_video_watch_details')
-                    ->where('daily_video_id', $daily_video->id)
-                    ->where('user_id', Auth::id())
-                    ->whereDate('watched_date', $today)
-                    ->first();
+                $daily_video->delivery_mode_label = DailyVideo::deliveryModeLabel($daily_video->delivery_mode);
+                $checkvideowatched = $this->getWatchDetailForToday($daily_video->id, Auth::id(), $today);
                 $daily_video->watched = $checkvideowatched ? 1 : 0;
                 return response()->json([
                     'success' => true,
@@ -362,19 +368,16 @@ class DailyVideoController extends Controller
     {
         try {
             $today = date('Y-m-d');
-
-            $daily_video = DailyVideo::where('is_active', 1)
-                ->where('is_deleted', 0)
-                ->whereDate('showing_date', $today)
-                ->first();
+            $daily_video = $this->resolveTodayVideoForUser(Auth::id(), $today);
 
             if ($daily_video) {
-                $checkvideowatched = DB::table('daily_video_watch_details')
-                    ->where('daily_video_id', $daily_video->id)
-                    ->where('user_id', Auth::id())
-                    ->whereDate('watched_date', $today)
-                    ->first();
-                $data = ['watched' => $checkvideowatched ? 1 : 0];
+                $checkvideowatched = $this->getWatchDetailForToday($daily_video->id, Auth::id(), $today);
+                $data = [
+                    'watched' => $checkvideowatched ? 1 : 0,
+                    'daily_video_id' => $daily_video->id,
+                    'delivery_mode' => $daily_video->delivery_mode,
+                    'delivery_mode_label' => DailyVideo::deliveryModeLabel($daily_video->delivery_mode),
+                ];
                 return response()->json([
                     'success' => true,
                     'message' => 'Success',
@@ -419,5 +422,76 @@ class DailyVideoController extends Controller
             return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
 
+    }
+
+    private function isScheduledDateUnique(?string $showingDate, ?int $ignoreId, int $deliveryMode): bool
+    {
+        if ($deliveryMode !== DailyVideo::DELIVERY_MODE_SCHEDULED) {
+            return true;
+        }
+
+        $query = DailyVideo::query()
+            ->where('is_deleted', 0)
+            ->where('is_active', 1)
+            ->where('delivery_mode', DailyVideo::DELIVERY_MODE_SCHEDULED)
+            ->whereDate('showing_date', $showingDate);
+
+        if ($ignoreId) {
+            $query->where('id', '!=', $ignoreId);
+        }
+
+        return !$query->exists();
+    }
+
+    private function resolveTodayVideoForUser(int $userId, string $today): ?DailyVideo
+    {
+        $user = User::find($userId);
+        if (!$user) {
+            return null;
+        }
+
+        if ($user->created_at && $user->created_at->toDateString() === $today) {
+            $newJoinerVideo = DailyVideo::query()
+                ->where('is_active', 1)
+                ->where('is_deleted', 0)
+                ->where('delivery_mode', DailyVideo::DELIVERY_MODE_NEW_JOINER_DEFAULT)
+                ->orderByDesc('priority')
+                ->orderByDesc('id')
+                ->first();
+
+            if ($newJoinerVideo) {
+                return $newJoinerVideo;
+            }
+        }
+
+        $scheduledVideo = DailyVideo::query()
+            ->where('is_active', 1)
+            ->where('is_deleted', 0)
+            ->where('delivery_mode', DailyVideo::DELIVERY_MODE_SCHEDULED)
+            ->whereDate('showing_date', $today)
+            ->orderByDesc('priority')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($scheduledVideo) {
+            return $scheduledVideo;
+        }
+
+        return DailyVideo::query()
+            ->where('is_active', 1)
+            ->where('is_deleted', 0)
+            ->where('delivery_mode', DailyVideo::DELIVERY_MODE_COMMON_FALLBACK)
+            ->orderByDesc('priority')
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    private function getWatchDetailForToday(int $dailyVideoId, int $userId, string $today): ?object
+    {
+        return DB::table('daily_video_watch_details')
+            ->where('daily_video_id', $dailyVideoId)
+            ->where('user_id', $userId)
+            ->whereDate('watched_date', $today)
+            ->first();
     }
 }
