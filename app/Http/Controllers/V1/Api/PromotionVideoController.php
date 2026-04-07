@@ -537,30 +537,7 @@ class PromotionVideoController extends Controller
                 return response()->json(['message' => 'User promoter session expired', 'status' => 400], 400);
             }
             $total_earning = 0;
-            $default_video_total_earnable_amount = 2.5;
-            $max_earnable_per_video = 2.5;
-            switch ($user_promoter->level) {
-                case 0:
-                    $default_video_total_earnable_amount = 2.5;
-                    $max_earnable_per_video = 2.5;
-                    break;
-                case 1:
-                    $default_video_total_earnable_amount = 5;
-                    $max_earnable_per_video = 35;
-                    break;
-                case 2:
-                    $default_video_total_earnable_amount = 50;
-                    $max_earnable_per_video = 230;
-                    break;
-                case 3:
-                    $default_video_total_earnable_amount = 62.5;
-                    $max_earnable_per_video = 182.5;
-                    break;
-                case 4:
-                    $default_video_total_earnable_amount = 92.5;
-                    $max_earnable_per_video = 265;
-                    break;
-            }
+            ['default' => $default_video_total_earnable_amount, 'max' => $max_earnable_per_video] = $this->promotionAmountForPromoterLevel((int) $user_promoter->level);
             $video_total_earnable_amount = $default_video_total_earnable_amount;
             if ($user_promoter->level > 0) {
                 $referred_users = User::where([
@@ -571,13 +548,7 @@ class PromotionVideoController extends Controller
                 ])->where('current_promoter_level', '<=', $user_promoter->level)
                     ->where('current_promoter_level', '!=', 0)->get();
                 foreach ($referred_users as $referred_user) {
-                    $add_amount = match ($referred_user->current_promoter_level) {
-                        1 => 2.5,
-                        2 => 25,
-                        3 => 17.5,
-                        4 => 25,
-                        default => 0,
-                    };
+                    $add_amount = $this->promotionReferralBoost((int) $referred_user->current_promoter_level);
                     $remaining_allowance = $max_earnable_per_video - $video_total_earnable_amount;
                     if ($remaining_allowance <= 0) {
                         break;
@@ -723,5 +694,27 @@ class PromotionVideoController extends Controller
             Log::error('PromotionVideo userPromoterQuizResultConfirmation failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
+    }
+
+    protected function promotionAmountForPromoterLevel(int $level): array
+    {
+        return match (true) {
+            $level <= 0 => ['default' => 2.5, 'max' => 2.5],
+            $level === 1 => ['default' => 5, 'max' => 35],
+            $level === 2 => ['default' => 50, 'max' => 230],
+            $level === 3 => ['default' => 62.5, 'max' => 182.5],
+            default => ['default' => 92.5, 'max' => 265],
+        };
+    }
+
+    protected function promotionReferralBoost(int $promoterLevel): float
+    {
+        return match (true) {
+            $promoterLevel <= 0 => 0,
+            $promoterLevel === 1 => 2.5,
+            $promoterLevel === 2 => 25,
+            $promoterLevel === 3 => 17.5,
+            default => 25,
+        };
     }
 }

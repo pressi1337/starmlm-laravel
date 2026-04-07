@@ -13,6 +13,7 @@ class EarningHistory extends Model
     const EARNING_TYPE_SESSION_2_SET_2_VIDEO = 4;
     const EARNING_TYPE_SCRATCH_EARNING = 5;
     const EARNING_TYPE_SAVINGS_EARNING = 6;
+    const EARNING_TYPE_LEVEL_INCOME = 7;
 
     public function user()
     {

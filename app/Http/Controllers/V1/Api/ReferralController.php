@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\V1\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\LevelIncomeRule;
 use App\Traits\HandlesJson;
 use App\Models\TrainingVideo;
 use Illuminate\Http\Request;
@@ -17,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use App\Models\UserBankDetail;
+use App\Services\ReferralTreeService;
 
 class ReferralController extends Controller
 {
@@ -283,6 +285,58 @@ class ReferralController extends Controller
             ], 200);
         } catch (\Throwable $e) {
             Log::error('Referral index failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    public function teamSummary(Request $request, ReferralTreeService $referralTreeService)
+    {
+        try {
+            if (!Auth::check()) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            }
+
+            $activeOnly = $request->boolean('active_only', false);
+            $configuredDepth = LevelIncomeRule::query()
+                ->where('is_active', 1)
+                ->where('is_deleted', 0)
+                ->max('referral_depth');
+            $requestedDepth = $request->filled('max_depth') ? max(1, (int) $request->query('max_depth')) : null;
+            $maxDepth = $requestedDepth ?? ($configuredDepth ? (int) $configuredDepth : null);
+
+            $directReferrals = $referralTreeService->getDirectReferrals((int) Auth::id())
+                ->map(function ($user) {
+                    return [
+                        'id' => $user->id,
+                        'username' => $user->username,
+                        'first_name' => $user->first_name,
+                        'last_name' => $user->last_name,
+                        'mobile' => $user->mobile,
+                        'current_promoter_level' => $user->current_promoter_level,
+                        'promoter_label' => User::promoterLevelLabel($user->current_promoter_level),
+                        'is_active' => $user->is_active,
+                        'created_at' => $user->created_at,
+                    ];
+                })
+                ->values();
+
+            $teamCountsByDepth = $referralTreeService
+                ->getTeamCountsByDepth((int) Auth::id(), $maxDepth, $activeOnly)
+                ->values();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Success',
+                'data' => [
+                    'direct_referrals' => $directReferrals,
+                    'team_counts_by_depth' => $teamCountsByDepth,
+                    'total_team_count' => (int) $teamCountsByDepth->sum('count'),
+                    'configured_depth' => $configuredDepth ? (int) $configuredDepth : null,
+                    'requested_depth' => $maxDepth,
+                ],
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Referral team summary failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
         }
     }

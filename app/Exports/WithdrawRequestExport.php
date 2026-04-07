@@ -50,21 +50,13 @@ class WithdrawRequestExport implements FromCollection, WithHeadings, WithMapping
             2 => 'Completed',
             3 => 'Rejected'
         ];
-        $promoter_levels = [
-            0 => 'Promoter',
-            1 => 'Promoter1',
-            2 => 'Promoter2',
-            3 => 'Promoter3',
-            4 => 'Promoter4'
-        ];
-
         return [
             $withdrawRequest->id,
             $withdrawRequest->user->username ?? 'N/A',
             ($withdrawRequest->user->first_name ?? '') . ' ' . ($withdrawRequest->user->last_name ?? ''),
             $withdrawRequest->user->mobile ?? 'N/A',
             $this->formatAddress($withdrawRequest->user),
-            $promoter_levels[$withdrawRequest->user->current_promoter_level] ?? 'Unknown',
+            \App\Models\User::promoterLevelLabel($withdrawRequest->user->current_promoter_level),
             $withdrawRequest->bankDetail->bank_name ?? 'N/A',
             $withdrawRequest->bankDetail->acc_no ?? 'N/A',
             $withdrawRequest->bankDetail->ifsc_code ?? 'N/A',

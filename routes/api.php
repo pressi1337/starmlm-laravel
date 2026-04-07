@@ -18,6 +18,7 @@ use App\Http\Controllers\V1\Api\AdditionalScratchReferralController;
 use App\Http\Controllers\V1\Api\WithdrawController;
 use App\Http\Controllers\VideoUploadController;
 use App\Http\Controllers\V1\Api\AdminDashboardController;
+use App\Http\Controllers\V1\Api\LevelIncomeRuleController;
 
 Route::prefix('v1')->group(function () {
     require __DIR__ . '/auth.php';
@@ -38,10 +39,11 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     Route::patch('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
     Route::patch('youtube-channels/status-update', [YoutubeController::class, 'StatusUpdate']);
     Route::patch('scratch-setup/status-update', [ScratchSetupController::class, 'StatusUpdate']);
+    Route::patch('level-income-rules/status-update', [LevelIncomeRuleController::class, 'statusUpdate']);
     Route::patch('delete-account', [JwtAuthController::class, 'DeleteAccount']);
     //
     Route::resource('daily-videos', DailyVideoController::class);
-    
+    Route::resource('level-income-rules', LevelIncomeRuleController::class);
     Route::resource('scratch-setup', ScratchSetupController::class);
     Route::resource('training-videos', TrainingVideoController::class);
     Route::resource('training-video-quizzes', TrainingQuizController::class);
@@ -104,6 +106,7 @@ Route::prefix('v1')->middleware('auth:jwt,userjwt')->group(function () {
     Route::get('auth-user', [JwtAuthController::class, 'AuthUser']);
     Route::patch('changepassword', [JwtAuthController::class, 'changePassword']);
     Route::patch('update-personal-details', [JwtAuthController::class, 'updatePersonalDetails']);
+    Route::get('referrals/team-summary', [ReferralController::class, 'teamSummary']);
     Route::resource('user-promoters', UserPromoterController::class);
     Route::resource('referrals', ReferralController::class);
     Route::get('all-referrals', [ReferralController::class, 'allReferral']);

@@ -11,6 +11,7 @@ use App\Models\ReferralScratchRange;
 use App\Models\ScratchCard;
 use App\Models\User;
 use App\Models\UserPromoter;
+use App\Services\LevelIncomePayoutService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -31,8 +32,7 @@ class UserPromoterController extends Controller
         $this->messages = [
             "level.required" => "Level Required",
             "level.integer" => "Level must be an integer",
-            "level.min" => "Level must be at least 1",
-            "level.max" => "Level must be at most 4",
+            "level.min" => "Level must be at least 0",
             "pin.required" => "Pin Required",
             "pin.string" => "Pin must be a string",
             "gift_delivery_type.required" => "Gift delivery type Required",
@@ -226,7 +226,7 @@ class UserPromoterController extends Controller
             // validation pending already request available check
             // Validation
             $validator = Validator::make($request->all(), [
-                'level' => 'required|integer|min:0|max:4',
+                'level' => 'required|integer|min:0',
 
             ], $this->messages);
 
@@ -380,124 +380,127 @@ class UserPromoterController extends Controller
     /**
      * Activate promoter plan using PIN (user action).
      */
-    public function activatePin(Request $request)
+    public function activatePin(Request $request, LevelIncomePayoutService $levelIncomePayoutService)
     {
+        try {
+            $validator = Validator::make($request->all(), [
+                'pin' => 'required|string',
+                'gift_delivery_type' => 'required|integer|in:1,2',
+                'gift_delivery_address' => 'nullable|string|max:500',
+                'wh_number' => 'nullable|max:50',
 
-        $validator = Validator::make($request->all(), [
-            'pin' => 'required|string',
-            'gift_delivery_type' => 'required|integer|in:1,2',
-            'gift_delivery_address' => 'nullable|string|max:500',
-            'wh_number' => 'nullable|max:50',
+            ], $this->messages);
 
-        ], $this->messages);
-        // pending
-        // after 25 days 
-        //igf gift_delivery_type ==1 date :address
-        // auth user =10
-        // refer parent user =2
+            $auth_user_id = Auth::id();
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
+            }
 
-        // scratch card for 2
-        // 2= promoter level
-        // // auth user activate level(0,1,2,3,4) <= parent user user level 1
-        // how many refers based to get range
-        // scratch assign
-        // copy to duba
+            DB::beginTransaction();
 
-        $auth_user_id = Auth::id();
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
-        $promoter = UserPromoter::where('id', $request->id)
-            ->where('user_id', $auth_user_id)
-            ->first();
+            $promoter = UserPromoter::where('id', $request->id)
+                ->where('user_id', $auth_user_id)
+                ->first();
 
-        if (!$promoter) {
-            return response()->json(['success' => false, 'message' => 'Promoter not found'], 400);
-        }
+            if (!$promoter) {
+                DB::rollBack();
+                return response()->json(['success' => false, 'message' => 'Promoter not found'], 400);
+            }
 
-        if ($promoter->pin !== $request->pin || $promoter->status != UserPromoter::PIN_STATUS_APPROVED) {
-            return response()->json(['success' => false, 'message' => 'Invalid PIN or not approved'], 400);
-        }
+            if ($promoter->pin !== $request->pin || $promoter->status != UserPromoter::PIN_STATUS_APPROVED) {
+                DB::rollBack();
+                return response()->json(['success' => false, 'message' => 'Invalid PIN or not approved'], 400);
+            }
 
-        $promoter->status = UserPromoter::PIN_STATUS_ACTIVATED;
-        $promoter->gift_delivery_type = $request->gift_delivery_type;
-        $promoter->direct_pick_date = $request->direct_pick_date;
-        $promoter->gift_delivery_address = $request->gift_delivery_address;
-        $promoter->wh_number = $request->wh_number;
-        $promoter->activated_at = now();
-        $promoter->updated_by = $auth_user_id;
-        $promoter->save();
-        $user = User::find($promoter->user_id);
-        $user->current_promoter_level = $promoter->level;
-        $user->promoter_status = User::PROMOTER_STATUS_ACTIVATED;
-        $user->promoter_activated_at = now();
-        $user->save();
+            $promoter->status = UserPromoter::PIN_STATUS_ACTIVATED;
+            $promoter->gift_delivery_type = $request->gift_delivery_type;
+            $promoter->direct_pick_date = $request->direct_pick_date;
+            $promoter->gift_delivery_address = $request->gift_delivery_address;
+            $promoter->wh_number = $request->wh_number;
+            $promoter->activated_at = now();
+            $promoter->updated_by = $auth_user_id;
+            $promoter->save();
 
-        $referrer = $user->referrer;
-        if ($referrer) {
-            $referred_user = User::find($referrer->id);
-            if (isset($referred_user->current_promoter_level) && $referred_user->current_promoter_level >= $user->current_promoter_level) {
-                $scratch_level = ReferralScratchLevel::where(
-                    'promotor_level',
-                    $user->current_promoter_level
-                )->where('is_active', 1)
-                    ->where('is_deleted', 0)->first();
-                if ($scratch_level) {
-                    $parent_total_referrals_insame_level = User::where('referred_by', $referrer->id)
-                        ->where('current_promoter_level', $user->current_promoter_level)
-                        ->where('is_active', 1)
-                        ->where('is_deleted', 0)
-                        ->where('promoter_status', User::PROMOTER_STATUS_ACTIVATED)
-                        ->count();
-                    $scratch_range = ReferralScratchRange::where(
-                        'referral_scratch_level_id',
-                        $scratch_level->id
-                    )
-                        ->where('is_active', 1)
-                        ->where('is_deleted', 0)
-                        ->where('start_range', '<=', $parent_total_referrals_insame_level)
-                        ->where('end_range', '>=', $parent_total_referrals_insame_level)
-                        ->first();
-                    if ($scratch_range) {
-                        $scratchCard = new ScratchCard();
-                        $scratchCard->user_id = $referrer->id;
-                        $scratchCard->child_id = $user->id;
-                        $scratchCard->is_copy = 0;
-                        $scratchCard->is_scratched = 0;
-                        $scratchCard->amount = $scratch_range->amount;
-                        $scratchCard->notification_msg = 'from ' . $user->username . ' ' . 'upgraded to ' . $user->current_promoter_level;
-                        $scratchCard->msg = $scratch_range->msg;
-                        $scratchCard->created_by = $auth_user_id;
-                        $scratchCard->updated_by = $auth_user_id;
-                        $scratchCard->save();
-                        // now get copy person and assign
-                        $duplicate_getter = AdditionalScratchReferral::where('is_active', 1)
-                            ->where('is_all_user', 1)
-                            ->where('is_deleted', 0)->get();
+            $user = User::find($promoter->user_id);
+            $user->current_promoter_level = $promoter->level;
+            $user->promoter_status = User::PROMOTER_STATUS_ACTIVATED;
+            $user->promoter_activated_at = now();
+            $user->save();
 
-                        foreach ($duplicate_getter as $duplicate) {
+            $referrer = $user->referrer;
+            if ($referrer) {
+                $referred_user = User::find($referrer->id);
+                if (isset($referred_user->current_promoter_level) && $referred_user->current_promoter_level >= $user->current_promoter_level) {
+                    $scratch_level = ReferralScratchLevel::where(
+                        'promotor_level',
+                        $user->current_promoter_level
+                    )->where('is_active', 1)
+                        ->where('is_deleted', 0)->first();
+                    if ($scratch_level) {
+                        $parent_total_referrals_insame_level = User::where('referred_by', $referrer->id)
+                            ->where('current_promoter_level', $user->current_promoter_level)
+                            ->where('is_active', 1)
+                            ->where('is_deleted', 0)
+                            ->where('promoter_status', User::PROMOTER_STATUS_ACTIVATED)
+                            ->count();
+                        $scratch_range = ReferralScratchRange::where(
+                            'referral_scratch_level_id',
+                            $scratch_level->id
+                        )
+                            ->where('is_active', 1)
+                            ->where('is_deleted', 0)
+                            ->where('start_range', '<=', $parent_total_referrals_insame_level)
+                            ->where('end_range', '>=', $parent_total_referrals_insame_level)
+                            ->first();
+                        if ($scratch_range) {
                             $scratchCard = new ScratchCard();
-                            $scratchCard->user_id = $duplicate->userid;
+                            $scratchCard->user_id = $referrer->id;
                             $scratchCard->child_id = $user->id;
-                            $scratchCard->is_copy = 1;
+                            $scratchCard->is_copy = 0;
                             $scratchCard->is_scratched = 0;
                             $scratchCard->amount = $scratch_range->amount;
-                            $scratchCard->notification_msg = 'cloned card from ' . $user->username . ' ' . 'upgraded to ' . $user->current_promoter_level;
+                            $scratchCard->notification_msg = 'from ' . $user->username . ' ' . 'upgraded to ' . $user->current_promoter_level;
                             $scratchCard->msg = $scratch_range->msg;
                             $scratchCard->created_by = $auth_user_id;
                             $scratchCard->updated_by = $auth_user_id;
                             $scratchCard->save();
+
+                            $duplicate_getter = AdditionalScratchReferral::where('is_active', 1)
+                                ->where('is_all_user', 1)
+                                ->where('is_deleted', 0)->get();
+
+                            foreach ($duplicate_getter as $duplicate) {
+                                $scratchCard = new ScratchCard();
+                                $scratchCard->user_id = $duplicate->userid;
+                                $scratchCard->child_id = $user->id;
+                                $scratchCard->is_copy = 1;
+                                $scratchCard->is_scratched = 0;
+                                $scratchCard->amount = $scratch_range->amount;
+                                $scratchCard->notification_msg = 'cloned card from ' . $user->username . ' ' . 'upgraded to ' . $user->current_promoter_level;
+                                $scratchCard->msg = $scratch_range->msg;
+                                $scratchCard->created_by = $auth_user_id;
+                                $scratchCard->updated_by = $auth_user_id;
+                                $scratchCard->save();
+                            }
                         }
                     }
                 }
             }
-        }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Promoter plan activated',
-            'data' => $promoter,
-        ], 200);
+            $levelIncomePayoutService->distributeForPromoterActivation($user, $promoter->id);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Promoter plan activated',
+                'data' => $promoter,
+            ], 200);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('UserPromoter activatePin failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
     }
     /**
      * Get all promoters for the authenticated user, latest first

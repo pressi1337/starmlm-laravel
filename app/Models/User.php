@@ -121,4 +121,17 @@ class User extends Authenticatable implements JWTSubject
     {
         return $this->hasOne(UserBankDetail::class, 'user_id');
     }
+
+    public static function promoterLevelLabel(?int $level): string
+    {
+        if ($level === null) {
+            return 'Unknown';
+        }
+
+        if ($level === 0) {
+            return 'Promoter';
+        }
+
+        return 'Promoter Level ' . $level;
+    }
 }
