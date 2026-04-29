@@ -89,15 +89,17 @@ class UserTrainingController extends Controller
         $userTraining->completed_at = now();
         $userTraining->save();
 
-        // Find next training day
+        // Find next training day, capped at the program length
         $currentDay = $userTraining->day;
         $nextDay = $currentDay + 1;
 
-        $nextVideo = TrainingVideo::where('day', $nextDay)
-            ->where('is_active', 1)
-            ->where('is_deleted', 0)
-            ->first();
-     
+        $nextVideo = $nextDay <= TrainingVideo::MAX_TRAINING_DAYS
+            ? TrainingVideo::where('day', $nextDay)
+                ->where('is_active', 1)
+                ->where('is_deleted', 0)
+                ->first()
+            : null;
+
         if ($nextVideo) {
             $user_training = new UserTrainingVideo();
             $user_training->user_id = $user->id;
