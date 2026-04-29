@@ -31,6 +31,9 @@ class TrainingVideoController extends Controller
             "youtube_link.required" => "Youtube Link Required",
             // "showing_date.required" => "Showing Date Required",
             "day.required" => "Day Required",
+            "day.integer" => "Day must be an integer",
+            "day.min" => "Day must be at least 1",
+            "day.max" => "Day must be at most " . TrainingVideo::MAX_TRAINING_DAYS,
         ];
     }
     public function index(Request $request)
@@ -156,7 +159,7 @@ class TrainingVideoController extends Controller
                 "video_path" => 'required_without:youtube_link',
                 "youtube_link" => 'required_without:video_path',
                 // "showing_date" => ['required', new UniqueActive('training_videos', 'showing_date', null, [])],
-                "day" => ['required', new UniqueActive('training_videos', 'day', null, [])],
+                "day" => ['required', 'integer', 'min:1', 'max:' . TrainingVideo::MAX_TRAINING_DAYS, new UniqueActive('training_videos', 'day', null, [])],
             ], $this->messages);
 
             if ($validator->fails()) {
@@ -238,7 +241,7 @@ class TrainingVideoController extends Controller
                 "title" => 'required',
                 "description" => 'required',
                 // "showing_date" => ['required', new UniqueActive('training_videos', 'showing_date', $id, [])],
-                "day" => ['required', new UniqueActive('training_videos', 'day', $id, [])],
+                "day" => ['required', 'integer', 'min:1', 'max:' . TrainingVideo::MAX_TRAINING_DAYS, new UniqueActive('training_videos', 'day', $id, [])],
             ], $this->messages);
 
             if ($validator->fails()) {
