@@ -161,6 +161,24 @@ class UserTrainingController extends Controller
             ->orderBy('day', 'asc')
             ->first();
 
+        // If there's no current training data (or the underlying video has been
+        // deleted, e.g. legacy day 4+ rows after the program was shortened),
+        // mark the user's training as completed.
+        if (!$training || !$training->trainingVideo) {
+            if ($training) {
+                $training->status       = UserTrainingVideo::STATUS_COMPLETED;
+                $training->completed_at = now();
+                $training->updated_by   = $user->id;
+                $training->save();
+                $training = null;
+            }
+            if ($user->training_status !== User::TRAINING_STATUS_COMPLETED) {
+                $user->training_status = User::TRAINING_STATUS_COMPLETED;
+                $user->updated_by      = $user->id;
+                $user->save();
+            }
+        }
+
         $nextdaydata = UserTrainingVideo::where('user_id', $user->id)
             ->where('status', '=', UserTrainingVideo::STATUS_COMPLETED)
             ->orderBy('day', 'desc')
