@@ -161,18 +161,27 @@ class UserTrainingController extends Controller
             ->orderBy('day', 'asc')
             ->first();
 
-        // If there's no current training data (or the underlying video has been
-        // deleted, e.g. legacy day 4+ rows after the program was shortened),
-        // mark the user's training as completed.
-        if (!$training || !$training->trainingVideo) {
-            if ($training) {
-                $training->status       = UserTrainingVideo::STATUS_COMPLETED;
-                $training->completed_at = now();
-                $training->updated_by   = $user->id;
-                $training->save();
-                $training = null;
-            }
-            if ($user->training_status !== User::TRAINING_STATUS_COMPLETED) {
+        // Only sweep when the active row points at a deleted video (legacy day 4+
+        // after the program was shortened). Don't treat a null $training as "done":
+        // it can simply mean the next day is assigned for tomorrow and filtered
+        // out by whereDate(assigned_at <= today).
+        if ($training && !$training->trainingVideo) {
+            $training->status       = UserTrainingVideo::STATUS_COMPLETED;
+            $training->completed_at = now();
+            $training->updated_by   = $user->id;
+            $training->save();
+            $training = null;
+        }
+
+        // Flip training_status to COMPLETED only when the user has actually
+        // completed every day in the program (day 1..MAX_TRAINING_DAYS).
+        if ($user->training_status !== User::TRAINING_STATUS_COMPLETED) {
+            $completedDays = UserTrainingVideo::where('user_id', $user->id)
+                ->where('status', UserTrainingVideo::STATUS_COMPLETED)
+                ->whereBetween('day', [1, TrainingVideo::MAX_TRAINING_DAYS])
+                ->distinct()
+                ->count('day');
+            if ($completedDays >= TrainingVideo::MAX_TRAINING_DAYS) {
                 $user->training_status = User::TRAINING_STATUS_COMPLETED;
                 $user->updated_by      = $user->id;
                 $user->save();
