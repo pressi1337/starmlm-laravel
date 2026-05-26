@@ -30,8 +30,11 @@ class User extends Authenticatable implements JWTSubject
     const PROMOTER_STATUS_REJECTED = 5;
 
 
+    // Role 0 is the full-access admin. ROLE_ADMIN is kept as a backwards-compat
+    // alias; ROLE_SUPER_ADMIN is the canonical name going forward.
     const ROLE_ADMIN = 0;
-    const ROLE_SUPER_ADMIN = 1;
+    const ROLE_SUPER_ADMIN = 0;
+    const ROLE_SUB_ADMIN = 1;
     const ROLE_USER = 2;
     protected $fillable = [
         'first_name',

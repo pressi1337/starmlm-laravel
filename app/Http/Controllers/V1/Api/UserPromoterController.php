@@ -45,6 +45,28 @@ class UserPromoterController extends Controller
         ];
     }
 
+    // Sub-admins (role=1) are allowed to drive the pin lifecycle only for
+    // promoters at level 0 or 1. Returns a 403 response if the caller is a
+    // sub-admin acting on a higher-level promoter, otherwise null.
+    private function denyIfSubAdminCannotActOnPromoter(UserPromoter $promoter)
+    {
+        $actor = Auth::user();
+        if (!$actor || $actor->role !== User::ROLE_SUB_ADMIN) {
+            return null;
+        }
+
+        $allowedLevels = [0, 1];
+        if (!in_array((int) $promoter->level, $allowedLevels, true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Sub-admins can only manage pins for Promoter and Level 1 promoters.',
+                'code' => 'forbidden',
+            ], 403);
+        }
+
+        return null;
+    }
+
     public function dashboard(Request $request)
     {
         try {
@@ -305,6 +327,10 @@ class UserPromoterController extends Controller
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
 
+        if ($error = $this->denyIfSubAdminCannotActOnPromoter($promoter)) {
+            return $error;
+        }
+
         $user = User::find($promoter->user_id);
         $user->promoter_status = User::PROMOTER_STATUS_SHOW_TERM;
         $user->save();
@@ -341,6 +367,10 @@ class UserPromoterController extends Controller
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
 
+        if ($error = $this->denyIfSubAdminCannotActOnPromoter($promoter)) {
+            return $error;
+        }
+
         $promoter->pin = strtoupper('PROM' . rand(1000, 9999));
         $promoter->status = UserPromoter::PIN_STATUS_APPROVED;
         $promoter->pin_generated_at = now();
@@ -360,11 +390,16 @@ class UserPromoterController extends Controller
     }
     public function pinRejected(Request $request)
     {
-       
+
         $promoter = UserPromoter::find($request->id);
         if (!$promoter || $promoter->is_deleted) {
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
+
+        if ($error = $this->denyIfSubAdminCannotActOnPromoter($promoter)) {
+            return $error;
+        }
+
         $promoter->status = UserPromoter::PIN_STATUS_REJECTED;
         $promoter->updated_by = Auth::id();
         $promoter->save();

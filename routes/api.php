@@ -18,6 +18,7 @@ use App\Http\Controllers\V1\Api\AdditionalScratchReferralController;
 use App\Http\Controllers\V1\Api\WithdrawController;
 use App\Http\Controllers\VideoUploadController;
 use App\Http\Controllers\V1\Api\AdminDashboardController;
+use App\Http\Controllers\V1\Api\SubAdminController;
 
 Route::prefix('v1')->group(function () {
     require __DIR__ . '/auth.php';
@@ -29,44 +30,62 @@ Route::get('/login', function () {
 //     return $request->user();
 // });
 
+// Admin endpoints shared by Super-Admin (role=0) and Sub-Admin (role=1).
+// Sub-Admin's narrower permissions on pin operations are enforced inside
+// UserPromoterController (promoter level 0/1 only).
 Route::middleware('jwt')->prefix('v1')->group(function () {
-    // Custom route 
+    // Daily Videos — sub-admin allowed
     Route::patch('daily-videos/status-update', [DailyVideoController::class, 'StatusUpdate']);
-    Route::patch('training-videos/status-update', [TrainingVideoController::class, 'StatusUpdate']);
-    Route::patch('training-video-quizzes/status-update', [TrainingQuizController::class, 'StatusUpdate']);
+    Route::resource('daily-videos', DailyVideoController::class);
+
+    // Promotion Videos + their quizzes — sub-admin allowed
     Route::patch('promotion-videos/status-update', [PromotionVideoController::class, 'StatusUpdate']);
     Route::patch('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
+    Route::resource('promotion-videos', PromotionVideoController::class);
+    Route::resource('promotion-video-quizzes', PromotionQuizController::class);
+
+    // Pin lifecycle — sub-admin allowed but only for promoter level 0/1
+    // (enforced inside the controller).
+    Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
+    Route::post('term-raised', [UserPromoterController::class, 'termRaised']);
+    Route::post('pin-rejected', [UserPromoterController::class, 'pinRejected']);
+
+    // Chunked uploads needed for the video features above.
+    Route::post('upload', [VideoUploadController::class, 'upload']);
+    Route::post('upload/delete', [VideoUploadController::class, 'delete']);
+
+    // Dashboard stats are non-sensitive counts; both roles need them for the
+    // landing page and the PinRequests header tiles.
+    Route::get('admin-dashboard', [AdminDashboardController::class, 'index']);
+});
+
+// Super-Admin only. Sub-Admin (role=1) gets a 403 from RoleMiddleware here.
+Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
+    // Training Videos and their quizzes
+    Route::patch('training-videos/status-update', [TrainingVideoController::class, 'StatusUpdate']);
+    Route::patch('training-video-quizzes/status-update', [TrainingQuizController::class, 'StatusUpdate']);
+    Route::resource('training-videos', TrainingVideoController::class);
+    Route::resource('training-video-quizzes', TrainingQuizController::class);
+
+    // YouTube channels (admin manage), Scratch setup, Withdraws, Dashboard, Bank details
     Route::patch('youtube-channels/status-update', [YoutubeController::class, 'StatusUpdate']);
     Route::patch('scratch-setup/status-update', [ScratchSetupController::class, 'StatusUpdate']);
     Route::patch('delete-account', [JwtAuthController::class, 'DeleteAccount']);
-    //
-    Route::resource('daily-videos', DailyVideoController::class);
-    
     Route::resource('scratch-setup', ScratchSetupController::class);
-    Route::resource('training-videos', TrainingVideoController::class);
-    Route::resource('training-video-quizzes', TrainingQuizController::class);
-    Route::resource('promotion-videos', PromotionVideoController::class);
-    Route::resource('promotion-video-quizzes', PromotionQuizController::class);
 
     // Additional Scratch Referral (admin)
     Route::post('additional-scratch-referrals/upsert', [AdditionalScratchReferralController::class, 'upsert']);
     Route::get('additional-scratch-referrals', [AdditionalScratchReferralController::class, 'show']);
 
-    Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
-    Route::post('term-raised', [UserPromoterController::class, 'termRaised']);
-    Route::post('pin-rejected', [UserPromoterController::class, 'pinRejected']);
-
-    // unified endpoint: handles chunk upload and auto-merge
-    Route::post('upload', [VideoUploadController::class, 'upload']);
-    Route::post('upload/delete', [VideoUploadController::class, 'delete']);
     Route::post('withdraw-status-update', [WithdrawController::class, 'withdrawStatusUpdate']);
-    // Admin Dashboard
-    Route::get('admin-dashboard', [AdminDashboardController::class, 'index']);
-    
+
     // Admin Bank Details
     Route::post('admin-bank-details/upsert', [AdminBankDetailController::class, 'manage']);
     Route::get('admin-bank-details', [AdminBankDetailController::class, 'getActive']);
-    
+
+    // Sub-Admin management (super-admin manages sub-admins)
+    Route::patch('sub-admins/status-update', [SubAdminController::class, 'statusUpdate']);
+    Route::resource('sub-admins', SubAdminController::class);
 });
 
 Route::middleware('userjwt')->prefix('v1')->group(function () {
