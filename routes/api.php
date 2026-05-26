@@ -123,11 +123,14 @@ Route::prefix('v1')->middleware('auth:jwt,userjwt')->group(function () {
     Route::get('auth-user', [JwtAuthController::class, 'AuthUser']);
     Route::patch('changepassword', [JwtAuthController::class, 'changePassword']);
     Route::patch('update-personal-details', [JwtAuthController::class, 'updatePersonalDetails']);
+    Route::get('user-promoters/export/excel', [UserPromoterController::class, 'exportExcel']);
     Route::resource('user-promoters', UserPromoterController::class);
     Route::resource('referrals', ReferralController::class);
     Route::get('all-referrals', [ReferralController::class, 'allReferral']);
-    Route::resource('withdraws', WithdrawController::class);
+    Route::get('all-referrals/export/excel', [ReferralController::class, 'exportExcel']);
     Route::get('withdraws/export/excel', [WithdrawController::class, 'exportExcel']);
+    Route::get('withdraws/export/filtered/excel', [WithdrawController::class, 'exportFilteredExcel']);
+    Route::resource('withdraws', WithdrawController::class);
     Route::resource('youtube-channels', YoutubeController::class);
     Route::get('admin-bank-details', [AdminBankDetailController::class, 'getActive']);
 });

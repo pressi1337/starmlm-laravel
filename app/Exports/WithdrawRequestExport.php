@@ -98,7 +98,13 @@ class WithdrawRequestExport implements FromCollection, WithHeadings, WithMapping
                     'startColor' => ['rgb' => 'D9EAD3']
                 ]
             ],
-            // Set text format for the amount column
+            // Force-text on identifier columns — Excel otherwise interprets
+            // long all-digit strings as floats and zeroes their last digits.
+            // D = Mobile, H = Account Number, I = IFSC Code.
+            'D' => ['numberFormat' => ['formatCode' => '@']],
+            'H' => ['numberFormat' => ['formatCode' => '@']],
+            'I' => ['numberFormat' => ['formatCode' => '@']],
+            // Amount column (M) keeps 2-decimal numeric format.
             'M' => [
                 'numberFormat' => [
                     'formatCode' => '0.00'

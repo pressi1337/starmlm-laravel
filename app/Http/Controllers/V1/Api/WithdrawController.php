@@ -57,29 +57,67 @@ class WithdrawController extends Controller
             // Apply default filters
             $query->where('is_deleted', 0);
 
-            // Apply search_param filters (whitelisted)
+            // Whitelist filterable columns for this listing (kept local — the
+            // class-level $filterable belongs to the earnings endpoint).
+            $allowedFilters = ['status', 'wallet_type', 'id', 'amount'];
+
+            // Apply search_param filters (whitelisted). Date range and the
+            // username pseudo-filter are handled below as special cases.
             foreach (($search_param ?? []) as $key => $value) {
                 if ($value === '' || $value === null) {
                     continue;
                 }
-                if (in_array($key, $this->filterable, true)) {
-                    $query->where($key, $value);
+                if ($key === 'fromdate' || $key === 'todate') {
+                    continue;
+                }
+                if (in_array($key, $allowedFilters, true)) {
+                    if (is_array($value)) {
+                        $query->whereIn($key, $value);
+                    } else {
+                        $query->where($key, $value);
+                    }
                 }
             }
 
-            // Apply search filter across common fields
+            // Date range over request_at
+            $fromDate = $search_param['fromdate'] ?? null;
+            $toDate = $search_param['todate'] ?? null;
+            if ($fromDate && $toDate) {
+                $query->whereBetween('request_at', [$fromDate, $toDate]);
+            } elseif ($fromDate) {
+                $query->whereDate('request_at', '>=', $fromDate);
+            } elseif ($toDate) {
+                $query->whereDate('request_at', '<=', $toDate);
+            }
+
+            // Search targets the user's username only.
             if ($search_term !== '') {
-                $query->where(function ($q) use ($search_term) {
-                    $q->where('amount', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('request_at', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('status', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('wallet_type', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('reason', 'LIKE', '%' . $search_term . '%');
+                $query->whereHas('user', function ($q) use ($search_term) {
+                    $q->where('username', 'LIKE', '%' . $search_term . '%');
                 });
             }
 
             // Get total records for pagination
             $total_records = $query->count();
+
+            // Aggregate cards — share the same scope as the list (date range +
+            // username search) but ignore the status filter so each status
+            // tile is meaningful even when a status is selected. Cloning here
+            // is fine because none of the calls below mutate $query.
+            $statsBase = (clone $query);
+            // Strip any earlier `where('status', …)` from the search_param
+            // filter so the per-status sums are independent of the dropdown.
+            $statsBase->getQuery()->wheres = array_values(array_filter(
+                $statsBase->getQuery()->wheres,
+                fn ($w) => !(isset($w['column']) && $w['column'] === 'status')
+            ));
+
+            $stats = [
+                'total_requests'           => (clone $statsBase)->count(),
+                'total_requested_amount'   => (float) (clone $statsBase)->sum('amount'),
+                'total_withdrawn_amount'   => (float) (clone $statsBase)->where('status', WithdrawRequest::STATUS_COMPLETED)->sum('amount'),
+                'total_pending_amount'     => (float) (clone $statsBase)->where('status', WithdrawRequest::STATUS_PENDING)->sum('amount'),
+            ];
 
             // Apply sorting and pagination
             $withdraw_histories = $query->orderBy($sort_column, $sort_direction)
@@ -105,6 +143,7 @@ class WithdrawController extends Controller
                 'success' => true,
                 'message' => 'Success',
                 'data' => $withdraw_histories,
+                'stats' => $stats,
                 'pageInfo' => [
                     'page_size' => $page_size,
                     'page_number' => $page_number,
@@ -497,7 +536,7 @@ class WithdrawController extends Controller
      */
     public function exportExcel()
     {
-       
+
 
         try {
             // Get all withdraw requests with user and bank details
@@ -513,6 +552,72 @@ class WithdrawController extends Controller
             );
         } catch (\Exception $e) {
             Log::error('Withdraw export failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Failed to export data'], 500);
+        }
+    }
+
+    /**
+     * Filter-aware Excel export — mirrors index()'s scope (status,
+     * fromdate/todate, username search). Distinct from the pending-only
+     * exportExcel() above, which is kept for the existing quick-export
+     * button.
+     */
+    public function exportFilteredExcel(Request $request)
+    {
+        if (Auth::user()->role != User::ROLE_ADMIN) {
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        }
+
+        try {
+            $search_term = trim((string) $request->query('search', ''));
+            $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
+
+            $allowedFilters = ['status', 'wallet_type', 'id', 'amount'];
+
+            $query = WithdrawRequest::query()->where('is_deleted', 0);
+
+            foreach (($search_param ?? []) as $key => $value) {
+                if ($value === '' || $value === null) {
+                    continue;
+                }
+                if ($key === 'fromdate' || $key === 'todate') {
+                    continue;
+                }
+                if (in_array($key, $allowedFilters, true)) {
+                    if (is_array($value)) {
+                        $query->whereIn($key, $value);
+                    } else {
+                        $query->where($key, $value);
+                    }
+                }
+            }
+
+            $fromDate = $search_param['fromdate'] ?? null;
+            $toDate = $search_param['todate'] ?? null;
+            if ($fromDate && $toDate) {
+                $query->whereBetween('request_at', [$fromDate, $toDate]);
+            } elseif ($fromDate) {
+                $query->whereDate('request_at', '>=', $fromDate);
+            } elseif ($toDate) {
+                $query->whereDate('request_at', '<=', $toDate);
+            }
+
+            if ($search_term !== '') {
+                $query->whereHas('user', function ($q) use ($search_term) {
+                    $q->where('username', 'LIKE', '%' . $search_term . '%');
+                });
+            }
+
+            $rows = $query->with(['user', 'bankDetail'])
+                ->orderBy('created_at', 'DESC')
+                ->get();
+
+            return Excel::download(
+                new WithdrawRequestExport($rows),
+                'withdraw_requests_filtered_' . date('Y-m-d_H-i-s') . '.xlsx'
+            );
+        } catch (\Throwable $e) {
+            Log::error('Withdraw filtered export failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Failed to export data'], 500);
         }
     }

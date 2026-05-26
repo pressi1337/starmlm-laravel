@@ -17,6 +17,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use App\Models\UserBankDetail;
+use App\Exports\UserManagementExport;
+use Maatwebsite\Excel\Facades\Excel;
 
 class ReferralController extends Controller
 {
@@ -112,6 +114,9 @@ class ReferralController extends Controller
                         if ($key === 'fromdate' || $key === 'todate') {
                             // Handle date range filtering
                             continue; // Skip individual processing, handle together below
+                        } elseif ($key === 'current_promoter_level' && $value === 'null') {
+                            // 'null' sentinel from the Trainee filter option.
+                            $query->whereNull('current_promoter_level');
                         } else {
                             $query->where($key, $value);
                         }
@@ -130,13 +135,17 @@ class ReferralController extends Controller
                 $query->whereDate('created_at', '<=', $toDate);
             }
 
-            // Apply search filter across common fields
+            // Apply search filter across common fields + referrer username.
             if ($search_term !== '') {
                 $query->where(function ($q) use ($search_term) {
-                    $q->where('username', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
+                    $like = '%' . $search_term . '%';
+                    $q->where('username', 'LIKE', $like)
+                        ->orWhere('first_name', 'LIKE', $like)
+                        ->orWhere('last_name', 'LIKE', $like)
+                        ->orWhere('mobile', 'LIKE', $like)
+                        ->orWhereHas('referrer', function ($r) use ($like) {
+                            $r->where('username', 'LIKE', $like);
+                        });
                 });
             }
 
@@ -220,6 +229,9 @@ class ReferralController extends Controller
                         if ($key === 'fromdate' || $key === 'todate') {
                             // Handle date range filtering
                             continue; // Skip individual processing, handle together below
+                        } elseif ($key === 'current_promoter_level' && $value === 'null') {
+                            // 'null' sentinel from the Trainee filter option.
+                            $query->whereNull('current_promoter_level');
                         } else {
                             $query->where($key, $value);
                         }
@@ -238,13 +250,17 @@ class ReferralController extends Controller
                 $query->whereDate('created_at', '<=', $toDate);
             }
 
-            // Apply search filter across common fields
+            // Apply search filter across common fields + referrer username.
             if ($search_term !== '') {
                 $query->where(function ($q) use ($search_term) {
-                    $q->where('username', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
+                    $like = '%' . $search_term . '%';
+                    $q->where('username', 'LIKE', $like)
+                        ->orWhere('first_name', 'LIKE', $like)
+                        ->orWhere('last_name', 'LIKE', $like)
+                        ->orWhere('mobile', 'LIKE', $like)
+                        ->orWhereHas('referrer', function ($r) use ($like) {
+                            $r->where('username', 'LIKE', $like);
+                        });
                 });
             }
 
@@ -284,6 +300,78 @@ class ReferralController extends Controller
         } catch (\Throwable $e) {
             Log::error('Referral index failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    /**
+     * Excel export for the admin User Management page. Reuses the same
+     * filter pipeline as allReferral() so the download mirrors whatever the
+     * admin currently sees on screen (search, current_promoter_level,
+     * fromdate/todate). Pagination is skipped — the entire filtered set is
+     * exported.
+     */
+    public function exportExcel(Request $request)
+    {
+        try {
+            if (!Auth::check()) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            }
+
+            $search_term = trim((string) $request->query('search', ''));
+            $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
+
+            $query = User::query()
+                ->where('is_deleted', 0)
+                ->where('role', 2);
+
+            foreach (($search_param ?? []) as $key => $value) {
+                if ($value === '' || $value === null) {
+                    continue;
+                }
+                if (in_array($key, $this->filterable, true)) {
+                    if (is_array($value)) {
+                        if (!empty($value)) {
+                            $query->whereIn($key, $value);
+                        }
+                    } else {
+                        if ($key === 'fromdate' || $key === 'todate') {
+                            continue;
+                        }
+                        $query->where($key, $value);
+                    }
+                }
+            }
+
+            $fromDate = $search_param['fromdate'] ?? null;
+            $toDate = $search_param['todate'] ?? null;
+            if ($fromDate && $toDate) {
+                $query->whereBetween('created_at', [$fromDate, $toDate]);
+            } elseif ($fromDate) {
+                $query->whereDate('created_at', '>=', $fromDate);
+            } elseif ($toDate) {
+                $query->whereDate('created_at', '<=', $toDate);
+            }
+
+            if ($search_term !== '') {
+                $query->where(function ($q) use ($search_term) {
+                    $q->where('username', 'LIKE', '%' . $search_term . '%')
+                        ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
+                        ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
+                        ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
+                });
+            }
+
+            $users = $query->orderBy('created_at', 'DESC')
+                ->with('referrer')
+                ->get();
+
+            return Excel::download(
+                new UserManagementExport($users),
+                'users_' . date('Y-m-d_H-i-s') . '.xlsx'
+            );
+        } catch (\Throwable $e) {
+            Log::error('User Management export failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Failed to export data'], 500);
         }
     }
 

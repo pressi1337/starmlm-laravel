@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use App\Exports\PinRequestExport;
+use Maatwebsite\Excel\Facades\Excel;
 
 class UserPromoterController extends Controller
 {
@@ -237,6 +239,79 @@ class UserPromoterController extends Controller
                 'total_records' => $total_records
             ]
         ], 200);
+    }
+
+    /**
+     * Excel export for the admin Pin Requests page. Mirrors index()'s filter
+     * pipeline (status, level, fromdate/todate, user-relation search) and
+     * preserves the sub-admin level-0/1 restriction. No pagination — the
+     * whole filtered set is exported.
+     */
+    public function exportExcel(Request $request)
+    {
+        try {
+            $search_term = trim((string) $request->query('search', ''));
+            $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
+
+            $query = UserPromoter::query()->where('is_deleted', 0);
+
+            $actor = Auth::user();
+            if ($actor && $actor->role === User::ROLE_SUB_ADMIN) {
+                $query->whereIn('level', [0, 1]);
+            }
+
+            foreach (($search_param ?? []) as $key => $value) {
+                if ($value === '' || $value === null) {
+                    continue;
+                }
+                if (!in_array($key, $this->filterable, true)) {
+                    continue;
+                }
+                if (is_array($value)) {
+                    if (!empty($value)) {
+                        $query->whereIn($key, $value);
+                    }
+                } else {
+                    if ($key === 'fromdate' || $key === 'todate') {
+                        continue;
+                    }
+                    $query->where($key, $value);
+                }
+            }
+
+            $fromDate = $search_param['fromdate'] ?? null;
+            $toDate = $search_param['todate'] ?? null;
+            if ($fromDate && $toDate) {
+                $query->whereBetween('created_at', [$fromDate, $toDate]);
+            } elseif ($fromDate) {
+                $query->whereDate('created_at', '>=', $fromDate);
+            } elseif ($toDate) {
+                $query->whereDate('created_at', '<=', $toDate);
+            }
+
+            if ($search_term !== '') {
+                $query->whereHas('user', function ($q) use ($search_term) {
+                    $q->where(function ($qq) use ($search_term) {
+                        $qq->where('username', 'LIKE', '%' . $search_term . '%')
+                            ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
+                            ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
+                            ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
+                    });
+                });
+            }
+
+            $rows = $query->orderBy('created_at', 'DESC')
+                ->with('user')
+                ->get();
+
+            return Excel::download(
+                new PinRequestExport($rows),
+                'pin_requests_' . date('Y-m-d_H-i-s') . '.xlsx'
+            );
+        } catch (\Throwable $e) {
+            Log::error('Pin Request export failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Failed to export data'], 500);
+        }
     }
 
     /**
