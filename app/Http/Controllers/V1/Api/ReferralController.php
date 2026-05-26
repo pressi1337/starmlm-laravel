@@ -267,6 +267,26 @@ class ReferralController extends Controller
             // Get total records for pagination
             $total_records = $query->count();
 
+            // Aggregate cards — share the same scope as the list (date range +
+            // search) but ignore the active-status / promoter-level filters so
+            // each tile stays meaningful when those dropdowns are set. Clone
+            // before stripping the affected wheres.
+            $statsBase = (clone $query);
+            $statsBase->getQuery()->wheres = array_values(array_filter(
+                $statsBase->getQuery()->wheres,
+                fn ($w) => !(isset($w['column']) && in_array($w['column'], ['is_active', 'current_promoter_level'], true))
+            ));
+
+            $stats = [
+                'total_users'        => (clone $statsBase)->count(),
+                'total_active_users' => (clone $statsBase)->where('is_active', 1)->count(),
+                'new_users_today'    => (clone $statsBase)->whereDate('created_at', today())->count(),
+                'new_users_this_month' => (clone $statsBase)
+                    ->whereMonth('created_at', now()->month)
+                    ->whereYear('created_at', now()->year)
+                    ->count(),
+            ];
+
             // Apply sorting and pagination
             $users = $query->orderBy($sort_column, $sort_direction)
                 ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
@@ -290,6 +310,7 @@ class ReferralController extends Controller
                 'success' => true,
                 'message' => 'Success',
                 'data' => $users,
+                'stats' => $stats,
                 'pageInfo' => [
                     'page_size' => $page_size,
                     'page_number' => $page_number,
@@ -337,6 +358,10 @@ class ReferralController extends Controller
                         if ($key === 'fromdate' || $key === 'todate') {
                             continue;
                         }
+                        if ($key === 'current_promoter_level' && $value === 'null') {
+                            $query->whereNull('current_promoter_level');
+                            continue;
+                        }
                         $query->where($key, $value);
                     }
                 }
@@ -354,10 +379,14 @@ class ReferralController extends Controller
 
             if ($search_term !== '') {
                 $query->where(function ($q) use ($search_term) {
-                    $q->where('username', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
-                        ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
+                    $like = '%' . $search_term . '%';
+                    $q->where('username', 'LIKE', $like)
+                        ->orWhere('first_name', 'LIKE', $like)
+                        ->orWhere('last_name', 'LIKE', $like)
+                        ->orWhere('mobile', 'LIKE', $like)
+                        ->orWhereHas('referrer', function ($r) use ($like) {
+                            $r->where('username', 'LIKE', $like);
+                        });
                 });
             }
 

@@ -209,6 +209,29 @@ class UserPromoterController extends Controller
         // Get total records for pagination
         $total_records = $query->count();
 
+        // Aggregate cards — same scope as the list (date range + search +
+        // sub-admin level lock), but strip any status/level wheres so each
+        // tile reflects its own bucket regardless of what's in the dropdown.
+        $statsBase = (clone $query);
+        $statsBase->getQuery()->wheres = array_values(array_filter(
+            $statsBase->getQuery()->wheres,
+            function ($w) {
+                if (!isset($w['column'])) return true;
+                // Keep the sub-admin level lock (whereIn 0/1) — distinguishable
+                // because it's the only level filter that's a whereIn (type=In).
+                if ($w['column'] === 'status') return false;
+                if ($w['column'] === 'level' && ($w['type'] ?? '') !== 'In') return false;
+                return true;
+            }
+        ));
+
+        $stats = [
+            'pending_promoters'   => (clone $statsBase)->where('status', UserPromoter::PIN_STATUS_PENDING)->count(),
+            'approved_promoters'  => (clone $statsBase)->where('status', UserPromoter::PIN_STATUS_APPROVED)->count(),
+            'activated_promoters' => (clone $statsBase)->where('status', UserPromoter::PIN_STATUS_ACTIVATED)->count(),
+            'rejected_promoters'  => (clone $statsBase)->where('status', UserPromoter::PIN_STATUS_REJECTED)->count(),
+        ];
+
         // Apply sorting and pagination
         $user_promoters = $query->orderBy($sort_column, $sort_direction)
             ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
@@ -232,6 +255,7 @@ class UserPromoterController extends Controller
             'success' => true,
             'message' => 'Success',
             'data' => $user_promoters,
+            'stats' => $stats,
             'pageInfo' => [
                 'page_size' => $page_size,
                 'page_number' => $page_number,
