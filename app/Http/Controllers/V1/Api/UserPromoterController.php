@@ -150,6 +150,14 @@ class UserPromoterController extends Controller
         // Apply default filters
         $query->where('is_deleted', 0);
 
+        // Sub-admins only ever see Promoter (level 0) and Promoter Level 1 rows.
+        // Applied here so it's enforced regardless of any client-side filter the
+        // caller tries to set.
+        $actor = Auth::user();
+        if ($actor && $actor->role === User::ROLE_SUB_ADMIN) {
+            $query->whereIn('level', [0, 1]);
+        }
+
         // Apply search_param filters
         foreach ($search_param as $key => $value) {
             if ($value === '' || $value === null) {
