@@ -37,17 +37,28 @@ Route::get('/login', function () {
 // controller.
 Route::middleware('jwt')->prefix('v1')->group(function () {
     // Daily Videos — requires can_daily_videos for sub-admin.
+    // DELETE is split out to super-admin only (see below).
     Route::middleware('subadmin.permission:daily_videos')->group(function () {
         Route::patch('daily-videos/status-update', [DailyVideoController::class, 'StatusUpdate']);
-        Route::resource('daily-videos', DailyVideoController::class);
+        Route::resource('daily-videos', DailyVideoController::class)->except(['destroy']);
     });
 
     // Promotion Videos + their quizzes — requires can_promotion_videos.
+    // DELETE is split out to super-admin only (see below).
     Route::middleware('subadmin.permission:promotion_videos')->group(function () {
         Route::patch('promotion-videos/status-update', [PromotionVideoController::class, 'StatusUpdate']);
         Route::patch('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
-        Route::resource('promotion-videos', PromotionVideoController::class);
-        Route::resource('promotion-video-quizzes', PromotionQuizController::class);
+        Route::resource('promotion-videos', PromotionVideoController::class)->except(['destroy']);
+        Route::resource('promotion-video-quizzes', PromotionQuizController::class)->except(['destroy']);
+    });
+
+    // Destructive deletes on these resources are super-admin only. Even a
+    // sub-admin with the matching permission must not be able to wipe rows
+    // via direct API call.
+    Route::middleware('role:0')->group(function () {
+        Route::delete('daily-videos/{daily_video}', [DailyVideoController::class, 'destroy']);
+        Route::delete('promotion-videos/{promotion_video}', [PromotionVideoController::class, 'destroy']);
+        Route::delete('promotion-video-quizzes/{promotion_video_quiz}', [PromotionQuizController::class, 'destroy']);
     });
 
     // Pin lifecycle — requires can_pin_requests AND (for sub-admin) the
