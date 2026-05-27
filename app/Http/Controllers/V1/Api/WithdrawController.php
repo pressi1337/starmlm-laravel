@@ -100,23 +100,33 @@ class WithdrawController extends Controller
             // Get total records for pagination
             $total_records = $query->count();
 
-            // Aggregate cards — share the same scope as the list (date range +
-            // username search) but ignore the status filter so each status
-            // tile is meaningful even when a status is selected. Cloning here
-            // is fine because none of the calls below mutate $query.
-            $statsBase = (clone $query);
-            // Strip any earlier `where('status', …)` from the search_param
-            // filter so the per-status sums are independent of the dropdown.
-            $statsBase->getQuery()->wheres = array_values(array_filter(
-                $statsBase->getQuery()->wheres,
-                fn ($w) => !(isset($w['column']) && $w['column'] === 'status')
-            ));
+            // Aggregate cards — share the same scope as the list (date range
+            // + username search) but ignore the status filter so each per-
+            // status tile stays meaningful even when a status is selected.
+            // Built fresh (not cloned-and-stripped) to avoid breaking the
+            // builder's internal where/bindings sync.
+            $statsBase = function () use ($fromDate, $toDate, $search_term) {
+                $q = WithdrawRequest::query()->where('is_deleted', 0);
+                if ($fromDate && $toDate) {
+                    $q->whereBetween('request_at', [$fromDate, $toDate]);
+                } elseif ($fromDate) {
+                    $q->whereDate('request_at', '>=', $fromDate);
+                } elseif ($toDate) {
+                    $q->whereDate('request_at', '<=', $toDate);
+                }
+                if ($search_term !== '') {
+                    $q->whereHas('user', function ($u) use ($search_term) {
+                        $u->where('username', 'LIKE', '%' . $search_term . '%');
+                    });
+                }
+                return $q;
+            };
 
             $stats = [
-                'total_requests'           => (clone $statsBase)->count(),
-                'total_requested_amount'   => (float) (clone $statsBase)->sum('amount'),
-                'total_withdrawn_amount'   => (float) (clone $statsBase)->where('status', WithdrawRequest::STATUS_COMPLETED)->sum('amount'),
-                'total_pending_amount'     => (float) (clone $statsBase)->where('status', WithdrawRequest::STATUS_PENDING)->sum('amount'),
+                'total_requests'         => $statsBase()->count(),
+                'total_requested_amount' => (float) $statsBase()->sum('amount'),
+                'total_withdrawn_amount' => (float) $statsBase()->where('status', WithdrawRequest::STATUS_COMPLETED)->sum('amount'),
+                'total_pending_amount'   => (float) $statsBase()->where('status', WithdrawRequest::STATUS_PENDING)->sum('amount'),
             ];
 
             // Apply sorting and pagination

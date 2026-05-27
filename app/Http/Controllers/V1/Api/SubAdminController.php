@@ -24,14 +24,45 @@ class SubAdminController extends Controller
     protected array $filterable = ['is_active', 'fromdate', 'todate'];
 
     protected $messages = [
-        'first_name.required' => 'First Name Required',
-        'last_name.required'  => 'Last Name Required',
-        'username.required'   => 'Username Required',
-        'password.required'   => 'Password Required',
-        'password.min'        => 'Password Must Be At Least 6 Characters',
-        'password.confirmed'  => 'Password Confirmation Mismatch',
-        'username.unique'     => 'Username Already Exists',
+        'first_name.required'           => 'First Name Required',
+        'last_name.required'            => 'Last Name Required',
+        'username.required'             => 'Username Required',
+        'password.required'             => 'Password Required',
+        'password.min'                  => 'Password Must Be At Least 6 Characters',
+        'password.confirmed'            => 'Password Confirmation Mismatch',
+        'username.unique'               => 'Username Already Exists',
+        'can_daily_videos.boolean'      => 'Daily Videos permission must be true/false',
+        'can_promotion_videos.boolean'  => 'Promotion Videos permission must be true/false',
+        'can_pin_requests.boolean'      => 'Pin Requests permission must be true/false',
     ];
+
+    /**
+     * Coerce the 3 permission inputs to ints (0/1) and ensure at least one
+     * is granted. Returns either a sanitised assoc array of perm values, or
+     * a JsonResponse to return early.
+     */
+    private function extractPermissions(Request $request, bool $required = true)
+    {
+        $perms = [
+            'can_daily_videos'     => $request->has('can_daily_videos')
+                ? (int) (bool) $request->input('can_daily_videos') : 0,
+            'can_promotion_videos' => $request->has('can_promotion_videos')
+                ? (int) (bool) $request->input('can_promotion_videos') : 0,
+            'can_pin_requests'     => $request->has('can_pin_requests')
+                ? (int) (bool) $request->input('can_pin_requests') : 0,
+        ];
+
+        if ($required && array_sum($perms) === 0) {
+            return response()->json([
+                'success' => false,
+                'errors'  => [
+                    'permissions' => 'Grant at least one permission (Daily Videos, Promotion Videos, or Pin Requests).',
+                ],
+            ], 422);
+        }
+
+        return $perms;
+    }
 
     /** List sub-admins with the standard search/sort/page contract. */
     public function index(Request $request)
@@ -89,6 +120,7 @@ class SubAdminController extends Controller
             ->get([
                 'id', 'first_name', 'last_name', 'username',
                 'is_active', 'role', 'created_at', 'updated_at',
+                'can_daily_videos', 'can_promotion_videos', 'can_pin_requests',
             ])
             ->map(function ($row) {
                 $row->created_at_formatted = $row->created_at ? $row->created_at->format('d-m-Y h:i A') : '-';
@@ -113,15 +145,23 @@ class SubAdminController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'first_name' => 'required|string|max:100',
-            'last_name'  => 'required|string|max:100',
-            'username'   => 'required|string|max:100|unique:users,username',
-            'password'   => 'required|string|min:6|confirmed',
-            'is_active'  => 'nullable|boolean',
+            'first_name'           => 'required|string|max:100',
+            'last_name'            => 'required|string|max:100',
+            'username'             => 'required|string|max:100|unique:users,username',
+            'password'             => 'required|string|min:6|confirmed',
+            'is_active'            => 'nullable|boolean',
+            'can_daily_videos'     => 'nullable|boolean',
+            'can_promotion_videos' => 'nullable|boolean',
+            'can_pin_requests'     => 'nullable|boolean',
         ], $this->messages);
 
         if ($validator->fails()) {
             return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $perms = $this->extractPermissions($request, true);
+        if ($perms instanceof \Illuminate\Http\JsonResponse) {
+            return $perms;
         }
 
         try {
@@ -137,6 +177,9 @@ class SubAdminController extends Controller
             $user->role       = User::ROLE_SUB_ADMIN;
             $user->is_active  = $request->has('is_active') ? (int) (bool) $request->input('is_active') : 1;
             $user->is_deleted = 0;
+            $user->can_daily_videos     = $perms['can_daily_videos'];
+            $user->can_promotion_videos = $perms['can_promotion_videos'];
+            $user->can_pin_requests     = $perms['can_pin_requests'];
             $user->created_by = $actorId;
             $user->updated_by = $actorId;
             $user->save();
@@ -189,15 +232,33 @@ class SubAdminController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'first_name' => 'sometimes|required|string|max:100',
-            'last_name'  => 'sometimes|required|string|max:100',
-            'username'   => ['sometimes', 'required', 'string', 'max:100', 'unique:users,username,' . $user->id],
-            'password'   => 'nullable|string|min:6|confirmed',
-            'is_active'  => 'nullable|boolean',
+            'first_name'           => 'sometimes|required|string|max:100',
+            'last_name'            => 'sometimes|required|string|max:100',
+            'username'             => ['sometimes', 'required', 'string', 'max:100', 'unique:users,username,' . $user->id],
+            'password'             => 'nullable|string|min:6|confirmed',
+            'is_active'            => 'nullable|boolean',
+            'can_daily_videos'     => 'nullable|boolean',
+            'can_promotion_videos' => 'nullable|boolean',
+            'can_pin_requests'     => 'nullable|boolean',
         ], $this->messages);
 
         if ($validator->fails()) {
             return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        // If any permission field was submitted, require the at-least-one rule
+        // and apply all three (treat unsubmitted ones as 0). If none were sent
+        // at all, leave existing perms untouched.
+        $permsTouched = $request->has('can_daily_videos')
+            || $request->has('can_promotion_videos')
+            || $request->has('can_pin_requests');
+
+        $perms = null;
+        if ($permsTouched) {
+            $perms = $this->extractPermissions($request, true);
+            if ($perms instanceof \Illuminate\Http\JsonResponse) {
+                return $perms;
+            }
         }
 
         try {
@@ -218,6 +279,15 @@ class SubAdminController extends Controller
 
             if ($request->has('is_active')) {
                 $user->is_active = (int) (bool) $request->input('is_active');
+            }
+
+            if ($perms !== null) {
+                $user->can_daily_videos     = $perms['can_daily_videos'];
+                $user->can_promotion_videos = $perms['can_promotion_videos'];
+                $user->can_pin_requests     = $perms['can_pin_requests'];
+                // Permissions are embedded in the JWT, so a token issued under
+                // the old perms must be invalidated to avoid staleness.
+                $user->remember_token = null;
             }
 
             $user->updated_by = Auth::id();
@@ -303,14 +373,17 @@ class SubAdminController extends Controller
     private function present(User $user): array
     {
         return [
-            'id'         => $user->id,
-            'first_name' => $user->first_name,
-            'last_name'  => $user->last_name,
-            'username'   => $user->username,
-            'is_active'  => (int) $user->is_active,
-            'role'       => (int) $user->role,
-            'created_at' => $user->created_at,
-            'updated_at' => $user->updated_at,
+            'id'                   => $user->id,
+            'first_name'           => $user->first_name,
+            'last_name'            => $user->last_name,
+            'username'             => $user->username,
+            'is_active'            => (int) $user->is_active,
+            'role'                 => (int) $user->role,
+            'can_daily_videos'     => (int) ($user->can_daily_videos ?? 0),
+            'can_promotion_videos' => (int) ($user->can_promotion_videos ?? 0),
+            'can_pin_requests'     => (int) ($user->can_pin_requests ?? 0),
+            'created_at'           => $user->created_at,
+            'updated_at'           => $user->updated_at,
         ];
     }
 }

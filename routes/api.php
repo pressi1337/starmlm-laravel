@@ -31,26 +31,35 @@ Route::get('/login', function () {
 // });
 
 // Admin endpoints shared by Super-Admin (role=0) and Sub-Admin (role=1).
-// Sub-Admin's narrower permissions on pin operations are enforced inside
-// UserPromoterController (promoter level 0/1 only).
+// For sub-admin, each surface is further gated by a per-feature permission
+// flag — super-admin auto-passes the subadmin.permission middleware.
+// Pin operations additionally enforce promoter level 0/1 inside the
+// controller.
 Route::middleware('jwt')->prefix('v1')->group(function () {
-    // Daily Videos — sub-admin allowed
-    Route::patch('daily-videos/status-update', [DailyVideoController::class, 'StatusUpdate']);
-    Route::resource('daily-videos', DailyVideoController::class);
+    // Daily Videos — requires can_daily_videos for sub-admin.
+    Route::middleware('subadmin.permission:daily_videos')->group(function () {
+        Route::patch('daily-videos/status-update', [DailyVideoController::class, 'StatusUpdate']);
+        Route::resource('daily-videos', DailyVideoController::class);
+    });
 
-    // Promotion Videos + their quizzes — sub-admin allowed
-    Route::patch('promotion-videos/status-update', [PromotionVideoController::class, 'StatusUpdate']);
-    Route::patch('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
-    Route::resource('promotion-videos', PromotionVideoController::class);
-    Route::resource('promotion-video-quizzes', PromotionQuizController::class);
+    // Promotion Videos + their quizzes — requires can_promotion_videos.
+    Route::middleware('subadmin.permission:promotion_videos')->group(function () {
+        Route::patch('promotion-videos/status-update', [PromotionVideoController::class, 'StatusUpdate']);
+        Route::patch('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
+        Route::resource('promotion-videos', PromotionVideoController::class);
+        Route::resource('promotion-video-quizzes', PromotionQuizController::class);
+    });
 
-    // Pin lifecycle — sub-admin allowed but only for promoter level 0/1
-    // (enforced inside the controller).
-    Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
-    Route::post('term-raised', [UserPromoterController::class, 'termRaised']);
-    Route::post('pin-rejected', [UserPromoterController::class, 'pinRejected']);
+    // Pin lifecycle — requires can_pin_requests AND (for sub-admin) the
+    // promoter level 0/1 controller check.
+    Route::middleware('subadmin.permission:pin_requests')->group(function () {
+        Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
+        Route::post('term-raised', [UserPromoterController::class, 'termRaised']);
+        Route::post('pin-rejected', [UserPromoterController::class, 'pinRejected']);
+    });
 
-    // Chunked uploads needed for the video features above.
+    // Chunked uploads needed for the video features above. Open to any admin
+    // so a sub-admin granted only Promotion Videos can still upload assets.
     Route::post('upload', [VideoUploadController::class, 'upload']);
     Route::post('upload/delete', [VideoUploadController::class, 'delete']);
 

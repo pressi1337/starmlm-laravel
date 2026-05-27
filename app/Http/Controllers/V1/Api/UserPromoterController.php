@@ -133,6 +133,20 @@ class UserPromoterController extends Controller
     }
     public function index(Request $request)
     {
+        // The user-promoters resource lives in the shared auth:jwt,userjwt
+        // group, so we can't gate sub-admin access via route middleware here.
+        // Sub-admin without the pin-requests permission gets 403; end users
+        // (role=2) still hit this for their own promoter records via other
+        // methods on this controller — index is the admin listing.
+        $actor = Auth::user();
+        if ($actor && (int) $actor->role === User::ROLE_SUB_ADMIN
+            && !$actor->hasAdminPermission('pin_requests')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have permission to view pin requests.',
+                'code'    => 'forbidden',
+            ], 403);
+        }
 
         // Default sorting
         $sort_column = $request->query('sort_column', 'created_at');
@@ -210,26 +224,41 @@ class UserPromoterController extends Controller
         $total_records = $query->count();
 
         // Aggregate cards — same scope as the list (date range + search +
-        // sub-admin level lock), but strip any status/level wheres so each
-        // tile reflects its own bucket regardless of what's in the dropdown.
-        $statsBase = (clone $query);
-        $statsBase->getQuery()->wheres = array_values(array_filter(
-            $statsBase->getQuery()->wheres,
-            function ($w) {
-                if (!isset($w['column'])) return true;
-                // Keep the sub-admin level lock (whereIn 0/1) — distinguishable
-                // because it's the only level filter that's a whereIn (type=In).
-                if ($w['column'] === 'status') return false;
-                if ($w['column'] === 'level' && ($w['type'] ?? '') !== 'In') return false;
-                return true;
+        // sub-admin level lock) but ignore the status/level dropdowns so each
+        // status tile stays meaningful. Built fresh to avoid breaking the
+        // builder's where/bindings sync.
+        $statsBase = function () use ($fromDate, $toDate, $search_term, $actor) {
+            $q = UserPromoter::query()->where('is_deleted', 0);
+            // Preserve the sub-admin lock for stats too.
+            if ($actor && $actor->role === User::ROLE_SUB_ADMIN) {
+                $q->whereIn('level', [0, 1]);
             }
-        ));
+            if ($fromDate && $toDate) {
+                $q->whereBetween('created_at', [$fromDate, $toDate]);
+            } elseif ($fromDate) {
+                $q->whereDate('created_at', '>=', $fromDate);
+            } elseif ($toDate) {
+                $q->whereDate('created_at', '<=', $toDate);
+            }
+            if (!empty($search_term)) {
+                $q->where(function ($qq) use ($search_term) {
+                    $qq->where('level', 'LIKE', '%' . $search_term . '%')
+                        ->orWhereHas('user', function ($userQuery) use ($search_term) {
+                            $userQuery->where('username', 'LIKE', '%' . $search_term . '%')
+                                ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
+                                ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
+                                ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
+                        });
+                });
+            }
+            return $q;
+        };
 
         $stats = [
-            'pending_promoters'   => (clone $statsBase)->where('status', UserPromoter::PIN_STATUS_PENDING)->count(),
-            'approved_promoters'  => (clone $statsBase)->where('status', UserPromoter::PIN_STATUS_APPROVED)->count(),
-            'activated_promoters' => (clone $statsBase)->where('status', UserPromoter::PIN_STATUS_ACTIVATED)->count(),
-            'rejected_promoters'  => (clone $statsBase)->where('status', UserPromoter::PIN_STATUS_REJECTED)->count(),
+            'pending_promoters'   => $statsBase()->where('status', UserPromoter::PIN_STATUS_PENDING)->count(),
+            'approved_promoters'  => $statsBase()->where('status', UserPromoter::PIN_STATUS_APPROVED)->count(),
+            'activated_promoters' => $statsBase()->where('status', UserPromoter::PIN_STATUS_ACTIVATED)->count(),
+            'rejected_promoters'  => $statsBase()->where('status', UserPromoter::PIN_STATUS_REJECTED)->count(),
         ];
 
         // Apply sorting and pagination

@@ -267,21 +267,39 @@ class ReferralController extends Controller
             // Get total records for pagination
             $total_records = $query->count();
 
-            // Aggregate cards — share the same scope as the list (date range +
-            // search) but ignore the active-status / promoter-level filters so
-            // each tile stays meaningful when those dropdowns are set. Clone
-            // before stripping the affected wheres.
-            $statsBase = (clone $query);
-            $statsBase->getQuery()->wheres = array_values(array_filter(
-                $statsBase->getQuery()->wheres,
-                fn ($w) => !(isset($w['column']) && in_array($w['column'], ['is_active', 'current_promoter_level'], true))
-            ));
+            // Aggregate cards — same scope as the list (date range + search)
+            // but ignore the active-status / promoter-level dropdowns so each
+            // tile stays meaningful. Built fresh to avoid breaking the
+            // builder's where/bindings sync.
+            $statsBase = function () use ($fromDate, $toDate, $search_term) {
+                $q = User::query()->where('is_deleted', 0)->where('role', 2);
+                if ($fromDate && $toDate) {
+                    $q->whereBetween('created_at', [$fromDate, $toDate]);
+                } elseif ($fromDate) {
+                    $q->whereDate('created_at', '>=', $fromDate);
+                } elseif ($toDate) {
+                    $q->whereDate('created_at', '<=', $toDate);
+                }
+                if ($search_term !== '') {
+                    $q->where(function ($qq) use ($search_term) {
+                        $like = '%' . $search_term . '%';
+                        $qq->where('username', 'LIKE', $like)
+                            ->orWhere('first_name', 'LIKE', $like)
+                            ->orWhere('last_name', 'LIKE', $like)
+                            ->orWhere('mobile', 'LIKE', $like)
+                            ->orWhereHas('referrer', function ($r) use ($like) {
+                                $r->where('username', 'LIKE', $like);
+                            });
+                    });
+                }
+                return $q;
+            };
 
             $stats = [
-                'total_users'        => (clone $statsBase)->count(),
-                'total_active_users' => (clone $statsBase)->where('is_active', 1)->count(),
-                'new_users_today'    => (clone $statsBase)->whereDate('created_at', today())->count(),
-                'new_users_this_month' => (clone $statsBase)
+                'total_users'          => $statsBase()->count(),
+                'total_active_users'   => $statsBase()->where('is_active', 1)->count(),
+                'new_users_today'      => $statsBase()->whereDate('created_at', today())->count(),
+                'new_users_this_month' => $statsBase()
                     ->whereMonth('created_at', now()->month)
                     ->whereYear('created_at', now()->year)
                     ->count(),

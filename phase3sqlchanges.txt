@@ -1,0 +1,27 @@
+-- ============================================================
+-- Sub-Admin permissions — direct SQL (run if you can't use
+-- `php artisan migrate`). Equivalent of the Laravel migration
+-- 2026_05_27_000000_add_sub_admin_permissions_to_users.
+-- ============================================================
+
+-- 1) Add the 3 permission columns to the users table.
+ALTER TABLE `users`
+    ADD COLUMN `can_daily_videos` TINYINT(1) NOT NULL DEFAULT 0 AFTER `role`,
+    ADD COLUMN `can_promotion_videos` TINYINT(1) NOT NULL DEFAULT 0 AFTER `can_daily_videos`,
+    ADD COLUMN `can_pin_requests` TINYINT(1) NOT NULL DEFAULT 0 AFTER `can_promotion_videos`;
+
+-- 2) Backfill any existing sub-admins (role = 1) so they retain the access
+--    they implicitly had before permissions existed. New sub-admins default
+--    to 0/0/0 and the super-admin must explicitly grant at least one.
+UPDATE `users`
+SET
+    `can_daily_videos`     = 1,
+    `can_promotion_videos` = 1,
+    `can_pin_requests`     = 1
+WHERE `role` = 1;
+
+-- ----- Rollback (only if you need to revert) -----
+-- ALTER TABLE `users`
+--     DROP COLUMN `can_daily_videos`,
+--     DROP COLUMN `can_promotion_videos`,
+--     DROP COLUMN `can_pin_requests`;
