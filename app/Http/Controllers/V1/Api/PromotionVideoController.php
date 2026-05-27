@@ -537,30 +537,11 @@ class PromotionVideoController extends Controller
                 return response()->json(['message' => 'User promoter session expired', 'status' => 400], 400);
             }
             $total_earning = 0;
-            $default_video_total_earnable_amount = 2.5;
-            $max_earnable_per_video = 2.5;
-            switch ($user_promoter->level) {
-                case 0:
-                    $default_video_total_earnable_amount = 2.5;
-                    $max_earnable_per_video = 2.5;
-                    break;
-                case 1:
-                    $default_video_total_earnable_amount = 5;
-                    $max_earnable_per_video = 35;
-                    break;
-                case 2:
-                    $default_video_total_earnable_amount = 50;
-                    $max_earnable_per_video = 230;
-                    break;
-                case 3:
-                    $default_video_total_earnable_amount = 62.5;
-                    $max_earnable_per_video = 182.5;
-                    break;
-                case 4:
-                    $default_video_total_earnable_amount = 92.5;
-                    $max_earnable_per_video = 265;
-                    break;
-            }
+            // Earning table lives on the User model so the admin ceiling view
+            // and the quiz engine never drift apart.
+            $levelInfo = User::getLevelEarningInfo($user_promoter->level);
+            $default_video_total_earnable_amount = (float) $levelInfo['default'];
+            $max_earnable_per_video = (float) $levelInfo['max'];
             $video_total_earnable_amount = $default_video_total_earnable_amount;
             if ($user_promoter->level > 0) {
                 $referred_users = User::where([
@@ -571,13 +552,7 @@ class PromotionVideoController extends Controller
                 ])->where('current_promoter_level', '<=', $user_promoter->level)
                     ->where('current_promoter_level', '!=', 0)->get();
                 foreach ($referred_users as $referred_user) {
-                    $add_amount = match ($referred_user->current_promoter_level) {
-                        1 => 2.5,
-                        2 => 25,
-                        3 => 17.5,
-                        4 => 25,
-                        default => 0,
-                    };
+                    $add_amount = User::REFERRAL_BONUS_PER_LEVEL[(int) $referred_user->current_promoter_level] ?? 0;
                     $remaining_allowance = $max_earnable_per_video - $video_total_earnable_amount;
                     if ($remaining_allowance <= 0) {
                         break;
@@ -590,6 +565,20 @@ class PromotionVideoController extends Controller
                     }
                 }
             }
+
+            // Distributor promotion is eligibility-based, not earnings-based:
+            // once a Promoter Level 4 user's referral network unlocks the full
+            // per-video cap (265 → daily potential 4 × 265 = 1060), flip the
+            // flag. We don't wait for them to actually earn it — the moment
+            // the network supports the cap, status is granted. Idempotent.
+            if ((int) $user_promoter->level === 4
+                && (int) ($auth_user->is_distributor ?? 0) === 0
+                && $video_total_earnable_amount + 0.01 >= $max_earnable_per_video) {
+                $auth_user->is_distributor = 1;
+                $auth_user->distributor_activated_at = now();
+                $auth_user->save();
+            }
+
             $correct_count = 0;
             $failed_questions_count = 0;
             $total_questions = count($questions_with_selected_choice);

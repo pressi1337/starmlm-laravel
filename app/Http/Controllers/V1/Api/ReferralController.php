@@ -320,6 +320,26 @@ class ReferralController extends Controller
                     $user->updated_at_formatted = $user->updated_at
                         ? $user->updated_at->format('d-m-Y h:i A')
                         : '-';
+                    // Attach ceiling info so the admin column can show
+                    // "current potential / max for level" at both per-video
+                    // and per-day granularity without a second round-trip.
+                    // Daily multiplier is level-aware: L0/L1/L2 watch only
+                    // 2 videos/day, L3/L4 watch 4 videos/day.
+                    $level = $user->current_promoter_level;
+                    $info = User::getLevelEarningInfo($level);
+                    $perVideoCurrent = $level === null
+                        ? 0.0
+                        : $user->computeCurrentPerVideoPotential();
+                    $videosPerDay = User::videosPerDay($level);
+                    $user->ceiling_info = [
+                        'level'              => $level,
+                        'videos_per_day'     => $videosPerDay,
+                        'per_video_current'  => round($perVideoCurrent, 2),
+                        'per_video_max'      => (float) $info['max'],
+                        'daily_current'      => round($perVideoCurrent * $videosPerDay, 2),
+                        'daily_max'          => round($info['max'] * $videosPerDay, 2),
+                        'is_fully_eligible'  => $level !== null && $perVideoCurrent + 0.01 >= (float) $info['max'],
+                    ];
                     return $user;
                 });
 
@@ -741,4 +761,61 @@ class ReferralController extends Controller
      * @return \Illuminate\Http\Response
      */
     public function destroy($id) {}
+
+    /**
+     * Multi-level referral tree rooted at the given user. Recurses down
+     * (children → grandchildren → …) up to a depth limit so the response
+     * stays bounded even on pathological networks. Each node exposes the
+     * minimum fields the admin tree UI needs to render a name + level chip.
+     */
+    public function referralTree(Request $request, $userId)
+    {
+        try {
+            if (!Auth::check()) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+            }
+            $root = User::where('id', $userId)->where('is_deleted', 0)->first();
+            if (!$root) {
+                return response()->json(['success' => false, 'message' => 'User not found'], 404);
+            }
+            $maxDepth = 10;
+            return response()->json([
+                'success' => true,
+                'data'    => $this->buildReferralNode($root, $maxDepth),
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Referral tree failed', ['error' => $e->getMessage(), 'user_id' => $userId]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    /**
+     * Recursively walk the referrals hasMany. `depth_left == 0` stops the
+     * descent but still emits the node itself so the UI can show a
+     * "truncated" indicator if it ever matters.
+     */
+    private function buildReferralNode(User $user, int $depthLeft): array
+    {
+        $node = [
+            'id'                     => $user->id,
+            'username'               => $user->username,
+            'first_name'             => $user->first_name,
+            'last_name'              => $user->last_name,
+            'current_promoter_level' => $user->current_promoter_level,
+            'is_distributor'         => (int) ($user->is_distributor ?? 0),
+            'is_active'              => (int) ($user->is_active ?? 0),
+            'children'               => [],
+        ];
+        if ($depthLeft <= 0) {
+            return $node;
+        }
+        $children = User::where('referred_by', $user->id)
+            ->where('is_deleted', 0)
+            ->orderBy('created_at', 'asc')
+            ->get();
+        foreach ($children as $child) {
+            $node['children'][] = $this->buildReferralNode($child, $depthLeft - 1);
+        }
+        return $node;
+    }
 }

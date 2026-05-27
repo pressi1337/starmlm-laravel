@@ -106,6 +106,9 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     // Sub-Admin management (super-admin manages sub-admins)
     Route::patch('sub-admins/status-update', [SubAdminController::class, 'statusUpdate']);
     Route::resource('sub-admins', SubAdminController::class);
+
+    // Multi-level referral tree drill-down for the admin User Management page.
+    Route::get('referral-tree/{userId}', [ReferralController::class, 'referralTree']);
 });
 
 Route::middleware('userjwt')->prefix('v1')->group(function () {

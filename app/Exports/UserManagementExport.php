@@ -2,6 +2,7 @@
 
 namespace App\Exports;
 
+use App\Models\User;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
@@ -38,6 +39,11 @@ class UserManagementExport implements FromCollection, WithHeadings, WithMapping,
             'Mobile',
             'Email',
             'Promoter Level',
+            'Videos/Day',
+            'Daily Current (₹)',
+            'Daily Max (₹)',
+            'Per Video Current (₹)',
+            'Per Video Max (₹)',
             'Language',
             'City',
             'District',
@@ -59,13 +65,37 @@ class UserManagementExport implements FromCollection, WithHeadings, WithMapping,
             4 => 'Promoter Level 4',
         ];
 
+        // Ceiling: same math as the on-screen column. Daily multiplier is
+        // level-aware (2 videos/day for L0-L2, 4 videos/day for L3-L4).
+        $level = $user->current_promoter_level;
+        $levelInfo = User::getLevelEarningInfo($level);
+        $perVideoCurrent = $level === null
+            ? 0.0
+            : $user->computeCurrentPerVideoPotential();
+        $videosPerDay = User::videosPerDay($level);
+        $dailyCurrent = round($perVideoCurrent * $videosPerDay, 2);
+        $dailyMax = round(((float) $levelInfo['max']) * $videosPerDay, 2);
+
+        // Distributor rides inline with the Promoter Level cell so it travels
+        // *with* the level wherever this column lands — never a standalone
+        // column. Matches the on-screen badge-next-to-level rule.
+        $levelLabel = $promoterLevels[$user->current_promoter_level] ?? 'Trainee';
+        if (((int) ($user->is_distributor ?? 0)) === 1) {
+            $levelLabel .= ' (Distributor)';
+        }
+
         return [
             $user->id,
             $user->username ?? '',
             trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')),
             $user->mobile ?? '',
             $user->email ?? '',
-            $promoterLevels[$user->current_promoter_level] ?? 'Trainee',
+            $levelLabel,
+            $videosPerDay,
+            $dailyCurrent,
+            $dailyMax,
+            round($perVideoCurrent, 2),
+            round((float) $levelInfo['max'], 2),
             $user->language ?? '',
             $user->city ?? '',
             $user->district ?? '',
@@ -88,9 +118,10 @@ class UserManagementExport implements FromCollection, WithHeadings, WithMapping,
                 ],
             ],
             // Force-text on identifier columns so Excel doesn't auto-coerce
-            // long all-digit strings (Mobile, Pin Code) into floats.
+            // long all-digit strings (Mobile = D; Pin Code = P after the
+            // ceiling columns inserted between Promoter Level and Language).
             'D' => ['numberFormat' => ['formatCode' => '@']],
-            'K' => ['numberFormat' => ['formatCode' => '@']],
+            'P' => ['numberFormat' => ['formatCode' => '@']],
         ];
     }
 }

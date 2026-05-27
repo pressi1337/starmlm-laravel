@@ -83,6 +83,8 @@ class UserPromoterController extends Controller
                 'saving_total_earning',
                 'saving_total_withdraw',
                 'current_promoter_level',
+                'is_distributor',
+                'distributor_activated_at',
             ]);
 
             // Wallet mappings
