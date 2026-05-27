@@ -30,8 +30,11 @@ class User extends Authenticatable implements JWTSubject
     const PROMOTER_STATUS_REJECTED = 5;
 
 
+    // Role 0 is the full-access admin. ROLE_ADMIN is kept as a backwards-compat
+    // alias; ROLE_SUPER_ADMIN is the canonical name going forward.
     const ROLE_ADMIN = 0;
-    const ROLE_SUPER_ADMIN = 1;
+    const ROLE_SUPER_ADMIN = 0;
+    const ROLE_SUB_ADMIN = 1;
     const ROLE_USER = 2;
     protected $fillable = [
         'first_name',
@@ -40,8 +43,44 @@ class User extends Authenticatable implements JWTSubject
         'role',
         'mobile_verified',
         'password',
-        'username'
+        'username',
+        'can_daily_videos',
+        'can_promotion_videos',
+        'can_pin_requests',
     ];
+
+    // Permission keys map to the boolean columns added for sub-admins.
+    public const PERMISSION_COLUMNS = [
+        'daily_videos'     => 'can_daily_videos',
+        'promotion_videos' => 'can_promotion_videos',
+        'pin_requests'     => 'can_pin_requests',
+    ];
+
+    /**
+     * Returns true if the user can act on the given admin surface.
+     * Super-admin always wins; sub-admin must have the explicit flag.
+     */
+    public function hasAdminPermission(string $key): bool
+    {
+        if ((int) $this->role === self::ROLE_SUPER_ADMIN) {
+            return true;
+        }
+        if ((int) $this->role !== self::ROLE_SUB_ADMIN) {
+            return false;
+        }
+        $col = self::PERMISSION_COLUMNS[$key] ?? null;
+        return $col !== null && (int) ($this->{$col} ?? 0) === 1;
+    }
+
+    /** Flat map of all admin permissions for a sub-admin (for JWT / API). */
+    public function adminPermissionsMap(): array
+    {
+        return [
+            'daily_videos'     => (int) ($this->can_daily_videos ?? 0) === 1,
+            'promotion_videos' => (int) ($this->can_promotion_videos ?? 0) === 1,
+            'pin_requests'     => (int) ($this->can_pin_requests ?? 0) === 1,
+        ];
+    }
 
     /**
      * The attributes that should be hidden for serialization.
@@ -73,12 +112,21 @@ class User extends Authenticatable implements JWTSubject
 
     public function getJWTCustomClaims()
     {
-        return [
-            'id' => $this->id,
-            'email' => $this->email,
+        $claims = [
+            'id'       => $this->id,
+            'email'    => $this->email,
             'username' => $this->username,
-            'role' => $this->role,
+            'role'     => $this->role,
         ];
+
+        // Embed sub-admin permissions so the frontend can gate menus from the
+        // token without an extra fetch. Super-admin always has full access so
+        // the frontend treats missing/all-true equivalently.
+        if ((int) $this->role === self::ROLE_SUB_ADMIN) {
+            $claims['permissions'] = $this->adminPermissionsMap();
+        }
+
+        return $claims;
     }
     // Relationship: who referred this user
     public function referrer()

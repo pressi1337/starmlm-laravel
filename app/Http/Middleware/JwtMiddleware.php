@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
 use Tymon\JWTAuth\Facades\JWTAuth;
@@ -17,8 +18,10 @@ class JwtMiddleware
             // Attempt to authenticate the user via JWT
             $user = JWTAuth::parseToken()->authenticate();
 
-            // Check if user exists and meets conditions
-            if (!$user || $user->role !== 0 || $user->is_deleted !== 0 || $user->is_active !==1) {
+            // Admin guard: both super-admin (0) and sub-admin (1) authenticate here.
+            // Per-route role gating (e.g. role:0) further restricts super-admin-only routes.
+            $allowedRoles = [User::ROLE_SUPER_ADMIN, User::ROLE_SUB_ADMIN];
+            if (!$user || !in_array($user->role, $allowedRoles, true) || $user->is_deleted !== 0 || $user->is_active !== 1) {
                 return response()->json([
                     'success' => false,
                     'message' => 'Unauthorized',

@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \App\Http\Middleware\RoleMiddleware::class,
             'jwt' => \App\Http\Middleware\JwtMiddleware::class,
             'userjwt' => \App\Http\Middleware\UserJwtMiddleware::class,
+            'subadmin.permission' => \App\Http\Middleware\SubAdminPermission::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

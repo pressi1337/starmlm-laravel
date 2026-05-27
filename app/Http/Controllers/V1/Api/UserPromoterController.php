@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use App\Exports\PinRequestExport;
+use Maatwebsite\Excel\Facades\Excel;
 
 class UserPromoterController extends Controller
 {
@@ -43,6 +45,28 @@ class UserPromoterController extends Controller
             "wh_number" => "required",
             "wh_number.max" => "WH number must be at most 50 characters",
         ];
+    }
+
+    // Sub-admins (role=1) are allowed to drive the pin lifecycle only for
+    // promoters at level 0 or 1. Returns a 403 response if the caller is a
+    // sub-admin acting on a higher-level promoter, otherwise null.
+    private function denyIfSubAdminCannotActOnPromoter(UserPromoter $promoter)
+    {
+        $actor = Auth::user();
+        if (!$actor || $actor->role !== User::ROLE_SUB_ADMIN) {
+            return null;
+        }
+
+        $allowedLevels = [0, 1];
+        if (!in_array((int) $promoter->level, $allowedLevels, true)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Sub-admins can only manage pins for Promoter and Level 1 promoters.',
+                'code' => 'forbidden',
+            ], 403);
+        }
+
+        return null;
     }
 
     public function dashboard(Request $request)
@@ -109,6 +133,20 @@ class UserPromoterController extends Controller
     }
     public function index(Request $request)
     {
+        // The user-promoters resource lives in the shared auth:jwt,userjwt
+        // group, so we can't gate sub-admin access via route middleware here.
+        // Sub-admin without the pin-requests permission gets 403; end users
+        // (role=2) still hit this for their own promoter records via other
+        // methods on this controller — index is the admin listing.
+        $actor = Auth::user();
+        if ($actor && (int) $actor->role === User::ROLE_SUB_ADMIN
+            && !$actor->hasAdminPermission('pin_requests')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You do not have permission to view pin requests.',
+                'code'    => 'forbidden',
+            ], 403);
+        }
 
         // Default sorting
         $sort_column = $request->query('sort_column', 'created_at');
@@ -127,6 +165,14 @@ class UserPromoterController extends Controller
 
         // Apply default filters
         $query->where('is_deleted', 0);
+
+        // Sub-admins only ever see Promoter (level 0) and Promoter Level 1 rows.
+        // Applied here so it's enforced regardless of any client-side filter the
+        // caller tries to set.
+        $actor = Auth::user();
+        if ($actor && $actor->role === User::ROLE_SUB_ADMIN) {
+            $query->whereIn('level', [0, 1]);
+        }
 
         // Apply search_param filters
         foreach ($search_param as $key => $value) {
@@ -177,6 +223,44 @@ class UserPromoterController extends Controller
         // Get total records for pagination
         $total_records = $query->count();
 
+        // Aggregate cards — same scope as the list (date range + search +
+        // sub-admin level lock) but ignore the status/level dropdowns so each
+        // status tile stays meaningful. Built fresh to avoid breaking the
+        // builder's where/bindings sync.
+        $statsBase = function () use ($fromDate, $toDate, $search_term, $actor) {
+            $q = UserPromoter::query()->where('is_deleted', 0);
+            // Preserve the sub-admin lock for stats too.
+            if ($actor && $actor->role === User::ROLE_SUB_ADMIN) {
+                $q->whereIn('level', [0, 1]);
+            }
+            if ($fromDate && $toDate) {
+                $q->whereBetween('created_at', [$fromDate, $toDate]);
+            } elseif ($fromDate) {
+                $q->whereDate('created_at', '>=', $fromDate);
+            } elseif ($toDate) {
+                $q->whereDate('created_at', '<=', $toDate);
+            }
+            if (!empty($search_term)) {
+                $q->where(function ($qq) use ($search_term) {
+                    $qq->where('level', 'LIKE', '%' . $search_term . '%')
+                        ->orWhereHas('user', function ($userQuery) use ($search_term) {
+                            $userQuery->where('username', 'LIKE', '%' . $search_term . '%')
+                                ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
+                                ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
+                                ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
+                        });
+                });
+            }
+            return $q;
+        };
+
+        $stats = [
+            'pending_promoters'   => $statsBase()->where('status', UserPromoter::PIN_STATUS_PENDING)->count(),
+            'approved_promoters'  => $statsBase()->where('status', UserPromoter::PIN_STATUS_APPROVED)->count(),
+            'activated_promoters' => $statsBase()->where('status', UserPromoter::PIN_STATUS_ACTIVATED)->count(),
+            'rejected_promoters'  => $statsBase()->where('status', UserPromoter::PIN_STATUS_REJECTED)->count(),
+        ];
+
         // Apply sorting and pagination
         $user_promoters = $query->orderBy($sort_column, $sort_direction)
             ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
@@ -200,6 +284,7 @@ class UserPromoterController extends Controller
             'success' => true,
             'message' => 'Success',
             'data' => $user_promoters,
+            'stats' => $stats,
             'pageInfo' => [
                 'page_size' => $page_size,
                 'page_number' => $page_number,
@@ -207,6 +292,79 @@ class UserPromoterController extends Controller
                 'total_records' => $total_records
             ]
         ], 200);
+    }
+
+    /**
+     * Excel export for the admin Pin Requests page. Mirrors index()'s filter
+     * pipeline (status, level, fromdate/todate, user-relation search) and
+     * preserves the sub-admin level-0/1 restriction. No pagination — the
+     * whole filtered set is exported.
+     */
+    public function exportExcel(Request $request)
+    {
+        try {
+            $search_term = trim((string) $request->query('search', ''));
+            $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
+
+            $query = UserPromoter::query()->where('is_deleted', 0);
+
+            $actor = Auth::user();
+            if ($actor && $actor->role === User::ROLE_SUB_ADMIN) {
+                $query->whereIn('level', [0, 1]);
+            }
+
+            foreach (($search_param ?? []) as $key => $value) {
+                if ($value === '' || $value === null) {
+                    continue;
+                }
+                if (!in_array($key, $this->filterable, true)) {
+                    continue;
+                }
+                if (is_array($value)) {
+                    if (!empty($value)) {
+                        $query->whereIn($key, $value);
+                    }
+                } else {
+                    if ($key === 'fromdate' || $key === 'todate') {
+                        continue;
+                    }
+                    $query->where($key, $value);
+                }
+            }
+
+            $fromDate = $search_param['fromdate'] ?? null;
+            $toDate = $search_param['todate'] ?? null;
+            if ($fromDate && $toDate) {
+                $query->whereBetween('created_at', [$fromDate, $toDate]);
+            } elseif ($fromDate) {
+                $query->whereDate('created_at', '>=', $fromDate);
+            } elseif ($toDate) {
+                $query->whereDate('created_at', '<=', $toDate);
+            }
+
+            if ($search_term !== '') {
+                $query->whereHas('user', function ($q) use ($search_term) {
+                    $q->where(function ($qq) use ($search_term) {
+                        $qq->where('username', 'LIKE', '%' . $search_term . '%')
+                            ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
+                            ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
+                            ->orWhere('mobile', 'LIKE', '%' . $search_term . '%');
+                    });
+                });
+            }
+
+            $rows = $query->orderBy('created_at', 'DESC')
+                ->with('user')
+                ->get();
+
+            return Excel::download(
+                new PinRequestExport($rows),
+                'pin_requests_' . date('Y-m-d_H-i-s') . '.xlsx'
+            );
+        } catch (\Throwable $e) {
+            Log::error('Pin Request export failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Failed to export data'], 500);
+        }
     }
 
     /**
@@ -305,6 +463,10 @@ class UserPromoterController extends Controller
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
 
+        if ($error = $this->denyIfSubAdminCannotActOnPromoter($promoter)) {
+            return $error;
+        }
+
         $user = User::find($promoter->user_id);
         $user->promoter_status = User::PROMOTER_STATUS_SHOW_TERM;
         $user->save();
@@ -341,6 +503,10 @@ class UserPromoterController extends Controller
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
 
+        if ($error = $this->denyIfSubAdminCannotActOnPromoter($promoter)) {
+            return $error;
+        }
+
         $promoter->pin = strtoupper('PROM' . rand(1000, 9999));
         $promoter->status = UserPromoter::PIN_STATUS_APPROVED;
         $promoter->pin_generated_at = now();
@@ -360,11 +526,16 @@ class UserPromoterController extends Controller
     }
     public function pinRejected(Request $request)
     {
-       
+
         $promoter = UserPromoter::find($request->id);
         if (!$promoter || $promoter->is_deleted) {
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
+
+        if ($error = $this->denyIfSubAdminCannotActOnPromoter($promoter)) {
+            return $error;
+        }
+
         $promoter->status = UserPromoter::PIN_STATUS_REJECTED;
         $promoter->updated_by = Auth::id();
         $promoter->save();

@@ -266,11 +266,18 @@ class JwtAuthController extends Controller
    
     public function AuthUser()
     {
-        $user = User::where('id', Auth::user()->id)
-               ->first();
-         return response()->json([
+        $user = User::where('id', Auth::user()->id)->first();
+
+        // Sub-admins get a flat permissions map in the response so the
+        // frontend can refresh menu gating without decoding the JWT each time.
+        $data = $user ? $user->toArray() : null;
+        if ($data && (int) ($data['role'] ?? -1) === User::ROLE_SUB_ADMIN) {
+            $data['permissions'] = $user->adminPermissionsMap();
+        }
+
+        return response()->json([
             'success' => true,
-            'data' => $user,
+            'data'    => $data,
         ], 200);
     }
    
