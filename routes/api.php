@@ -19,6 +19,7 @@ use App\Http\Controllers\V1\Api\WithdrawController;
 use App\Http\Controllers\VideoUploadController;
 use App\Http\Controllers\V1\Api\AdminDashboardController;
 use App\Http\Controllers\V1\Api\SubAdminController;
+use App\Http\Controllers\V1\Api\SupportHelpController;
 
 Route::prefix('v1')->group(function () {
     require __DIR__ . '/auth.php';
@@ -109,6 +110,15 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
 
     // Multi-level referral tree drill-down for the admin User Management page.
     Route::get('referral-tree/{userId}', [ReferralController::class, 'referralTree']);
+
+    // Support & Help Q&A — admin CRUD. status-update is declared before the
+    // resource so it doesn't get swallowed by the {id} catch-all. The
+    // numeric where() on the {support_help} param stops the show/update/
+    // destroy slot from shadowing the user-side `support-helps/list` route
+    // declared in the userjwt group below.
+    Route::patch('support-helps/status-update', [SupportHelpController::class, 'statusUpdate']);
+    Route::resource('support-helps', SupportHelpController::class)
+        ->where(['support_help' => '[0-9]+']);
 });
 
 Route::middleware('userjwt')->prefix('v1')->group(function () {
@@ -138,6 +148,10 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
 
     // Dashboard API
     Route::get('user-dashboard', [UserPromoterController::class, 'dashboard']);
+
+    // Support & Help — active Q&A list for the PWA accordion. Read-only,
+    // ordered by id ASC (admin-insertion order).
+    Route::get('support-helps/list', [SupportHelpController::class, 'userList']);
 
 });
 

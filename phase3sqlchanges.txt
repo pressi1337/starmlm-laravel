@@ -83,3 +83,27 @@ UPDATE `training_quiz_questions`  SET `time_limit` = 55 WHERE `time_limit` = 30;
 -- ALTER TABLE `training_quiz_questions`  ALTER COLUMN `time_limit` SET DEFAULT 30;
 -- UPDATE `promotion_quiz_questions` SET `time_limit` = 30 WHERE `time_limit` = 55;
 -- UPDATE `training_quiz_questions`  SET `time_limit` = 30 WHERE `time_limit` = 55;
+
+
+-- ============================================================
+-- Support & Help Q&A items — direct SQL. Equivalent of migration
+-- 2026_05_28_000002_create_support_helps_table.
+-- One row per question. Admin manages CRUD; users see active rows
+-- ordered by id ASC rendered as an accordion.
+-- ============================================================
+
+CREATE TABLE `support_helps` (
+    `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `question`   TEXT NOT NULL,
+    `answer`     TEXT NOT NULL,
+    `created_by` INT NULL DEFAULT NULL,
+    `updated_by` INT NULL DEFAULT NULL,
+    `is_active`  TINYINT(1) NOT NULL DEFAULT 1,
+    `is_deleted` TINYINT(1) NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP NULL DEFAULT NULL,
+    `updated_at` TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----- Rollback (only if you need to revert) -----
+-- DROP TABLE `support_helps`;

@@ -22,7 +22,7 @@ class AdminDashboardController extends Controller
                 ->where('is_deleted', 0)
                 ->orderBy('id', 'desc')
                 ->limit(3)
-                ->get(['id', 'username', 'email', 'created_at']);
+                ->get(['id', 'username', 'customer_id', 'email', 'created_at']);
 
             // Total counts
             $totalDailyVideos = DailyVideo::where('is_deleted', 0)->count();
