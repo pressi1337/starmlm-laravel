@@ -312,6 +312,7 @@ class ReferralController extends Controller
                         ->take($page_size);
                 })
                 ->with('referrer')
+                ->with('bankDetail')
                 ->get()
                 ->map(function ($user) {
                     $user->created_at_formatted = $user->created_at

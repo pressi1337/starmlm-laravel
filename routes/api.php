@@ -119,6 +119,11 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     Route::patch('support-helps/status-update', [SupportHelpController::class, 'statusUpdate']);
     Route::resource('support-helps', SupportHelpController::class)
         ->where(['support_help' => '[0-9]+']);
+
+    // Admin clear-bank action — wipes a user's locked bank details so they
+    // can re-enter them. Body carries `user_id`; POST verb matches the
+    // existing user-bank-detail/upsert style.
+    Route::post('user-bank-detail/clear', [UserBankDetailController::class, 'clearForUser']);
 });
 
 Route::middleware('userjwt')->prefix('v1')->group(function () {
