@@ -61,3 +61,25 @@ ORDER BY `id` ASC;
 -- ----- Rollback (only if you need to revert) -----
 -- ALTER TABLE `users` DROP INDEX `users_customer_id_unique`;
 -- ALTER TABLE `users` DROP COLUMN `customer_id`;
+
+
+-- ============================================================
+-- Quiz timer 30s → 55s — direct SQL. Equivalent of migration
+-- 2026_05_28_000001_update_quiz_time_limit_default.
+-- ============================================================
+
+-- 1) Change the column DEFAULT on both quiz-question tables.
+ALTER TABLE `promotion_quiz_questions` ALTER COLUMN `time_limit` SET DEFAULT 55;
+ALTER TABLE `training_quiz_questions`  ALTER COLUMN `time_limit` SET DEFAULT 55;
+
+-- 2) Lift existing rows still carrying the old default (30) to the new value
+--    so the timer change is visible immediately. Anything else (custom values)
+--    is preserved — assumed admin-set intentionally.
+UPDATE `promotion_quiz_questions` SET `time_limit` = 55 WHERE `time_limit` = 30;
+UPDATE `training_quiz_questions`  SET `time_limit` = 55 WHERE `time_limit` = 30;
+
+-- ----- Rollback (only if you need to revert) -----
+-- ALTER TABLE `promotion_quiz_questions` ALTER COLUMN `time_limit` SET DEFAULT 30;
+-- ALTER TABLE `training_quiz_questions`  ALTER COLUMN `time_limit` SET DEFAULT 30;
+-- UPDATE `promotion_quiz_questions` SET `time_limit` = 30 WHERE `time_limit` = 55;
+-- UPDATE `training_quiz_questions`  SET `time_limit` = 30 WHERE `time_limit` = 55;
