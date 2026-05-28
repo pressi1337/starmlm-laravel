@@ -20,6 +20,7 @@ use App\Http\Controllers\VideoUploadController;
 use App\Http\Controllers\V1\Api\AdminDashboardController;
 use App\Http\Controllers\V1\Api\SubAdminController;
 use App\Http\Controllers\V1\Api\SupportHelpController;
+use App\Http\Controllers\V1\Api\TermsAndConditionController;
 
 Route::prefix('v1')->group(function () {
     require __DIR__ . '/auth.php';
@@ -124,6 +125,16 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     // can re-enter them. Body carries `user_id`; POST verb matches the
     // existing user-bank-detail/upsert style.
     Route::post('user-bank-detail/clear', [UserBankDetailController::class, 'clearForUser']);
+
+    // Terms & Conditions — admin saves the single document via upsert.
+    Route::post('terms-and-conditions/upsert', [TermsAndConditionController::class, 'upsert']);
+});
+
+// Public T&C read endpoint — usable by the PWA reader and also reachable
+// pre-login (e.g. from a registration acceptance screen). The content is
+// public by design; gating it would block the registration flow.
+Route::prefix('v1')->group(function () {
+    Route::get('terms-and-conditions', [TermsAndConditionController::class, 'show']);
 });
 
 Route::middleware('userjwt')->prefix('v1')->group(function () {
