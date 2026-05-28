@@ -134,8 +134,12 @@ class JwtAuthController extends Controller
             $user->language = $request->language;
             $user->password = Hash::make($request->password);
             $user->pwd_text = $request->password;
-            $user->referred_by = $referredBy; // 
+            $user->referred_by = $referredBy; //
             $user->referral_code = User::generateReferralCode();
+            // Auto-issue the sequential customer_id (STARUP00X). Generator
+            // runs FOR UPDATE inside this transaction so concurrent registers
+            // serialize — never two users with the same ID.
+            $user->customer_id = User::nextCustomerId();
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
             $user->is_active = (int) $isActiveInput ? 1 : 0;

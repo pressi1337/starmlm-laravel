@@ -25,3 +25,39 @@ WHERE `role` = 1;
 --     DROP COLUMN `can_daily_videos`,
 --     DROP COLUMN `can_promotion_videos`,
 --     DROP COLUMN `can_pin_requests`;
+
+
+-- ============================================================
+-- Customer ID for end-users — direct SQL (run if you can't use
+-- `php artisan migrate`). Equivalent of the Laravel migration
+-- 2026_05_28_000000_add_customer_id_to_users.
+-- ============================================================
+
+-- 1) Add the customer_id column. Unique so backfill / runtime collisions
+--    fail loudly instead of producing duplicates.
+ALTER TABLE `users`
+    ADD COLUMN `customer_id` VARCHAR(20) NULL DEFAULT NULL AFTER `username`,
+    ADD UNIQUE KEY `users_customer_id_unique` (`customer_id`);
+
+-- 2) Backfill any existing role=2 users in id-asc order so the earliest
+--    registered user becomes STARUP001, the next STARUP002, etc. Admins
+--    and sub-admins (role 0/1) are left NULL.
+--    Note: plain LPAD(n, 3, '0') would TRUNCATE values >= 1000 (LPAD shortens
+--    when input length exceeds target). The CASE keeps zero-padding only up
+--    to 999, then lets 1000+ flow through at their natural width.
+SET @row := 0;
+UPDATE `users`
+SET `customer_id` = CONCAT(
+    'STARUP',
+    CASE
+        WHEN (@row := @row + 1) < 10  THEN CONCAT('00', @row)
+        WHEN @row < 100               THEN CONCAT('0',  @row)
+        ELSE CAST(@row AS CHAR)
+    END
+)
+WHERE `role` = 2 AND `customer_id` IS NULL
+ORDER BY `id` ASC;
+
+-- ----- Rollback (only if you need to revert) -----
+-- ALTER TABLE `users` DROP INDEX `users_customer_id_unique`;
+-- ALTER TABLE `users` DROP COLUMN `customer_id`;

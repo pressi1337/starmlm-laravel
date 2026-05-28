@@ -44,6 +44,7 @@ class User extends Authenticatable implements JWTSubject
         'mobile_verified',
         'password',
         'username',
+        'customer_id',
         'can_daily_videos',
         'can_promotion_videos',
         'can_pin_requests',
@@ -254,6 +255,27 @@ class User extends Authenticatable implements JWTSubject
     public static function generateReferralCode()
     {
         return strtoupper('Star' . uniqid());
+    }
+
+    /**
+     * Generate the next sequential customer_id for a ROLE_USER registration.
+     * Format: STARUP001, STARUP002, ... STARUP999, STARUP1000, ...
+     *
+     * Race-safe: takes a `FOR UPDATE` lock on the customer_id range while
+     * computing MAX, so two concurrent registrations serialize. The unique
+     * index on the column is the backstop. MUST be called inside a DB
+     * transaction so the lock is held until the new row is written.
+     */
+    public static function nextCustomerId(): string
+    {
+        $maxSuffix = (int) \Illuminate\Support\Facades\DB::table('users')
+            ->where('customer_id', 'LIKE', 'STARUP%')
+            ->lockForUpdate()
+            ->selectRaw("MAX(CAST(SUBSTRING(customer_id, 7) AS UNSIGNED)) as n")
+            ->value('n');
+
+        $next = $maxSuffix + 1;
+        return 'STARUP' . str_pad((string) $next, 3, '0', STR_PAD_LEFT);
     }
     public function userTrainingVideos()
     {

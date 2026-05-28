@@ -531,6 +531,8 @@ class ReferralController extends Controller
             $w->pwd_text = $request->password;
             $w->referred_by = $auth_user_id;
             $w->referral_code = User::generateReferralCode();
+            // Same auto-issued customer_id as the public register flow.
+            $w->customer_id = User::nextCustomerId();
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
             $w->is_active = (int) $isActiveInput ? 1 : 0;
@@ -799,6 +801,7 @@ class ReferralController extends Controller
         $node = [
             'id'                     => $user->id,
             'username'               => $user->username,
+            'customer_id'            => $user->customer_id,
             'first_name'             => $user->first_name,
             'last_name'              => $user->last_name,
             'current_promoter_level' => $user->current_promoter_level,

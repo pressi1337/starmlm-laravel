@@ -34,6 +34,7 @@ class UserManagementExport implements FromCollection, WithHeadings, WithMapping,
     {
         return [
             'User ID',
+            'Customer ID',
             'Username',
             'Full Name',
             'Mobile',
@@ -86,6 +87,7 @@ class UserManagementExport implements FromCollection, WithHeadings, WithMapping,
 
         return [
             $user->id,
+            $user->customer_id ?? '',
             $user->username ?? '',
             trim(($user->first_name ?? '') . ' ' . ($user->last_name ?? '')),
             $user->mobile ?? '',
@@ -118,10 +120,10 @@ class UserManagementExport implements FromCollection, WithHeadings, WithMapping,
                 ],
             ],
             // Force-text on identifier columns so Excel doesn't auto-coerce
-            // long all-digit strings (Mobile = D; Pin Code = P after the
-            // ceiling columns inserted between Promoter Level and Language).
-            'D' => ['numberFormat' => ['formatCode' => '@']],
-            'P' => ['numberFormat' => ['formatCode' => '@']],
+            // long all-digit strings. After inserting Customer ID at B,
+            // everything shifts right by one: Mobile = E, Pin Code = Q.
+            'E' => ['numberFormat' => ['formatCode' => '@']],
+            'Q' => ['numberFormat' => ['formatCode' => '@']],
         ];
     }
 }

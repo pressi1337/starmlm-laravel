@@ -85,6 +85,8 @@ class UserPromoterController extends Controller
                 'current_promoter_level',
                 'is_distributor',
                 'distributor_activated_at',
+                'customer_id',
+                'username',
             ]);
 
             // Wallet mappings
