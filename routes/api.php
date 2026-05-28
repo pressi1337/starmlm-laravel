@@ -20,6 +20,7 @@ use App\Http\Controllers\VideoUploadController;
 use App\Http\Controllers\V1\Api\AdminDashboardController;
 use App\Http\Controllers\V1\Api\SubAdminController;
 use App\Http\Controllers\V1\Api\SupportHelpController;
+use App\Http\Controllers\V1\Api\SuggestionController;
 use App\Http\Controllers\V1\Api\TermsAndConditionController;
 
 Route::prefix('v1')->group(function () {
@@ -128,6 +129,11 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
 
     // Terms & Conditions — admin saves the single document via upsert.
     Route::post('terms-and-conditions/upsert', [TermsAndConditionController::class, 'upsert']);
+
+    // Suggestions — admin read-only listing + mark-as-read action.
+    // mark-read declared before the implicit show route to avoid collision.
+    Route::patch('admin-suggestions/mark-read', [SuggestionController::class, 'markRead']);
+    Route::get('admin-suggestions', [SuggestionController::class, 'adminIndex']);
 });
 
 // Public T&C read endpoint — usable by the PWA reader and also reachable
@@ -168,6 +174,13 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     // Support & Help — active Q&A list for the PWA accordion. Read-only,
     // ordered by id ASC (admin-insertion order).
     Route::get('support-helps/list', [SupportHelpController::class, 'userList']);
+
+    // Suggestions — user CRUD on their own suggestions. Hard-cap of 3
+    // unread enforced in the controller. Edit/delete blocked once admin
+    // marks read.
+    Route::resource('suggestions', SuggestionController::class)
+        ->only(['index', 'store', 'show', 'update', 'destroy'])
+        ->where(['suggestion' => '[0-9]+']);
 
 });
 

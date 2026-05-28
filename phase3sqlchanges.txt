@@ -129,3 +129,28 @@ CREATE TABLE `terms_and_conditions` (
 
 -- ----- Rollback (only if you need to revert) -----
 -- DROP TABLE `terms_and_conditions`;
+
+
+-- ============================================================
+-- Suggestions — direct SQL. Equivalent of migration
+-- 2026_05_28_000004_create_suggestions_table.
+-- User submits, admin reads. Max 3 UNREAD per user enforced
+-- server-side; once admin marks read, the slot frees up.
+-- ============================================================
+
+CREATE TABLE `suggestions` (
+    `id`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id`    INT NOT NULL,
+    `content`    TEXT NOT NULL,
+    `is_read`    TINYINT(1) NOT NULL DEFAULT 0,
+    `read_at`    TIMESTAMP NULL DEFAULT NULL,
+    `read_by`    INT NULL DEFAULT NULL,
+    `is_deleted` TINYINT(1) NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP NULL DEFAULT NULL,
+    `updated_at` TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    KEY `suggestions_user_status_idx` (`user_id`, `is_read`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----- Rollback (only if you need to revert) -----
+-- DROP TABLE `suggestions`;
