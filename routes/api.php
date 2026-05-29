@@ -72,6 +72,15 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         Route::post('pin-rejected', [UserPromoterController::class, 'pinRejected']);
     });
 
+    // Suggestions — admin read-only listing + mark-as-read action.
+    // Super-admin auto-passes the subadmin.permission middleware; sub-admin
+    // needs the explicit can_suggestions flag. mark-read declared before the
+    // implicit show route to avoid collision.
+    Route::middleware('subadmin.permission:suggestions')->group(function () {
+        Route::patch('admin-suggestions/mark-read', [SuggestionController::class, 'markRead']);
+        Route::get('admin-suggestions', [SuggestionController::class, 'adminIndex']);
+    });
+
     // Chunked uploads needed for the video features above. Open to any admin
     // so a sub-admin granted only Promotion Videos can still upload assets.
     Route::post('upload', [VideoUploadController::class, 'upload']);
@@ -129,11 +138,6 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
 
     // Terms & Conditions — admin saves the single document via upsert.
     Route::post('terms-and-conditions/upsert', [TermsAndConditionController::class, 'upsert']);
-
-    // Suggestions — admin read-only listing + mark-as-read action.
-    // mark-read declared before the implicit show route to avoid collision.
-    Route::patch('admin-suggestions/mark-read', [SuggestionController::class, 'markRead']);
-    Route::get('admin-suggestions', [SuggestionController::class, 'adminIndex']);
 });
 
 // Public T&C read endpoint — usable by the PWA reader and also reachable
