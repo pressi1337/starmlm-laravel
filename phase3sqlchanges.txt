@@ -154,3 +154,17 @@ CREATE TABLE `suggestions` (
 
 -- ----- Rollback (only if you need to revert) -----
 -- DROP TABLE `suggestions`;
+
+
+-- ============================================================
+-- Fourth sub-admin permission: Suggestions inbox.
+-- Equivalent of migration
+-- 2026_05_29_000000_add_can_suggestions_to_users.
+-- Defaults to 0 for everyone — super-admin must explicitly grant.
+-- ============================================================
+
+ALTER TABLE `users`
+    ADD COLUMN `can_suggestions` TINYINT(1) NOT NULL DEFAULT 0 AFTER `can_pin_requests`;
+
+-- ----- Rollback (only if you need to revert) -----
+-- ALTER TABLE `users` DROP COLUMN `can_suggestions`;
