@@ -190,3 +190,24 @@ ALTER TABLE `daily_videos`
 
 -- ----- Rollback (only if you need to revert) -----
 -- ALTER TABLE `daily_videos` DROP COLUMN `is_default`;
+
+
+-- ============================================================
+-- Daily video rotation pool — direct SQL. Equivalent of
+-- migration 2026_06_03_000000_add_is_rotational_to_daily_videos.
+--
+-- On days with no scheduled video, the app serves a rotating
+-- fallback drawn ONLY from videos flagged is_rotational = 1
+-- (the admin curates the pool — any number of videos). The
+-- single default new-user video is always excluded from it.
+-- Toggled from the admin list, independent of create/edit.
+-- ============================================================
+
+ALTER TABLE `daily_videos`
+    ADD COLUMN `is_rotational` TINYINT(1) NOT NULL DEFAULT 0 AFTER `is_default`;
+
+-- (Optional) Seed the rotation pool with some existing videos, e.g.:
+-- UPDATE `daily_videos` SET `is_rotational` = 1 WHERE `id` IN (<id1>, <id2>, ...);
+
+-- ----- Rollback (only if you need to revert) -----
+-- ALTER TABLE `daily_videos` DROP COLUMN `is_rotational`;

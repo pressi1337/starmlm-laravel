@@ -370,6 +370,37 @@ class DailyVideoController extends Controller
     }
 
     /**
+     * Toggle whether a video is part of the daily rotation pool — an on/off
+     * switch per row, like the default toggle, but with NO single-row limit:
+     * the admin can flag as many videos as they like. The rotation fallback
+     * (pickRotatingFallback) draws only from these flagged videos.
+     */
+    public function rotationalUpdate(Request $request)
+    {
+        try {
+            $auth_user_id = Auth::id();
+            $w = DailyVideo::find($request->id);
+            if (!$w) {
+                return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+
+            $w->is_rotational = $request->boolean('is_rotational') ? 1 : 0;
+            $w->updated_by = $auth_user_id;
+            $w->save();
+
+            return response()->json([
+                'message' => $w->is_rotational
+                    ? 'Added to rotation successfully'
+                    : 'Removed from rotation',
+                'status' => 200,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('DailyVideo rotationalUpdate failed', ['id' => $request->id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
+    }
+
+    /**
      * Single source of truth for "which daily video does THIS user see today".
      * Both todayVideo() (the watch screen) and todayVideostatus() (the
      * unlock-gate) call this so they can never disagree — if they resolved
@@ -384,9 +415,9 @@ class DailyVideoController extends Controller
      *      flipping them onto the rotation mid-day.
      *   2. A video explicitly scheduled for today (showing_date = today) —
      *      the normal/"regular working" case, shown to every (returning) user.
-     *   3. Otherwise a rotating library video (see pickRotatingFallback) so
-     *      there is always something to watch on days with no upload. This is
-     *      common to ALL users (the default is excluded from it).
+     *   3. Otherwise a rotating video from the admin-curated rotation pool
+     *      (see pickRotatingFallback) — common to ALL users, a different one
+     *      each day. (Empty if the admin hasn't flagged any rotation videos.)
      *
      * Returns a DailyVideo model, or null only when the library is empty.
      */
@@ -421,27 +452,24 @@ class DailyVideoController extends Controller
     }
 
     /**
-     * Deterministic, date-driven pick from the library so that, on a day with
-     * no scheduled upload:
-     *   - users still have a video to watch (no dead-end gate),
+     * Deterministic, date-driven pick from the ADMIN-CURATED rotation pool —
+     * only videos flagged is_rotational = 1 (the single default video is always
+     * excluded). On a day with no scheduled upload this is what users get, so:
      *   - the pick CHANGES every day — no repeat across consecutive days, even
-     *     over a multi-day gap — as long as 2+ eligible videos exist,
+     *     over a multi-day gap — as long as 2+ rotation videos exist, and
      *   - everyone sees the SAME video that day (consistent with scheduled
-     *     videos being global), and
-     *   - the default welcome video and not-yet-due future videos are excluded.
+     *     videos being global).
      *
      * It is "random-looking" but deterministic, which is what guarantees the
-     * no-repeat property that a plain random pick cannot.
+     * no-repeat property that a plain random pick cannot. Returns null when the
+     * admin hasn't flagged any rotation videos — i.e. no fallback that day.
      */
     private function pickRotatingFallback(string $today)
     {
         $pool = DailyVideo::where('is_active', 1)
             ->where('is_deleted', 0)
+            ->where('is_rotational', 1)
             ->where('is_default', 0)
-            ->where(function ($q) use ($today) {
-                $q->whereNull('showing_date')
-                    ->orWhereDate('showing_date', '<=', $today);
-            })
             ->orderBy('id')
             ->get();
 
