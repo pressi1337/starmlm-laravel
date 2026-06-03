@@ -43,6 +43,10 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     // DELETE is split out to super-admin only (see below).
     Route::middleware('subadmin.permission:daily_videos')->group(function () {
         Route::patch('daily-videos/status-update', [DailyVideoController::class, 'StatusUpdate']);
+        // On/off toggle for the single "default new-user video" — set straight
+        // from the list, independent of create/edit. Declared before the
+        // resource so the {daily_video} slot doesn't swallow it.
+        Route::patch('daily-videos/default-update', [DailyVideoController::class, 'defaultUpdate']);
         Route::resource('daily-videos', DailyVideoController::class)->except(['destroy']);
     });
 

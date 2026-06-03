@@ -168,3 +168,25 @@ ALTER TABLE `users`
 
 -- ----- Rollback (only if you need to revert) -----
 -- ALTER TABLE `users` DROP COLUMN `can_suggestions`;
+
+
+-- ============================================================
+-- Default new-user daily video — direct SQL. Equivalent of
+-- migration 2026_06_02_000000_add_is_default_to_daily_videos.
+--
+-- A brand-new user (no daily video completed on a PRIOR day) is
+-- served the row with is_default = 1 as their FIRST daily video.
+-- That row is excluded from the everyday random-rotation fallback.
+-- Only ONE row should carry is_default = 1 at a time — the app
+-- enforces this on save (promoting one demotes the others); the
+-- column itself has no UNIQUE constraint so the flag can move.
+-- ============================================================
+
+ALTER TABLE `daily_videos`
+    ADD COLUMN `is_default` TINYINT(1) NOT NULL DEFAULT 0 AFTER `type`;
+
+-- (Optional) If you want to seed an existing row as the default, e.g.:
+-- UPDATE `daily_videos` SET `is_default` = 1 WHERE `id` = <your_video_id>;
+
+-- ----- Rollback (only if you need to revert) -----
+-- ALTER TABLE `daily_videos` DROP COLUMN `is_default`;

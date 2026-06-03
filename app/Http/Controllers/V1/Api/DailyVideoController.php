@@ -321,23 +321,171 @@ class DailyVideoController extends Controller
             return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
     }
+
+    /**
+     * Toggle the "default new-user video" flag from the admin list (an on/off
+     * switch per row, separate from create/edit). Turning one ON clears the
+     * flag on every other row so there is only ever a single default; turning
+     * it OFF simply leaves no default. Wrapped in a transaction so the promote
+     * + demote is atomic.
+     */
+    public function defaultUpdate(Request $request)
+    {
+        try {
+            $auth_user_id = Auth::id();
+            $w = DailyVideo::find($request->id);
+            if (!$w) {
+                return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+
+            $makeDefault = $request->boolean('is_default');
+
+            DB::beginTransaction();
+
+            $w->is_default = $makeDefault ? 1 : 0;
+            $w->updated_by = $auth_user_id;
+            $w->save();
+
+            // Single default: promoting this one demotes every other row.
+            if ($makeDefault) {
+                DailyVideo::where('id', '!=', $w->id)
+                    ->where('is_deleted', 0)
+                    ->where('is_default', 1)
+                    ->update(['is_default' => 0, 'updated_by' => $auth_user_id]);
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => $makeDefault
+                    ? 'Default video set successfully'
+                    : 'Default video cleared',
+                'status' => 200,
+            ]);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            Log::error('DailyVideo defaultUpdate failed', ['id' => $request->id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
+    }
+
+    /**
+     * Single source of truth for "which daily video does THIS user see today".
+     * Both todayVideo() (the watch screen) and todayVideostatus() (the
+     * unlock-gate) call this so they can never disagree — if they resolved
+     * differently a user could watch one video yet stay gated on another.
+     *
+     * Resolution order:
+     *   1. NEW user + a default video is configured  ->  the default video.
+     *      "New" = has never completed a daily video on a PRIOR day. Brand-new
+     *      users always start on the curated default, even when a dated video
+     *      also exists. Keying off prior-DAY (not "ever") keeps the choice
+     *      stable for the rest of today after they watch it, instead of
+     *      flipping them onto the rotation mid-day.
+     *   2. A video explicitly scheduled for today (showing_date = today) —
+     *      the normal/"regular working" case, shown to every (returning) user.
+     *   3. Otherwise a rotating library video (see pickRotatingFallback) so
+     *      there is always something to watch on days with no upload. This is
+     *      common to ALL users (the default is excluded from it).
+     *
+     * Returns a DailyVideo model, or null only when the library is empty.
+     */
+    private function resolveTodaysVideo($userId, string $today)
+    {
+        $isNewUser = ! DB::table('daily_video_watch_details')
+            ->where('user_id', $userId)
+            ->where('is_deleted', 0)
+            ->whereDate('watched_date', '<', $today)
+            ->exists();
+
+        if ($isNewUser) {
+            $default = DailyVideo::where('is_active', 1)
+                ->where('is_deleted', 0)
+                ->where('is_default', 1)
+                ->first();
+            if ($default) {
+                return $default;
+            }
+            // No default configured -> fall through to the common flow.
+        }
+
+        $dated = DailyVideo::where('is_active', 1)
+            ->where('is_deleted', 0)
+            ->whereDate('showing_date', $today)
+            ->first();
+        if ($dated) {
+            return $dated;
+        }
+
+        return $this->pickRotatingFallback($today);
+    }
+
+    /**
+     * Deterministic, date-driven pick from the library so that, on a day with
+     * no scheduled upload:
+     *   - users still have a video to watch (no dead-end gate),
+     *   - the pick CHANGES every day — no repeat across consecutive days, even
+     *     over a multi-day gap — as long as 2+ eligible videos exist,
+     *   - everyone sees the SAME video that day (consistent with scheduled
+     *     videos being global), and
+     *   - the default welcome video and not-yet-due future videos are excluded.
+     *
+     * It is "random-looking" but deterministic, which is what guarantees the
+     * no-repeat property that a plain random pick cannot.
+     */
+    private function pickRotatingFallback(string $today)
+    {
+        $pool = DailyVideo::where('is_active', 1)
+            ->where('is_deleted', 0)
+            ->where('is_default', 0)
+            ->where(function ($q) use ($today) {
+                $q->whereNull('showing_date')
+                    ->orWhereDate('showing_date', '<=', $today);
+            })
+            ->orderBy('id')
+            ->get();
+
+        $count = $pool->count();
+        if ($count === 0) {
+            return null;
+        }
+
+        // Whole days elapsed since a fixed epoch increments by exactly 1 each
+        // calendar day, so consecutive days land on consecutive pool indices
+        // (mod count) — i.e. a clean rotation that never repeats day-to-day.
+        $epoch = new \DateTimeImmutable('2000-01-01');
+        $todayDt = new \DateTimeImmutable($today);
+        $dayIndex = (int) $epoch->diff($todayDt)->days;
+
+        return $pool[$dayIndex % $count];
+    }
+
     public function todayVideo()
     {
         try {
             $today = date('Y-m-d');
+            $userId = Auth::id();
 
-            $daily_video = DailyVideo::where('is_active', 1)
-                ->where('is_deleted', 0)
-                ->whereDate('showing_date', $today)
-                ->first();
+            $daily_video = $this->resolveTodaysVideo($userId, $today);
 
             if ($daily_video) {
-                $daily_video->created_at_formatted = $daily_video->created_at->format('d-m-Y h:i A');
-                $daily_video->updated_at_formatted = $daily_video->updated_at->format('d-m-Y h:i A');
+                $daily_video->created_at_formatted = $daily_video->created_at
+                    ? $daily_video->created_at->format('d-m-Y h:i A')
+                    : '-';
+                $daily_video->updated_at_formatted = $daily_video->updated_at
+                    ? $daily_video->updated_at->format('d-m-Y h:i A')
+                    : '-';
+
+                // From the user's perspective this is just "today's" daily video,
+                // so surface today's date — NOT the row's original showing_date,
+                // which for a rotating/default video can be an old or unrelated
+                // date. Uses the same server date that drove the selection so the
+                // shown date always lines up with "today".
+                $daily_video->display_date = $today;
 
                 $checkvideowatched = DB::table('daily_video_watch_details')
                     ->where('daily_video_id', $daily_video->id)
-                    ->where('user_id', Auth::id())
+                    ->where('user_id', $userId)
                     ->whereDate('watched_date', $today)
                     ->first();
                 $daily_video->watched = $checkvideowatched ? 1 : 0;
@@ -362,16 +510,14 @@ class DailyVideoController extends Controller
     {
         try {
             $today = date('Y-m-d');
+            $userId = Auth::id();
 
-            $daily_video = DailyVideo::where('is_active', 1)
-                ->where('is_deleted', 0)
-                ->whereDate('showing_date', $today)
-                ->first();
+            $daily_video = $this->resolveTodaysVideo($userId, $today);
 
             if ($daily_video) {
                 $checkvideowatched = DB::table('daily_video_watch_details')
                     ->where('daily_video_id', $daily_video->id)
-                    ->where('user_id', Auth::id())
+                    ->where('user_id', $userId)
                     ->whereDate('watched_date', $today)
                     ->first();
                 $data = ['watched' => $checkvideowatched ? 1 : 0];
