@@ -47,6 +47,10 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         // from the list, independent of create/edit. Declared before the
         // resource so the {daily_video} slot doesn't swallow it.
         Route::patch('daily-videos/default-update', [DailyVideoController::class, 'defaultUpdate']);
+        // On/off toggle for membership of the daily rotation pool. Any number
+        // of videos can be flagged. Also before the resource for the same
+        // route-collision reason.
+        Route::patch('daily-videos/rotational-update', [DailyVideoController::class, 'rotationalUpdate']);
         Route::resource('daily-videos', DailyVideoController::class)->except(['destroy']);
     });
 
