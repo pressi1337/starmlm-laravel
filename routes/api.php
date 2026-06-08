@@ -58,6 +58,9 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     // DELETE is split out to super-admin only (see below).
     Route::middleware('subadmin.permission:promotion_videos')->group(function () {
         Route::patch('promotion-videos/status-update', [PromotionVideoController::class, 'StatusUpdate']);
+        // On/off toggle for "Basic (L0-L2)" eligibility. Any number of videos
+        // can be flagged. Declared before the resource to avoid collision.
+        Route::patch('promotion-videos/basic-level-update', [PromotionVideoController::class, 'basicLevelUpdate']);
         Route::patch('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
         Route::resource('promotion-videos', PromotionVideoController::class)->except(['destroy']);
         Route::resource('promotion-video-quizzes', PromotionQuizController::class)->except(['destroy']);
