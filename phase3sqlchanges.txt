@@ -211,3 +211,43 @@ ALTER TABLE `daily_videos`
 
 -- ----- Rollback (only if you need to revert) -----
 -- ALTER TABLE `daily_videos` DROP COLUMN `is_rotational`;
+
+
+-- ============================================================
+-- Promotion videos: random selection. Equivalent of migrations
+-- 2026_06_03_000001_add_is_basic_level_to_promotion_videos and
+-- 2026_06_03_000002_create_user_promotion_video_views_table.
+--
+-- Promotion videos are now served at RANDOM (date/session/order
+-- no longer drive selection):
+--   * is_basic_level = 1  -> visible to Promoter L0/L1/L2 (and to
+--     L3/L4, who always see ALL videos). Default 1 = every video
+--     visible to all levels until an admin toggles one OFF, which
+--     restricts it to L3/L4 only.
+--   * user_promotion_video_views records what each user was shown
+--     per day, so the picker avoids same-day / next-day repeats and
+--     stays stable across refreshes for the in-progress slot.
+-- ============================================================
+
+ALTER TABLE `promotion_videos`
+    ADD COLUMN `is_basic_level` TINYINT(1) NOT NULL DEFAULT 1 AFTER `session_type`;
+
+CREATE TABLE `user_promotion_video_views` (
+    `id`                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id`                  INT NOT NULL,
+    `user_promoter_id`         INT NULL DEFAULT NULL,
+    `user_promoter_session_id` INT NULL DEFAULT NULL,
+    `set_no`                   TINYINT NULL DEFAULT NULL,
+    `video_order`              TINYINT NULL DEFAULT NULL,
+    `promotion_video_id`       INT NOT NULL,
+    `viewed_date`              DATE NOT NULL,
+    `created_at`               TIMESTAMP NULL DEFAULT NULL,
+    `updated_at`               TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    KEY `upvv_user_date_idx` (`user_id`, `viewed_date`),
+    KEY `upvv_slot_idx` (`user_id`, `user_promoter_session_id`, `set_no`, `video_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----- Rollback (only if you need to revert) -----
+-- DROP TABLE `user_promotion_video_views`;
+-- ALTER TABLE `promotion_videos` DROP COLUMN `is_basic_level`;

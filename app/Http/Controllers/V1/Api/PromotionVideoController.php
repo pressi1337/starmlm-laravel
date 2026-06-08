@@ -159,25 +159,13 @@ class PromotionVideoController extends Controller
     {
         try {
             // Validation
+            // Date/session/order no longer drive selection (videos are random),
+            // so they're no longer required on create.
             $validator = Validator::make($request->all(), [
                 "title" => 'required',
                 "description" => 'required',
                 "video_path" => 'required_without:youtube_link',
                 "youtube_link" => 'required_without:video_path',
-                "showing_date" => [
-                    'required',
-                    new UniqueActive(
-                        'promotion_videos',
-                        'showing_date',
-                        null,
-                        [
-                            'video_order' => $request->video_order,
-                            'session_type' => $request->session_type
-                        ]
-                    )
-                ],
-                "video_order" => 'required',
-                "session_type" => 'required',
             ], $this->messages);
 
             if ($validator->fails()) {
@@ -191,9 +179,6 @@ class PromotionVideoController extends Controller
             $w->title = $request->title;
             $w->description = $request->description;
             $w->youtube_link = $request->youtube_link;
-            $w->showing_date = $request->showing_date;
-            $w->video_order = $request->video_order;
-            $w->session_type = $request->session_type;
             $w->video_path  =  $request->video_path;
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
@@ -256,24 +241,10 @@ class PromotionVideoController extends Controller
     {
         try {
             // Validation
+            // Date/session/order no longer drive selection (videos are random).
             $validator = Validator::make($request->all(), [
                 "title" => 'required',
                 "description" => 'required',
-                "showing_date" => [
-                    'required',
-                    new UniqueActive(
-                        'promotion_videos',
-                        'showing_date',
-                        $id,
-                        [
-                            'video_order' => $request->video_order,
-                            'session_type' => $request->session_type
-                        ]
-                    )
-                ],
-                "video_order" => 'required',
-                "session_type" => 'required',
-
             ], $this->messages);
 
             if ($validator->fails()) {
@@ -291,9 +262,6 @@ class PromotionVideoController extends Controller
             $w->title = $request->title;
             $w->description = $request->description;
             $w->youtube_link = $request->youtube_link;
-            $w->showing_date = $request->showing_date;
-            $w->video_order = $request->video_order;
-            $w->session_type = $request->session_type;
             $w->video_path  =  $request->video_path;
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
@@ -359,6 +327,147 @@ class PromotionVideoController extends Controller
             return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
     }
+
+    /**
+     * Toggle a video's "Basic (L0-L2)" eligibility from the admin list — an
+     * on/off switch per row, with no single-row limit (any number of videos
+     * can be flagged). Promoter levels 0/1/2 only ever see flagged videos;
+     * levels 3/4 see everything regardless.
+     */
+    public function basicLevelUpdate(Request $request)
+    {
+        try {
+            $auth_user_id = Auth::id();
+            $w = PromotionVideo::find($request->id);
+            if (!$w) {
+                return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+
+            $w->is_basic_level = $request->boolean('is_basic_level') ? 1 : 0;
+            $w->updated_by = $auth_user_id;
+            $w->save();
+
+            return response()->json([
+                'message' => $w->is_basic_level
+                    ? 'Video enabled for basic levels (L0-L2)'
+                    : 'Video restricted to Promoter L3/L4',
+                'status' => 200,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('PromotionVideo basicLevelUpdate failed', ['id' => $request->id, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
+    }
+
+    /**
+     * Pick which promotion video THIS user sees for the current slot.
+     *
+     * Selection is random (date/session/order no longer drive it), with:
+     *   - per-level pool: Promoter L0/L1/L2 only get is_basic_level = 1 videos;
+     *     L3/L4 get every active video. A usable video must have a quiz with at
+     *     least one question (otherwise the quiz/earning step would be empty).
+     *   - no-repeat: videos this user saw today or yesterday are avoided, so the
+     *     same video doesn't recur on the same day or the immediate next day.
+     *     Best-effort — if the pool is too small the exclusion is relaxed
+     *     (today+yesterday -> today -> none) so the user is never left stuck.
+     *   - refresh-stable: the video chosen for a slot (session + set + order) is
+     *     recorded, so re-fetching returns the SAME video until that slot is
+     *     completed; the next slot then draws a fresh one.
+     *
+     * The chosen view is recorded in user_promotion_video_views. Returns the
+     * video id, or null when no usable video exists for this user.
+     */
+    private function resolvePromotionVideoId($user, $session, int $setNo, int $videoOrder): ?int
+    {
+        $today = today()->toDateString();
+        $yesterday = today()->subDay()->toDateString();
+        $userId = $user->id;
+
+        // Refresh-stable: already assigned a video for this exact slot today?
+        $existing = DB::table('user_promotion_video_views')
+            ->where('user_id', $userId)
+            ->where('user_promoter_session_id', $session->id)
+            ->where('set_no', $setNo)
+            ->where('video_order', $videoOrder)
+            ->where('viewed_date', $today)
+            ->orderBy('id', 'desc')
+            ->first();
+        if ($existing) {
+            $stillUsable = PromotionVideo::where('id', $existing->promotion_video_id)
+                ->where('is_active', 1)
+                ->where('is_deleted', 0)
+                ->exists();
+            if ($stillUsable) {
+                return (int) $existing->promotion_video_id;
+            }
+        }
+
+        // Eligible pool for this promoter level. A usable video needs a quiz
+        // with questions; L0/L1/L2 are limited to basic-level videos.
+        $level = (int) $user->current_promoter_level;
+        $poolQuery = PromotionVideo::where('is_active', 1)
+            ->where('is_deleted', 0)
+            ->whereHas('quiz', function ($q) {
+                $q->where('is_deleted', 0)
+                    ->whereHas('questions', function ($qq) {
+                        $qq->where('is_deleted', 0);
+                    });
+            });
+        if ($level <= 2) {
+            $poolQuery->where('is_basic_level', 1);
+        }
+        $eligibleIds = $poolQuery->pluck('id')->all();
+        if (empty($eligibleIds)) {
+            return null;
+        }
+
+        // Avoid videos seen today / yesterday, relaxing if the pool is small.
+        $seenToday = DB::table('user_promotion_video_views')
+            ->where('user_id', $userId)
+            ->where('viewed_date', $today)
+            ->pluck('promotion_video_id')
+            ->all();
+        $seenYesterday = DB::table('user_promotion_video_views')
+            ->where('user_id', $userId)
+            ->where('viewed_date', $yesterday)
+            ->pluck('promotion_video_id')
+            ->all();
+
+        $pick = $this->pickRandomExcluding($eligibleIds, array_merge($seenToday, $seenYesterday));
+        if ($pick === null) {
+            $pick = $this->pickRandomExcluding($eligibleIds, $seenToday);
+        }
+        if ($pick === null) {
+            $pick = (int) $eligibleIds[array_rand($eligibleIds)];
+        }
+
+        DB::table('user_promotion_video_views')->insert([
+            'user_id' => $userId,
+            'user_promoter_id' => $session->user_promoter_id,
+            'user_promoter_session_id' => $session->id,
+            'set_no' => $setNo,
+            'video_order' => $videoOrder,
+            'promotion_video_id' => $pick,
+            'viewed_date' => $today,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return (int) $pick;
+    }
+
+    /**
+     * Random element of $ids not present in $exclude, or null if all excluded.
+     */
+    private function pickRandomExcluding(array $ids, array $exclude): ?int
+    {
+        $remaining = array_values(array_diff($ids, $exclude));
+        if (empty($remaining)) {
+            return null;
+        }
+        return (int) $remaining[array_rand($remaining)];
+    }
+
     public function userPromotionVideo()
     {
         try {
@@ -436,43 +545,47 @@ class PromotionVideoController extends Controller
                 $user_promoter_session->save();
             }
 
-            $promotion_video = PromotionVideo::where('is_active', 1)
-                ->whereDate('showing_date', today())
-                ->where('is_deleted', 0)
-                ->where('session_type', $current_session_type)
-                ->where('video_order', $currentOrder)
-                ->with([
-                    'quiz' => function ($quizQuery) {
-                        $quizQuery->where('is_deleted', 0)
-                            ->select(
-                                "id",
-                                "promotion_video_id",
-                            )
-                            ->with([
-                                'questions' => function ($questionQuery) {
-                                    $questionQuery->where('is_deleted', 0)
-                                        ->select('id', 'promotion_video_quiz_id', 'lang_type', 'question', 'time_limit')
-                                        ->with([
-                                            'choices' => function ($choiceQuery) {
-                                                $choiceQuery->where('is_deleted', 0)
-                                                    ->select('id', 'promotion_quiz_question_id', 'lang_type', 'choice_value');
-                                            }
-                                        ]);
-                                }
-                            ]);
-                    }
-                ])
-                ->select(
-                    "id",
-                    "title",
-                    "description",
-                    "video_path",
-                    "youtube_link",
-                    "showing_date",
-                    "video_order",
-                    "session_type",
-                )
-                ->first();
+            // Selection is now random (no date/session/order). Resolve a video
+            // for this slot — see resolvePromotionVideoId — then load it with the
+            // same eager-load + column shape the frontend already expects.
+            $chosenVideoId = $this->resolvePromotionVideoId($user, $user_promoter_session, $currentSet, $currentOrder);
+
+            $promotion_video = null;
+            if ($chosenVideoId !== null) {
+                $promotion_video = PromotionVideo::where('id', $chosenVideoId)
+                    ->with([
+                        'quiz' => function ($quizQuery) {
+                            $quizQuery->where('is_deleted', 0)
+                                ->select(
+                                    "id",
+                                    "promotion_video_id",
+                                )
+                                ->with([
+                                    'questions' => function ($questionQuery) {
+                                        $questionQuery->where('is_deleted', 0)
+                                            ->select('id', 'promotion_video_quiz_id', 'lang_type', 'question', 'time_limit')
+                                            ->with([
+                                                'choices' => function ($choiceQuery) {
+                                                    $choiceQuery->where('is_deleted', 0)
+                                                        ->select('id', 'promotion_quiz_question_id', 'lang_type', 'choice_value');
+                                                }
+                                            ]);
+                                    }
+                                ]);
+                        }
+                    ])
+                    ->select(
+                        "id",
+                        "title",
+                        "description",
+                        "video_path",
+                        "youtube_link",
+                        "showing_date",
+                        "video_order",
+                        "session_type",
+                    )
+                    ->first();
+            }
 
             if ($promotion_video && $promotion_video->quiz) {
                 $quiz = $promotion_video->quiz;
@@ -518,10 +631,10 @@ class PromotionVideoController extends Controller
             if (!$promotion_video) {
                 return response()->json(['message' => 'Promotion video not found', 'status' => 400], 400);
             }
+            // Videos are no longer tagged by session; session validity is
+            // enforced below by the per-session lookup (a rolled-over session
+            // simply won't be found for the current window).
             $current_session_type = (Carbon::now()->hour < 12) ? 1 : 2;
-            if ($current_session_type != $promotion_video->session_type) {
-                return response()->json(['message' => 'Session Expired', 'status' => 400], 400);
-            }
             $user_promoter = UserPromoter::where('user_id', $auth_user_id)
                 ->where('status', UserPromoter::PIN_STATUS_ACTIVATED)->orderBy('level','DESC')->first();
             if (!$user_promoter) {
