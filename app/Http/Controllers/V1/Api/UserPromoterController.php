@@ -681,6 +681,14 @@ class UserPromoterController extends Controller
     {
         $userId = Auth::id();
 
+        // Per-user safety net: the traffic-driven maintenance middleware also
+        // applies these ~once a minute, but running them here (scoped to this
+        // user) gives the waiting user instant accuracy on their own pin page.
+        // Raise the term if it has been pending > 10 minutes... Idempotent.
+        UserPromoter::autoRaiseDueTerms(10, $userId);
+        // ...and reject the request if no pin was generated within 5 days.
+        UserPromoter::autoRejectStalePins(5, $userId);
+
         $promoters = UserPromoter::with('user')
             ->where('user_id', $userId)
             ->where('is_deleted', 0)
