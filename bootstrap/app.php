@@ -18,6 +18,12 @@ return Application::configure(basePath: dirname(__DIR__))
             'userjwt' => \App\Http\Middleware\UserJwtMiddleware::class,
             'subadmin.permission' => \App\Http\Middleware\SubAdminPermission::class,
         ]);
+
+        // Cron-less maintenance: a throttled, traffic-driven sweep that applies
+        // the time-based promoter transitions (10-min term raise, 5-day reject)
+        // after each response — at most once per minute. Needs no cron and no
+        // queue worker; ordinary request traffic drives it.
+        $middleware->append(\App\Http\Middleware\PromoterMaintenanceSweep::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(function (Throwable $e, $request) {
