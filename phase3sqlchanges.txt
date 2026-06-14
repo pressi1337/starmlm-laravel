@@ -251,3 +251,47 @@ CREATE TABLE `user_promotion_video_views` (
 -- ----- Rollback (only if you need to revert) -----
 -- DROP TABLE `user_promotion_video_views`;
 -- ALTER TABLE `promotion_videos` DROP COLUMN `is_basic_level`;
+
+
+-- ============================================================
+-- Promoter box (product) allocation + delivery tracking.
+-- Equivalent of migration
+-- 2026_06_03_000003_create_promoter_box_requests_table.
+--
+-- One row per box batch a promoter receives at a level:
+--   * L0/L1/L2 get a fixed default (1/1/10) auto-created at pin
+--     activation; L3/L4 pick a quantity (10/20 and 10/20/30) up to
+--     a cumulative per-level cap (20/30) and may request more later.
+--   * Each batch flows: status 1=requested -> 2=sent (admin) ->
+--     3=delivered (user). Per-request delivery details are stored here.
+-- Net-new — pre-existing promoters simply have no rows here.
+-- ============================================================
+
+CREATE TABLE `promoter_box_requests` (
+    `id`               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id`          BIGINT UNSIGNED NOT NULL,
+    `user_promoter_id` BIGINT UNSIGNED NULL DEFAULT NULL,
+    `level`            TINYINT NULL DEFAULT NULL,
+    `quantity`         INT NOT NULL DEFAULT 0,
+    `delivery_type`    TINYINT NULL DEFAULT NULL,   -- 1=pickup, 2=delivery
+    `delivery_address` TEXT NULL DEFAULT NULL,
+    `pickup_date`      DATE NULL DEFAULT NULL,
+    `contact_number`   VARCHAR(255) NULL DEFAULT NULL,
+    `status`           TINYINT NOT NULL DEFAULT 1,  -- 1=requested,2=sent,3=delivered
+    `requested_at`     TIMESTAMP NULL DEFAULT NULL,
+    `sent_at`          TIMESTAMP NULL DEFAULT NULL,
+    `sent_by`          BIGINT UNSIGNED NULL DEFAULT NULL,
+    `delivered_at`     TIMESTAMP NULL DEFAULT NULL,
+    `created_by`       BIGINT UNSIGNED NULL DEFAULT NULL,
+    `updated_by`       BIGINT UNSIGNED NULL DEFAULT NULL,
+    `is_active`        TINYINT NOT NULL DEFAULT 1,
+    `is_deleted`       TINYINT NOT NULL DEFAULT 0,
+    `created_at`       TIMESTAMP NULL DEFAULT NULL,
+    `updated_at`       TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    KEY `pbr_user_level_idx` (`user_id`, `level`),
+    KEY `pbr_status_idx` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ----- Rollback (only if you need to revert) -----
+-- DROP TABLE `promoter_box_requests`;

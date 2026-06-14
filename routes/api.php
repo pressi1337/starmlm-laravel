@@ -11,6 +11,7 @@ use App\Http\Controllers\V1\Api\PromotionVideoController;
 use App\Http\Controllers\V1\Api\PromotionQuizController;
 use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
+use App\Http\Controllers\V1\Api\BoxRequestController;
 use App\Http\Controllers\V1\Api\UserTrainingController;
 use App\Http\Controllers\V1\Api\UserBankDetailController;
 use App\Http\Controllers\V1\Api\AdminBankDetailController;
@@ -81,6 +82,11 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
         Route::post('term-raised', [UserPromoterController::class, 'termRaised']);
         Route::post('pin-rejected', [UserPromoterController::class, 'pinRejected']);
+
+        // Promoter box (product) fulfilment — admin lists requests and marks
+        // them Sent. mark-sent declared before the listing for clarity.
+        Route::patch('admin-box-requests/mark-sent', [BoxRequestController::class, 'markSent']);
+        Route::get('admin-box-requests', [BoxRequestController::class, 'adminIndex']);
     });
 
     // Suggestions — admin read-only listing + mark-as-read action.
@@ -182,6 +188,12 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     // scratch cards
     Route::get('get-scratch-cards', [UserPromoterController::class, 'getScratchCards']);
     Route::post('scratched-status-update', [UserPromoterController::class, 'scratchedStatusUpdate']);
+
+    // Promoter boxes — the user's own list, a "request more" action (manual
+    // levels 3/4, within the cap), and confirming delivery.
+    Route::get('box-requests/list', [BoxRequestController::class, 'userBoxRequests']);
+    Route::post('box-requests/request', [BoxRequestController::class, 'requestBoxes']);
+    Route::post('box-requests/delivered', [BoxRequestController::class, 'markDelivered']);
 
     // Dashboard API
     Route::get('user-dashboard', [UserPromoterController::class, 'dashboard']);

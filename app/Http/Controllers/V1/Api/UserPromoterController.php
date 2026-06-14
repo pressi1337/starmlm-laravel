@@ -11,6 +11,7 @@ use App\Models\ReferralScratchRange;
 use App\Models\ScratchCard;
 use App\Models\User;
 use App\Models\UserPromoter;
+use App\Models\PromoterBoxRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -594,6 +595,32 @@ class UserPromoterController extends Controller
             return response()->json(['success' => false, 'message' => 'Invalid PIN or not approved'], 400);
         }
 
+        // Box (product) allocation chosen at activation. Auto levels (0/1/2)
+        // get a fixed default; manual levels (3/4) must pick a valid quantity
+        // within the remaining cap. Validate before mutating so an invalid
+        // choice never leaves a half-activated state.
+        $boxLevel = (int) $promoter->level;
+        $boxRules = PromoterBoxRequest::rulesForLevel($boxLevel);
+        $boxQuantity = 0;
+        if ($boxRules) {
+            if (!empty($boxRules['auto'])) {
+                $boxQuantity = (int) $boxRules['default'];
+            } elseif ($request->filled('box_quantity')) {
+                // Manual level (3/4): validate the chosen quantity when sent.
+                $boxOptions = PromoterBoxRequest::selectableOptions($promoter->user_id, $boxLevel);
+                $boxQuantity = (int) $request->box_quantity;
+                if (!in_array($boxQuantity, $boxOptions, true)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Please choose a valid box quantity (' . implode('/', $boxOptions) . ').',
+                    ], 400);
+                }
+            }
+            // Manual level with no quantity sent: skip box creation here; the
+            // user can request boxes later via the dedicated action. Keeps
+            // activation working even if a client hasn't shipped the picker yet.
+        }
+
         $promoter->status = UserPromoter::PIN_STATUS_ACTIVATED;
         $promoter->gift_delivery_type = $request->gift_delivery_type;
         $promoter->direct_pick_date = $request->direct_pick_date;
@@ -607,6 +634,29 @@ class UserPromoterController extends Controller
         $user->promoter_status = User::PROMOTER_STATUS_ACTIVATED;
         $user->promoter_activated_at = now();
         $user->save();
+
+        // First box allocation for this activation, recorded as "Requested".
+        // Wrapped so a box failure never breaks the (already saved) activation.
+        if ($boxQuantity > 0) {
+            try {
+                $box = new PromoterBoxRequest();
+                $box->user_id = $promoter->user_id;
+                $box->user_promoter_id = $promoter->id;
+                $box->level = $boxLevel;
+                $box->quantity = $boxQuantity;
+                $box->delivery_type = $request->gift_delivery_type;
+                $box->delivery_address = $request->gift_delivery_address;
+                $box->pickup_date = $request->direct_pick_date ?: null;
+                $box->contact_number = $request->wh_number;
+                $box->status = PromoterBoxRequest::STATUS_REQUESTED;
+                $box->requested_at = now();
+                $box->created_by = $auth_user_id;
+                $box->updated_by = $auth_user_id;
+                $box->save();
+            } catch (\Throwable $e) {
+                Log::error('Box auto-create on activation failed', ['promoter_id' => $promoter->id, 'error' => $e->getMessage()]);
+            }
+        }
 
         $referrer = $user->referrer;
         if ($referrer) {
