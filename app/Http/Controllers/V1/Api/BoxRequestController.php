@@ -55,6 +55,8 @@ class BoxRequestController extends Controller
                 'options'     => $options,
                 // Only manual levels (3/4) with remaining capacity can request more.
                 'can_request' => $rules !== null && empty($rules['auto']) && !empty($options),
+                // Prefill the request form's contact number, like the pin screen.
+                'mobile'      => $user?->mobile ?? '',
             ];
 
             return response()->json([
