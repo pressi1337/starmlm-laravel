@@ -281,4 +281,37 @@ class BoxRequestController extends Controller
             return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
         }
     }
+
+    /**
+     * Admin marks a batch as Delivered — a fallback for when the user doesn't
+     * confirm receipt themselves. Fills in the Sent stamp first if it was
+     * skipped (delivered implies it was sent). Blocked once already delivered.
+     */
+    public function adminMarkDelivered(Request $request)
+    {
+        try {
+            $box = PromoterBoxRequest::where('id', $request->id)->where('is_deleted', 0)->first();
+            if (!$box) {
+                return response()->json(['success' => false, 'message' => 'Box request not found'], 400);
+            }
+            if ((int) $box->status === PromoterBoxRequest::STATUS_DELIVERED) {
+                return response()->json(['success' => false, 'message' => 'This box is already delivered'], 400);
+            }
+
+            // Delivered implies sent — stamp the sent step if it was skipped.
+            if ($box->sent_at === null) {
+                $box->sent_at = now();
+                $box->sent_by = Auth::id();
+            }
+            $box->status = PromoterBoxRequest::STATUS_DELIVERED;
+            $box->delivered_at = now();
+            $box->updated_by = Auth::id();
+            $box->save();
+
+            return response()->json(['success' => true, 'message' => 'Marked as delivered', 'data' => $box], 200);
+        } catch (\Throwable $e) {
+            Log::error('BoxRequest adminMarkDelivered failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
 }

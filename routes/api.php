@@ -86,6 +86,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         // Promoter box (product) fulfilment — admin lists requests and marks
         // them Sent. mark-sent declared before the listing for clarity.
         Route::patch('admin-box-requests/mark-sent', [BoxRequestController::class, 'markSent']);
+        Route::patch('admin-box-requests/mark-delivered', [BoxRequestController::class, 'adminMarkDelivered']);
         Route::get('admin-box-requests', [BoxRequestController::class, 'adminIndex']);
     });
 
