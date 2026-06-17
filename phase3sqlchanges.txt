@@ -295,3 +295,39 @@ CREATE TABLE `promoter_box_requests` (
 
 -- ----- Rollback (only if you need to revert) -----
 -- DROP TABLE `promoter_box_requests`;
+
+
+-- ============================================================
+-- Backfill plan-product allocations for promoters who activated
+-- BEFORE this feature. Equivalent of migration
+-- 2026_06_17_000000_backfill_promoter_box_requests.
+--
+-- Every ACTIVATED promoter (status = 2) with no existing batch
+-- gets one "Requested" batch for their level's full entitlement
+-- (L0=1, L1=1, L2=10, L3=20, L4=30), reusing the delivery details
+-- captured at activation. The NOT EXISTS guard makes it safe to
+-- re-run and never duplicates a batch activation already created.
+-- ============================================================
+
+INSERT INTO `promoter_box_requests`
+    (`user_id`, `user_promoter_id`, `level`, `quantity`,
+     `delivery_type`, `delivery_address`, `pickup_date`, `contact_number`,
+     `status`, `requested_at`, `created_by`, `updated_by`,
+     `is_active`, `is_deleted`, `created_at`, `updated_at`)
+SELECT
+    up.`user_id`, up.`id`, up.`level`,
+    CASE up.`level`
+        WHEN 0 THEN 1 WHEN 1 THEN 1 WHEN 2 THEN 10
+        WHEN 3 THEN 20 WHEN 4 THEN 30 ELSE 0
+    END,
+    up.`gift_delivery_type`, up.`gift_delivery_address`, up.`direct_pick_date`, up.`wh_number`,
+    1, COALESCE(up.`activated_at`, NOW()), up.`user_id`, up.`user_id`,
+    1, 0, NOW(), NOW()
+FROM `user_promoters` up
+WHERE up.`status` = 2
+  AND up.`is_deleted` = 0
+  AND up.`level` IN (0, 1, 2, 3, 4)
+  AND NOT EXISTS (
+      SELECT 1 FROM `promoter_box_requests` pbr
+      WHERE pbr.`user_promoter_id` = up.`id` AND pbr.`is_deleted` = 0
+  );
