@@ -657,12 +657,20 @@ class PromotionVideoController extends Controller
             $max_earnable_per_video = (float) $levelInfo['max'];
             $video_total_earnable_amount = $default_video_total_earnable_amount;
             if ($user_promoter->level > 0) {
+                // Count referred children by their activated promoter LEVEL, not
+                // by promoter_status. When a child requests the next-level
+                // upgrade their promoter_status temporarily leaves ACTIVATED
+                // (PENDING -> SHOW_TERM -> ... -> APPROVED), but they remain an
+                // active promoter at their current_promoter_level — so the
+                // referrer must keep earning their bonus during that window.
+                // current_promoter_level is null/0 for non-promoters, so the
+                // level filters below already exclude them.
                 $referred_users = User::where([
                     'referred_by' => $auth_user_id,
                     'is_deleted' => 0,
                     "is_active" => 1,
-                    "promoter_status" => User::PROMOTER_STATUS_ACTIVATED
-                ])->where('current_promoter_level', '<=', $user_promoter->level)
+                ])->whereNotNull('current_promoter_level')
+                    ->where('current_promoter_level', '<=', $user_promoter->level)
                     ->where('current_promoter_level', '!=', 0)->get();
                 foreach ($referred_users as $referred_user) {
                     $add_amount = User::REFERRAL_BONUS_PER_LEVEL[(int) $referred_user->current_promoter_level] ?? 0;
