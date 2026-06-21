@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Traits\HandlesJson;
 use App\Models\EarningHistory;
 use App\Models\User;
+use App\Models\UserBankDetail;
 use App\Models\WithdrawRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -195,6 +196,26 @@ class WithdrawController extends Controller
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
+
+        // Bank details are mandatory before any withdrawal. The frontend blocks
+        // this, but enforce it server-side too — a record can be missing OR
+        // exist-but-empty (admin "clear bank details" nulls every field), so we
+        // check the required fields are actually populated, not just that a row
+        // exists. This is the gap that let a request through without a bank.
+        $bankDetail = UserBankDetail::where('user_id', $user->id)->first();
+        $hasBankDetails = $bankDetail
+            && filled($bankDetail->acc_no)
+            && filled($bankDetail->acc_name)
+            && filled($bankDetail->ifsc_code)
+            && filled($bankDetail->bank_name)
+            && filled($bankDetail->branch_name);
+        if (!$hasBankDetails) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Please add your bank details before requesting a withdrawal.',
+            ], 400);
+        }
+
         if ($request->wallet_type == WithdrawRequest::WALLET_TYPE_MAIN) {
             //    each wallet base different validation applicable
             // WALLET_TYPE_MAIN  -->min 100 amount ,30 days once only 
