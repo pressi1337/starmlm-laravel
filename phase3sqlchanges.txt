@@ -298,6 +298,23 @@ CREATE TABLE `promoter_box_requests` (
 
 
 -- ============================================================
+-- Scratch cashback: add referral DEPTH level (1-7). Equivalent of
+-- migration 2026_06_21_000000_add_level_to_referral_scratch_levels.
+--
+-- Each cashback config row is now keyed by (promotor_level, level):
+--   promotor_level 0-4 = activating user's promoter level (existing),
+--   level 1-7          = referral depth (1 = direct referrer, ... 7).
+-- Existing rows become level 1 (the original direct-referral config).
+-- ============================================================
+
+ALTER TABLE `referral_scratch_levels`
+    ADD COLUMN `level` INT NOT NULL DEFAULT 1 AFTER `promotor_level`;
+
+-- ----- Rollback (only if you need to revert) -----
+-- ALTER TABLE `referral_scratch_levels` DROP COLUMN `level`;
+
+
+-- ============================================================
 -- Backfill plan-product allocations for promoters who activated
 -- BEFORE this feature. Equivalent of migration
 -- 2026_06_17_000000_backfill_promoter_box_requests.

@@ -31,8 +31,22 @@ class ScratchSetupController extends Controller
 
         ];
     }
-    protected array $sortable = ['created_at', 'id', 'promotor_level'];
-    protected array $filterable = ['id', 'promotor_level', 'is_active'];
+    protected array $sortable = ['created_at', 'id', 'promotor_level', 'level'];
+    protected array $filterable = ['id', 'promotor_level', 'level', 'is_active'];
+
+    /**
+     * Parse a config key into [promotor_level, referral level].
+     * Key is "{promotor_level}_{level}" (level = referral depth 1-7); a bare
+     * "{promotor_level}" falls back to level 1 (backward compatible).
+     */
+    private function parseScratchKey($id): array
+    {
+        $parts = explode('_', (string) $id);
+        $promotorLevel = (int) ($parts[0] ?? 0);
+        $level = isset($parts[1]) ? (int) $parts[1] : 1;
+        return [$promotorLevel, $level < 1 ? 1 : $level];
+    }
+
     public function index(Request $request)
     {
         try {
@@ -158,6 +172,7 @@ class ScratchSetupController extends Controller
 
             $validator = Validator::make($request->all(), [
                 'promotor_level' => 'required|integer',
+                'level' => 'nullable|integer',
                 'is_active' => 'nullable|boolean',
                 'ranges' => 'required|array|min:1',
                 'ranges.*.start_range' => 'required|integer',
@@ -172,6 +187,7 @@ class ScratchSetupController extends Controller
 
             $w = new ReferralScratchLevel();
             $w->promotor_level = $request->promotor_level;
+            $w->level = (int) ($request->level ?? 1);
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
             $w->is_active = (int) $isActiveInput ? 1 : 0;
@@ -213,7 +229,9 @@ class ScratchSetupController extends Controller
     public function show($id)
     {
         try {
-            $item = ReferralScratchLevel::where('promotor_level', $id)
+            [$promotorLevel, $level] = $this->parseScratchKey($id);
+            $item = ReferralScratchLevel::where('promotor_level', $promotorLevel)
+                ->where('level', $level)
                 ->where('is_deleted', 0)
                 ->with(['ranges' => function ($q) {
                     $q->where(['is_deleted' => 0])
@@ -249,7 +267,9 @@ class ScratchSetupController extends Controller
      */
     public function edit($id) {
         try {
-            $item = ReferralScratchLevel::where('promotor_level', $id)
+            [$promotorLevel, $level] = $this->parseScratchKey($id);
+            $item = ReferralScratchLevel::where('promotor_level', $promotorLevel)
+                ->where('level', $level)
                 ->where('is_deleted', 0)
                 ->with(['ranges' => function ($q) {
                     $q->where(['is_deleted' => 0])
@@ -302,10 +322,12 @@ class ScratchSetupController extends Controller
                 return response()->json(['errors' => $validator->errors()], 422);
             }
             DB::beginTransaction();
-            $w = ReferralScratchLevel::where('promotor_level', $id)->where('is_deleted', 0)->first();
+            [$promotorLevel, $level] = $this->parseScratchKey($id);
+            $w = ReferralScratchLevel::where('promotor_level', $promotorLevel)->where('level', $level)->where('is_deleted', 0)->first();
             if (!$w) {
             $w = new ReferralScratchLevel();
-            $w->promotor_level = $id;
+            $w->promotor_level = $promotorLevel;
+            $w->level = $level;
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
             $w->is_active = (int) $isActiveInput ? 1 : 0;
@@ -357,7 +379,8 @@ class ScratchSetupController extends Controller
     {
         try {
             DB::beginTransaction();
-            $u = ReferralScratchLevel::where('promotor_level', $id)->first();
+            [$promotorLevel, $level] = $this->parseScratchKey($id);
+            $u = ReferralScratchLevel::where('promotor_level', $promotorLevel)->where('level', $level)->first();
             if (!$u) {
                 DB::rollBack();
                 return response()->json(['message' => 'Data not found', 'status' => 400], 400);
@@ -381,7 +404,8 @@ class ScratchSetupController extends Controller
     {
         try {
             $auth_user_id = Auth::id();
-            $w = ReferralScratchLevel::where('promotor_level', $request->id)->first();
+            [$promotorLevel, $level] = $this->parseScratchKey($request->id);
+            $w = ReferralScratchLevel::where('promotor_level', $promotorLevel)->where('level', $level)->first();
             if (!$w) {
                 return response()->json(['message' => 'Data not found', 'status' => 400], 400);
             }
