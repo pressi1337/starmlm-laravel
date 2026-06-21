@@ -131,10 +131,15 @@ class User extends Authenticatable implements JWTSubject
             return $current; // L0 has no referral bonus path
         }
         $maxPerVideo = (float) $info['max'];
+        // Count children by their activated LEVEL, not promoter_status — a child
+        // mid-upgrade temporarily leaves ACTIVATED but is still a promoter at
+        // their current_promoter_level, so the referrer keeps earning. Must stay
+        // in lock-step with the live loop in
+        // PromotionVideoController::userPromoterQuizResult.
         $referred = User::where('referred_by', $this->id)
             ->where('is_deleted', 0)
             ->where('is_active', 1)
-            ->where('promoter_status', self::PROMOTER_STATUS_ACTIVATED)
+            ->whereNotNull('current_promoter_level')
             ->where('current_promoter_level', '<=', $level)
             ->where('current_promoter_level', '!=', 0)
             ->get();
