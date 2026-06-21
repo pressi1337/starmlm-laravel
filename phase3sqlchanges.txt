@@ -321,8 +321,10 @@ SELECT
         WHEN 3 THEN 20 WHEN 4 THEN 30 ELSE 0
     END,
     up.`gift_delivery_type`, up.`gift_delivery_address`, up.`direct_pick_date`, up.`wh_number`,
-    1, COALESCE(up.`activated_at`, NOW()), up.`user_id`, up.`user_id`,
-    1, 0, NOW(), NOW()
+    1, COALESCE(up.`activated_at`, up.`created_at`, NOW()), up.`user_id`, up.`user_id`,
+    1, 0,
+    COALESCE(up.`activated_at`, up.`created_at`, NOW()),
+    COALESCE(up.`activated_at`, up.`created_at`, NOW())
 FROM `user_promoters` up
 WHERE up.`status` = 2
   AND up.`is_deleted` = 0

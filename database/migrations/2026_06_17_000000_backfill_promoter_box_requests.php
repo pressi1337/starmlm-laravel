@@ -42,22 +42,30 @@ return new class extends Migration
                         continue;
                     }
 
-                    PromoterBoxRequest::create([
-                        'user_id'          => $p->user_id,
-                        'user_promoter_id' => $p->id,
-                        'level'            => $level,
-                        'quantity'         => $qty,
-                        'delivery_type'    => $p->gift_delivery_type,
-                        'delivery_address' => $p->gift_delivery_address,
-                        'pickup_date'      => $p->direct_pick_date,
-                        'contact_number'   => $p->wh_number,
-                        'status'           => PromoterBoxRequest::STATUS_REQUESTED,
-                        'requested_at'     => $p->activated_at ?? $now,
-                        'created_by'       => $p->user_id,
-                        'updated_by'       => $p->user_id,
-                        'is_active'        => 1,
-                        'is_deleted'       => 0,
-                    ]);
+                    // Date the batch to when the promoter actually activated, so
+                    // the lists (which show created_at) reflect the original
+                    // activation rather than the backfill run time.
+                    $ts = $p->activated_at ?? $p->created_at ?? $now;
+
+                    $box = new PromoterBoxRequest();
+                    $box->user_id          = $p->user_id;
+                    $box->user_promoter_id = $p->id;
+                    $box->level            = $level;
+                    $box->quantity         = $qty;
+                    $box->delivery_type    = $p->gift_delivery_type;
+                    $box->delivery_address = $p->gift_delivery_address;
+                    $box->pickup_date      = $p->direct_pick_date;
+                    $box->contact_number   = $p->wh_number;
+                    $box->status           = PromoterBoxRequest::STATUS_REQUESTED;
+                    $box->requested_at     = $ts;
+                    $box->created_by       = $p->user_id;
+                    $box->updated_by       = $p->user_id;
+                    $box->is_active        = 1;
+                    $box->is_deleted       = 0;
+                    $box->created_at       = $ts;
+                    $box->updated_at       = $ts;
+                    $box->timestamps       = false; // keep our explicit timestamps
+                    $box->save();
                 }
             });
     }

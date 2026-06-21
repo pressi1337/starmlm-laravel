@@ -239,6 +239,24 @@ class BoxRequestController extends Controller
             ->map(function ($b) {
                 $b->status_label = $b->statusLabel();
                 $b->created_at_formatted = $b->created_at ? $b->created_at->format('d-m-Y h:i A') : '-';
+
+                // Quantity is adjustable only while still Requested and at a
+                // manual level (3/4). Reducing it frees cap room for the user to
+                // re-request later; the offered options are bounded by the cap
+                // (allowing for any other batches the user already has).
+                $rules = PromoterBoxRequest::rulesForLevel($b->level);
+                $manual = $rules && empty($rules['auto']);
+                $b->can_edit_quantity = ((int) $b->status === PromoterBoxRequest::STATUS_REQUESTED) && $manual;
+                if ($b->can_edit_quantity) {
+                    $maxAllowed = PromoterBoxRequest::remainingForLevel((int) $b->user_id, (int) $b->level)
+                        + (int) $b->quantity;
+                    $b->editable_options = array_values(array_filter(
+                        $rules['options'],
+                        fn ($o) => $o <= $maxAllowed
+                    ));
+                } else {
+                    $b->editable_options = [];
+                }
                 return $b;
             });
 
@@ -311,6 +329,53 @@ class BoxRequestController extends Controller
             return response()->json(['success' => true, 'message' => 'Marked as delivered', 'data' => $box], 200);
         } catch (\Throwable $e) {
             Log::error('BoxRequest adminMarkDelivered failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    /**
+     * Admin adjusts a still-Requested batch's quantity to match availability —
+     * only for manual levels (3/4), only to a valid option, and never above the
+     * level cap (accounting for the user's other batches). Reducing it lowers
+     * the user's used total, which automatically reopens that much of their cap
+     * to request again.
+     */
+    public function adminUpdateQuantity(Request $request)
+    {
+        try {
+            $box = PromoterBoxRequest::where('id', $request->id)->where('is_deleted', 0)->first();
+            if (!$box) {
+                return response()->json(['success' => false, 'message' => 'Box request not found'], 400);
+            }
+            if ((int) $box->status !== PromoterBoxRequest::STATUS_REQUESTED) {
+                return response()->json(['success' => false, 'message' => 'Only requested batches can be changed'], 400);
+            }
+
+            $rules = PromoterBoxRequest::rulesForLevel($box->level);
+            if (!$rules || !empty($rules['auto'])) {
+                return response()->json(['success' => false, 'message' => "This level's quantity is fixed and can't be changed"], 400);
+            }
+
+            // cap minus the user's OTHER batches = remaining + this batch.
+            $maxAllowed = PromoterBoxRequest::remainingForLevel((int) $box->user_id, (int) $box->level)
+                + (int) $box->quantity;
+
+            $newQty = (int) $request->quantity;
+            if (!in_array($newQty, $rules['options'], true) || $newQty > $maxAllowed) {
+                $valid = array_values(array_filter($rules['options'], fn ($o) => $o <= $maxAllowed));
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Please choose a valid quantity (' . implode('/', $valid) . ').',
+                ], 400);
+            }
+
+            $box->quantity = $newQty;
+            $box->updated_by = Auth::id();
+            $box->save();
+
+            return response()->json(['success' => true, 'message' => 'Quantity updated', 'data' => $box], 200);
+        } catch (\Throwable $e) {
+            Log::error('BoxRequest adminUpdateQuantity failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
         }
     }
