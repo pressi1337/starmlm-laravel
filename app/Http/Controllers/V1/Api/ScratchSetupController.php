@@ -174,11 +174,8 @@ class ScratchSetupController extends Controller
                 'promotor_level' => 'required|integer',
                 'level' => 'nullable|integer',
                 'is_active' => 'nullable|boolean',
-                'ranges' => 'required|array|min:1',
-                'ranges.*.start_range' => 'required|integer',
-                'ranges.*.end_range' => 'required|integer',
-                'ranges.*.amount' => 'required|integer',
-                'ranges.*.msg' => 'nullable|string',
+                'amount' => 'required|integer|min:0',
+                'msg' => 'nullable|string|max:255',
             ]);
 
             if ($validator->fails()) {
@@ -191,30 +188,14 @@ class ScratchSetupController extends Controller
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
             $w->is_active = (int) $isActiveInput ? 1 : 0;
+            $w->amount = (int) $request->amount;
+            $w->msg = $request->msg;
             $w->created_by = $auth_user_id;
             $w->updated_by = $auth_user_id;
             $w->save();
 
-            DB::beginTransaction();
-
-
-            foreach ($request->ranges ?? [] as $index => $rangeData) {
-                $range = new ReferralScratchRange();
-                $range->referral_scratch_level_id = $w->id;
-                $range->start_range = (int) $rangeData['start_range'];
-                $range->end_range = (int) $rangeData['end_range'];
-                $range->amount = (int) $rangeData['amount'];
-                $range->msg = $rangeData['msg'] ?? null;
-                $range->order_no = $index + 1;
-                $range->created_by =  $auth_user_id;
-                $range->updated_by =  $auth_user_id;
-                $range->save();
-            }
-
-            DB::commit();
             return response()->json(['message' => 'Referral Scratch Level created successfully', 'status' => 200], 200);
         } catch (\Throwable $e) {
-            DB::rollBack();
             Log::error('ScratchSetup store failed', ['error' => $e->getMessage()]);
             return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
@@ -233,10 +214,6 @@ class ScratchSetupController extends Controller
             $item = ReferralScratchLevel::where('promotor_level', $promotorLevel)
                 ->where('level', $level)
                 ->where('is_deleted', 0)
-                ->with(['ranges' => function ($q) {
-                    $q->where(['is_deleted' => 0])
-                        ->orderBy('order_no', 'asc');
-                }])
                 ->first();
 
             if (!$item) {
@@ -271,10 +248,6 @@ class ScratchSetupController extends Controller
             $item = ReferralScratchLevel::where('promotor_level', $promotorLevel)
                 ->where('level', $level)
                 ->where('is_deleted', 0)
-                ->with(['ranges' => function ($q) {
-                    $q->where(['is_deleted' => 0])
-                        ->orderBy('order_no', 'asc');
-                }])
                 ->first();
 
             if (!$item) {
@@ -311,59 +284,32 @@ class ScratchSetupController extends Controller
 
             $validator = Validator::make($request->all(), [
                 'is_active' => 'nullable|boolean',
-                'ranges' => 'required|array|min:1',
-                'ranges.*.start_range' => 'required|integer',
-                'ranges.*.end_range' => 'required|integer',
-                'ranges.*.amount' => 'required|integer',
-                'ranges.*.msg' => 'nullable|string',
+                'amount' => 'required|integer|min:0',
+                'msg' => 'nullable|string|max:255',
             ]);
 
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
             }
-            DB::beginTransaction();
+
             [$promotorLevel, $level] = $this->parseScratchKey($id);
             $w = ReferralScratchLevel::where('promotor_level', $promotorLevel)->where('level', $level)->where('is_deleted', 0)->first();
             if (!$w) {
-            $w = new ReferralScratchLevel();
-            $w->promotor_level = $promotorLevel;
-            $w->level = $level;
+                $w = new ReferralScratchLevel();
+                $w->promotor_level = $promotorLevel;
+                $w->level = $level;
+                $w->created_by = $auth_user_id;
+            }
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
             $w->is_active = (int) $isActiveInput ? 1 : 0;
-            $w->created_by = $auth_user_id;
+            $w->amount = (int) $request->amount;
+            $w->msg = $request->msg;
             $w->updated_by = $auth_user_id;
             $w->save();
-            }else{
-            // Use provided is_active/active when present; default to 1 when absent
-            $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
-            $w->is_active = (int) $isActiveInput ? 1 : 0;
-            $w->updated_by =  $auth_user_id;
-            $w->save();
-            }
-        
 
-            ReferralScratchRange::where('referral_scratch_level_id', $w->id)->update(['is_deleted' => 1]);
-
-            foreach ($request->ranges ?? [] as $index => $rangeData) {
-                $range = new ReferralScratchRange();
-                $range->referral_scratch_level_id = $w->id;
-                $range->start_range = (int) $rangeData['start_range'];
-                $range->end_range = (int) $rangeData['end_range'];
-                $range->amount = (int) $rangeData['amount'];
-                $range->msg = $rangeData['msg'] ?? null;
-                $range->order_no = $index + 1;
-                $range->is_active = 1;
-                $range->is_deleted = 0;
-                $range->created_by =  $auth_user_id;
-                $range->updated_by =  $auth_user_id;
-                $range->save();
-            }
-
-            DB::commit();
             return response()->json(['message' => 'Referral Scratch Level updated successfully', 'status' => 200], 200);
         } catch (\Throwable $e) {
-            DB::rollBack();
             Log::error('ScratchSetup update failed', ['error' => $e->getMessage()]);
             return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
