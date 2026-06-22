@@ -298,6 +298,49 @@ CREATE TABLE `promoter_box_requests` (
 
 
 -- ============================================================
+-- Scratch cashback: add referral DEPTH level (1-7). Equivalent of
+-- migration 2026_06_21_000000_add_level_to_referral_scratch_levels.
+--
+-- Each cashback config row is now keyed by (promotor_level, level):
+--   promotor_level 0-4 = activating user's promoter level (existing),
+--   level 1-7          = referral depth (1 = direct referrer, ... 7).
+-- Existing rows become level 1 (the original direct-referral config).
+-- ============================================================
+
+ALTER TABLE `referral_scratch_levels`
+    ADD COLUMN `level` INT NOT NULL DEFAULT 1 AFTER `promotor_level`;
+
+-- ----- Rollback (only if you need to revert) -----
+-- ALTER TABLE `referral_scratch_levels` DROP COLUMN `level`;
+
+
+-- ============================================================
+-- Scratch cashback: retire ranges -> single amount + message per
+-- (promotor_level, level). Equivalent of migration
+-- 2026_06_22_000000_add_amount_msg_to_referral_scratch_levels.
+--
+-- Each config row now holds one cashback amount + message (no
+-- From/To ranges). Seeded from each level's first range so nothing
+-- is lost; referral_scratch_ranges is left in place but unused.
+-- ============================================================
+
+ALTER TABLE `referral_scratch_levels`
+    ADD COLUMN `amount` INT NOT NULL DEFAULT 0 AFTER `level`,
+    ADD COLUMN `msg` VARCHAR(255) NULL DEFAULT NULL AFTER `amount`;
+
+UPDATE `referral_scratch_levels` rsl
+JOIN `referral_scratch_ranges` rr
+    ON rr.`id` = (
+        SELECT MIN(r.`id`) FROM `referral_scratch_ranges` r
+        WHERE r.`referral_scratch_level_id` = rsl.`id` AND r.`is_deleted` = 0
+    )
+SET rsl.`amount` = rr.`amount`, rsl.`msg` = rr.`msg`;
+
+-- ----- Rollback (only if you need to revert) -----
+-- ALTER TABLE `referral_scratch_levels` DROP COLUMN `amount`, DROP COLUMN `msg`;
+
+
+-- ============================================================
 -- Backfill plan-product allocations for promoters who activated
 -- BEFORE this feature. Equivalent of migration
 -- 2026_06_17_000000_backfill_promoter_box_requests.
