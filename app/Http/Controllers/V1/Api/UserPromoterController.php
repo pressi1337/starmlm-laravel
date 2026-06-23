@@ -694,7 +694,7 @@ class UserPromoterController extends Controller
                     ->where('is_active', 1)
                     ->where('is_deleted', 0)
                     ->first();
-                if (!$scratch_level || (int) $scratch_level->amount <= 0) {
+                if (!$scratch_level || (float) $scratch_level->amount <= 0) {
                     continue;
                 }
 
@@ -703,7 +703,7 @@ class UserPromoterController extends Controller
                 $scratchCard->child_id = $user->id;
                 $scratchCard->is_copy = 0;
                 $scratchCard->is_scratched = 0;
-                $scratchCard->amount = (int) $scratch_level->amount;
+                $scratchCard->amount = (float) $scratch_level->amount;
                 $scratchCard->notification_msg = 'from ' . $user->username . ' upgraded to ' . $user->current_promoter_level;
                 $scratchCard->msg = $scratch_level->msg;
                 $scratchCard->created_by = $auth_user_id;
@@ -718,7 +718,7 @@ class UserPromoterController extends Controller
                 ->where('is_active', 1)
                 ->where('is_deleted', 0)
                 ->first();
-            if ($admin_scratch_level && (int) $admin_scratch_level->amount > 0) {
+            if ($admin_scratch_level && (float) $admin_scratch_level->amount > 0) {
                 $admin_recipients = AdditionalScratchReferral::where('is_active', 1)
                     ->where('is_all_user', 1)
                     ->where('is_deleted', 0)
@@ -729,7 +729,7 @@ class UserPromoterController extends Controller
                     $scratchCard->child_id = $user->id;
                     $scratchCard->is_copy = 1;
                     $scratchCard->is_scratched = 0;
-                    $scratchCard->amount = (int) $admin_scratch_level->amount;
+                    $scratchCard->amount = (float) $admin_scratch_level->amount;
                     $scratchCard->notification_msg = 'admin commission from ' . $user->username . ' upgraded to ' . $user->current_promoter_level;
                     $scratchCard->msg = $admin_scratch_level->msg;
                     $scratchCard->created_by = $auth_user_id;

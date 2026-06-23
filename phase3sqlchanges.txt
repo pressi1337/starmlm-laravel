@@ -341,6 +341,20 @@ SET rsl.`amount` = rr.`amount`, rsl.`msg` = rr.`msg`;
 
 
 -- ============================================================
+-- Scratch cashback amount supports decimals (e.g. 0.50).
+-- Equivalent of migration
+-- 2026_06_23_000000_change_referral_scratch_amount_to_decimal.
+-- (scratch_cards.amount and the wallet columns are already decimal(10,2).)
+-- ============================================================
+
+ALTER TABLE `referral_scratch_levels`
+    MODIFY COLUMN `amount` DECIMAL(10,2) NOT NULL DEFAULT 0;
+
+-- ----- Rollback (only if you need to revert) -----
+-- ALTER TABLE `referral_scratch_levels` MODIFY COLUMN `amount` INT NOT NULL DEFAULT 0;
+
+
+-- ============================================================
 -- Backfill plan-product allocations for promoters who activated
 -- BEFORE this feature. Equivalent of migration
 -- 2026_06_17_000000_backfill_promoter_box_requests.

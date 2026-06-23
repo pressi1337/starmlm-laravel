@@ -174,7 +174,7 @@ class ScratchSetupController extends Controller
                 'promotor_level' => 'required|integer',
                 'level' => 'nullable|integer',
                 'is_active' => 'nullable|boolean',
-                'amount' => 'required|integer|min:0',
+                'amount' => 'required|numeric|min:0',
                 'msg' => 'nullable|string|max:255',
             ]);
 
@@ -188,7 +188,7 @@ class ScratchSetupController extends Controller
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
             $w->is_active = (int) $isActiveInput ? 1 : 0;
-            $w->amount = (int) $request->amount;
+            $w->amount = (float) $request->amount;
             $w->msg = $request->msg;
             $w->created_by = $auth_user_id;
             $w->updated_by = $auth_user_id;
@@ -284,7 +284,7 @@ class ScratchSetupController extends Controller
 
             $validator = Validator::make($request->all(), [
                 'is_active' => 'nullable|boolean',
-                'amount' => 'required|integer|min:0',
+                'amount' => 'required|numeric|min:0',
                 'msg' => 'nullable|string|max:255',
             ]);
 
@@ -303,7 +303,7 @@ class ScratchSetupController extends Controller
             // Use provided is_active/active when present; default to 1 when absent
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
             $w->is_active = (int) $isActiveInput ? 1 : 0;
-            $w->amount = (int) $request->amount;
+            $w->amount = (float) $request->amount;
             $w->msg = $request->msg;
             $w->updated_by = $auth_user_id;
             $w->save();
