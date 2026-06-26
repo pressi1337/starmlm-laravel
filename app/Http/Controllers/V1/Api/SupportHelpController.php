@@ -27,7 +27,6 @@ class SupportHelpController extends Controller
     {
         $this->messages = [
             'question.required' => 'Question is required',
-            'answer.required'   => 'Answer is required',
         ];
     }
 
@@ -87,9 +86,18 @@ class SupportHelpController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'question'  => 'required|string',
-                'answer'    => 'required|string',
+                'answer'    => 'nullable|string',
+                'video'     => 'nullable|string',
                 'is_active' => 'nullable|boolean',
             ], $this->messages);
+
+            // Question is required; answer and video are both optional, but at
+            // least one of them must be provided (admin adds either).
+            $validator->after(function ($v) use ($request) {
+                if (!$request->filled('answer') && !$request->filled('video')) {
+                    $v->errors()->add('answer', 'Add an answer or a video');
+                }
+            });
 
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
@@ -99,7 +107,10 @@ class SupportHelpController extends Controller
             $authId = Auth::id();
             $w = new SupportHelp();
             $w->question = $request->question;
-            $w->answer = $request->answer;
+            // answer is optional (column nullable); store NULL when omitted.
+            $w->answer = $request->filled('answer') ? $request->answer : null;
+            // Optional uploaded video filename (chunked-upload stored_filename).
+            $w->video = $request->filled('video') ? $request->video : null;
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : 1;
             $w->is_active = (int) $isActiveInput ? 1 : 0;
             $w->created_by = $authId;
@@ -134,9 +145,21 @@ class SupportHelpController extends Controller
 
             $validator = Validator::make($request->all(), [
                 'question'  => 'required|string',
-                'answer'    => 'required|string',
+                'answer'    => 'nullable|string',
+                'video'     => 'nullable|string',
                 'is_active' => 'nullable|boolean',
             ], $this->messages);
+
+            // At least one of answer / video. On edit, fall back to the stored
+            // video so clearing the answer while a video already exists is OK.
+            $validator->after(function ($v) use ($request, $item) {
+                $hasVideo = $request->has('video')
+                    ? $request->filled('video')
+                    : !empty($item->video);
+                if (!$request->filled('answer') && !$hasVideo) {
+                    $v->errors()->add('answer', 'Add an answer or a video');
+                }
+            });
 
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
@@ -144,7 +167,11 @@ class SupportHelpController extends Controller
 
             DB::beginTransaction();
             $item->question = $request->question;
-            $item->answer = $request->answer;
+            $item->answer = $request->filled('answer') ? $request->answer : null;
+            // Allow setting, replacing, or clearing the optional video.
+            if ($request->has('video')) {
+                $item->video = $request->filled('video') ? $request->video : null;
+            }
             if ($request->has('is_active')) {
                 $item->is_active = (int) $request->input('is_active') ? 1 : 0;
             }
@@ -209,7 +236,7 @@ class SupportHelpController extends Controller
             $items = SupportHelp::where('is_deleted', 0)
                 ->where('is_active', 1)
                 ->orderBy('id', 'asc')
-                ->get(['id', 'question', 'answer']);
+                ->get(['id', 'question', 'answer', 'video']);
 
             return response()->json([
                 'success' => true,

@@ -9,6 +9,7 @@ class SupportHelp extends Model
     protected $fillable = [
         'question',
         'answer',
+        'video',
         'created_by',
         'updated_by',
         'is_active',
