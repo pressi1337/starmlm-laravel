@@ -2,15 +2,20 @@
 
 namespace App\Exports;
 
+use App\Exports\Concerns\PreservesNumericIdentifiers;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithStyles;
+use Maatwebsite\Excel\Concerns\WithCustomValueBinder;
+use PhpOffice\PhpSpreadsheet\Cell\DefaultValueBinder;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
-class WithdrawRequestExport implements FromCollection, WithHeadings, WithMapping, ShouldAutoSize, WithStyles
+class WithdrawRequestExport extends DefaultValueBinder implements FromCollection, WithHeadings, WithMapping, ShouldAutoSize, WithStyles, WithCustomValueBinder
 {
+    use PreservesNumericIdentifiers;
+
     protected $withdrawRequests;
 
     public function __construct($withdrawRequests)

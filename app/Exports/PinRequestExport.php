@@ -2,11 +2,14 @@
 
 namespace App\Exports;
 
+use App\Exports\Concerns\PreservesNumericIdentifiers;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithStyles;
+use Maatwebsite\Excel\Concerns\WithCustomValueBinder;
+use PhpOffice\PhpSpreadsheet\Cell\DefaultValueBinder;
 use PhpOffice\PhpSpreadsheet\Style\Fill;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
@@ -15,8 +18,10 @@ use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
  * status, level, fromdate/todate) is applied by the controller — including
  * the sub-admin "level 0/1 only" restriction.
  */
-class PinRequestExport implements FromCollection, WithHeadings, WithMapping, ShouldAutoSize, WithStyles
+class PinRequestExport extends DefaultValueBinder implements FromCollection, WithHeadings, WithMapping, ShouldAutoSize, WithStyles, WithCustomValueBinder
 {
+    use PreservesNumericIdentifiers;
+
     protected $rows;
 
     public function __construct($rows)
