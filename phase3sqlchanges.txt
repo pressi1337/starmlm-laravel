@@ -390,3 +390,24 @@ WHERE up.`status` = 2
       SELECT 1 FROM `promoter_box_requests` pbr
       WHERE pbr.`user_promoter_id` = up.`id` AND pbr.`is_deleted` = 0
   );
+
+
+-- ============================================================
+-- 2026_06_24_000000_add_video_to_support_helps
+-- Optional video (uploaded filename) for a Support & Help Q&A item.
+-- Nullable; when present the PWA renders an unrestricted player.
+-- ============================================================
+ALTER TABLE `support_helps` ADD COLUMN `video` VARCHAR(255) NULL AFTER `answer`;
+
+-- Rollback:
+-- ALTER TABLE `support_helps` DROP COLUMN `video`;
+
+
+-- ============================================================
+-- 2026_06_25_000000_make_support_helps_answer_nullable
+-- Answer is now optional (item can be answer-only / video-only / both).
+-- ============================================================
+ALTER TABLE `support_helps` MODIFY COLUMN `answer` TEXT NULL;
+
+-- Rollback:
+-- ALTER TABLE `support_helps` MODIFY COLUMN `answer` TEXT NOT NULL;
