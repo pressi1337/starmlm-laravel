@@ -83,8 +83,13 @@ class WithdrawController extends Controller
             // Date range over request_at
             $fromDate = $search_param['fromdate'] ?? null;
             $toDate = $search_param['todate'] ?? null;
+            // Compare by date only (not raw datetime). request_at is a
+            // timestamp, so a naive whereBetween casts both bounds to
+            // midnight and a same-day filter (from == to) matches nothing.
+            // whereDate makes the upper bound cover the whole day.
             if ($fromDate && $toDate) {
-                $query->whereBetween('request_at', [$fromDate, $toDate]);
+                $query->whereDate('request_at', '>=', $fromDate)
+                    ->whereDate('request_at', '<=', $toDate);
             } elseif ($fromDate) {
                 $query->whereDate('request_at', '>=', $fromDate);
             } elseif ($toDate) {
@@ -109,7 +114,8 @@ class WithdrawController extends Controller
             $statsBase = function () use ($fromDate, $toDate, $search_term) {
                 $q = WithdrawRequest::query()->where('is_deleted', 0);
                 if ($fromDate && $toDate) {
-                    $q->whereBetween('request_at', [$fromDate, $toDate]);
+                    $q->whereDate('request_at', '>=', $fromDate)
+                        ->whereDate('request_at', '<=', $toDate);
                 } elseif ($fromDate) {
                     $q->whereDate('request_at', '>=', $fromDate);
                 } elseif ($toDate) {
@@ -625,8 +631,11 @@ class WithdrawController extends Controller
 
             $fromDate = $search_param['fromdate'] ?? null;
             $toDate = $search_param['todate'] ?? null;
+            // Date-only comparison so a same-day filter covers the whole day
+            // (a raw whereBetween would cast both bounds to midnight).
             if ($fromDate && $toDate) {
-                $query->whereBetween('request_at', [$fromDate, $toDate]);
+                $query->whereDate('request_at', '>=', $fromDate)
+                    ->whereDate('request_at', '<=', $toDate);
             } elseif ($fromDate) {
                 $query->whereDate('request_at', '>=', $fromDate);
             } elseif ($toDate) {
