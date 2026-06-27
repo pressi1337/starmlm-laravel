@@ -897,6 +897,9 @@ class PromotionVideoController extends Controller
                     ->first();
                 if ($log) {
                     $log->status = PromotionQuizLog::STATUS_CONFIRMED;
+                    // Record how the earning was split into the two wallets.
+                    $log->main_wallet_amount = $main_wallet_amount;
+                    $log->saving_amount = $saving_amount;
                     $log->confirmed_at = now();
                     $log->save();
                 }

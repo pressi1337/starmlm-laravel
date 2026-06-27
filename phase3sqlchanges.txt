@@ -449,3 +449,16 @@ CREATE TABLE `promotion_quiz_logs` (
 
 -- Rollback:
 -- DROP TABLE `promotion_quiz_logs`;
+
+
+-- ============================================================
+-- 2026_06_27_000001_add_wallet_split_to_promotion_quiz_logs
+-- Run this if you ALREADY created promotion_quiz_logs earlier.
+-- Adds the wallet-split columns recorded on quiz confirmation.
+-- ============================================================
+ALTER TABLE `promotion_quiz_logs`
+    ADD COLUMN `main_wallet_amount` DECIMAL(10,2) NULL AFTER `earned_amount`,
+    ADD COLUMN `saving_amount` DECIMAL(10,2) NULL AFTER `main_wallet_amount`;
+
+-- Rollback:
+-- ALTER TABLE `promotion_quiz_logs` DROP COLUMN `main_wallet_amount`, DROP COLUMN `saving_amount`;

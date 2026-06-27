@@ -33,6 +33,8 @@ class PromotionQuizLog extends Model
         'failed_count',
         'percentage',
         'earned_amount',
+        'main_wallet_amount',
+        'saving_amount',
         'offered_retry',
         'status',
         'answers',
@@ -46,6 +48,8 @@ class PromotionQuizLog extends Model
         'confirmed_at' => 'datetime',
         'percentage'   => 'float',
         'earned_amount' => 'float',
+        'main_wallet_amount' => 'float',
+        'saving_amount' => 'float',
     ];
 
     public function user()
