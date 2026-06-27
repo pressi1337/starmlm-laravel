@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\EarningHistory;
 use App\Models\PromotionQuizChoice;
 use App\Models\PromotionQuizQuestion;
+use App\Models\PromotionQuizLog;
 use Illuminate\Http\Request;
 use App\Models\PromotionVideo;
 use App\Models\User;
@@ -704,13 +705,38 @@ class PromotionVideoController extends Controller
             $failed_questions_count = 0;
             $total_questions = count($questions_with_selected_choice);
 
+            // Build the per-question audit trail alongside scoring so the admin
+            // Promotion Log can show exactly what the user answered.
+            $answers_audit = [];
             foreach ($questions_with_selected_choice as $question) {
-                $choice = PromotionQuizChoice::find($question['choice_id']);
-                if ($choice && $choice->is_correct == 1) {
+                $choice = PromotionQuizChoice::find($question['choice_id'] ?? null);
+                $isCorrect = $choice && $choice->is_correct == 1;
+                if ($isCorrect) {
                     $correct_count++;
                 } else {
                     $failed_questions_count++;
                 }
+
+                // Resolve question + correct answer for the audit record. Prefer
+                // the supplied question_id, fall back to the choice's parent.
+                $questionId = $question['question_id'] ?? ($choice->promotion_quiz_question_id ?? null);
+                $questionModel = $questionId ? PromotionQuizQuestion::find($questionId) : null;
+                $correctChoice = $questionId
+                    ? PromotionQuizChoice::where('promotion_quiz_question_id', $questionId)
+                        ->where('is_correct', 1)
+                        ->where('is_deleted', 0)
+                        ->first()
+                    : null;
+
+                $answers_audit[] = [
+                    'question_id'      => $questionId,
+                    'question'         => $questionModel->question ?? null,
+                    'choice_id'        => $question['choice_id'] ?? null,
+                    'chosen_answer'    => $choice->choice_value ?? null,
+                    'is_correct'       => $isCorrect ? 1 : 0,
+                    'correct_choice_id' => $correctChoice->id ?? null,
+                    'correct_answer'   => $correctChoice->choice_value ?? null,
+                ];
             }
             $percentage_correct = ($total_questions > 0) ? ($correct_count / $total_questions) : 0;
             $total_earning = round($video_total_earnable_amount * $percentage_correct, 2);
@@ -739,6 +765,42 @@ class PromotionVideoController extends Controller
                 if ($user_promoter_session->set2_status <= 2 && $user_promoter_session->current_video_order_set2 == 3) {
                     $retry = true;
                 }
+            }
+
+            // ── Audit log: record this quiz attempt. Wrapped so a logging
+            // failure can never break the user's quiz result. A prior un-
+            // confirmed attempt for the same session+set means the user just
+            // retried, so flip it to "retried"; this attempt becomes the next
+            // attempt_no.
+            try {
+                $priorAttempts = PromotionQuizLog::where('user_promoter_session_id', $user_promoter_session->id)
+                    ->where('set_no', $currentSet);
+                $attemptNo = (clone $priorAttempts)->count() + 1;
+                (clone $priorAttempts)->where('status', PromotionQuizLog::STATUS_ATTEMPTED)
+                    ->update(['status' => PromotionQuizLog::STATUS_RETRIED]);
+
+                PromotionQuizLog::create([
+                    'user_id'                  => $auth_user_id,
+                    'promotion_video_id'       => $promotion_video->id,
+                    'promotion_video_title'    => $promotion_video->title,
+                    'user_promoter_id'         => $user_promoter->id,
+                    'user_promoter_session_id' => $user_promoter_session->id,
+                    'promoter_level'           => $user_promoter->level,
+                    'session_type'             => $current_session_type,
+                    'set_no'                   => $currentSet,
+                    'attempt_no'               => $attemptNo,
+                    'total_questions'          => $total_questions,
+                    'correct_count'            => $correct_count,
+                    'failed_count'             => $failed_questions_count,
+                    'percentage'               => round($percentage_correct * 100, 2),
+                    'earned_amount'            => $total_earning,
+                    'offered_retry'            => $retry ? 1 : 0,
+                    'status'                   => PromotionQuizLog::STATUS_ATTEMPTED,
+                    'answers'                  => $answers_audit,
+                    'attempted_at'             => now(),
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('PromotionQuizLog create failed', ['error' => $e->getMessage()]);
             }
 
             $data = [
@@ -774,6 +836,8 @@ class PromotionVideoController extends Controller
             $earned_amount = 0;
             $earning_type = 1;
             $description = '';
+            // Which set is being confirmed — used to mark the matching audit log.
+            $confirmedSet = ($user_promoter_session->set1_status == UserPromoterSession::SET1_STATUS_QUIZ_COMPLETED) ? 1 : 2;
             if ($user_promoter_session->set1_status == UserPromoterSession::SET1_STATUS_QUIZ_COMPLETED) {
                 $user_promoter_session->set1_status = UserPromoterSession::SET1_STATUS_SUBMITTED;
                 $user_promoter_session->session_status = 3;
@@ -822,6 +886,24 @@ class PromotionVideoController extends Controller
             $user->quiz_total_earning += $main_wallet_amount;
             $user->saving_total_earning += $saving_amount;
             $user->save();
+
+            // Audit log: mark the most recent attempt for this session+set as
+            // confirmed. Wrapped so it never blocks the confirmation/earning.
+            try {
+                $log = PromotionQuizLog::where('user_promoter_session_id', $user_promoter_session->id)
+                    ->where('set_no', $confirmedSet)
+                    ->where('status', PromotionQuizLog::STATUS_ATTEMPTED)
+                    ->orderBy('id', 'desc')
+                    ->first();
+                if ($log) {
+                    $log->status = PromotionQuizLog::STATUS_CONFIRMED;
+                    $log->confirmed_at = now();
+                    $log->save();
+                }
+            } catch (\Throwable $e) {
+                Log::error('PromotionQuizLog confirm update failed', ['error' => $e->getMessage()]);
+            }
+
             DB::commit();
             return response()->json([
                 'message' => 'User promoter session confirmed successfully',
