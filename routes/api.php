@@ -8,6 +8,7 @@ use App\Http\Controllers\V1\Api\ScratchSetupController;
 use App\Http\Controllers\V1\Api\TrainingVideoController;
 use App\Http\Controllers\V1\Api\TrainingQuizController;
 use App\Http\Controllers\V1\Api\PromotionVideoController;
+use App\Http\Controllers\V1\Api\PromotionQuizLogController;
 use App\Http\Controllers\V1\Api\PromotionQuizController;
 use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
@@ -65,6 +66,11 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         Route::patch('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
         Route::resource('promotion-videos', PromotionVideoController::class)->except(['destroy']);
         Route::resource('promotion-video-quizzes', PromotionQuizController::class)->except(['destroy']);
+
+        // Promotion Log — read-only audit of quiz attempts. Detail route uses a
+        // numeric constraint so it never shadows the listing.
+        Route::get('admin-promotion-quiz-logs', [PromotionQuizLogController::class, 'index']);
+        Route::get('admin-promotion-quiz-logs/{id}', [PromotionQuizLogController::class, 'show'])->where('id', '[0-9]+');
     });
 
     // Destructive deletes on these resources are super-admin only. Even a

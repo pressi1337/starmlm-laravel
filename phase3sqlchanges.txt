@@ -411,3 +411,54 @@ ALTER TABLE `support_helps` MODIFY COLUMN `answer` TEXT NULL;
 
 -- Rollback:
 -- ALTER TABLE `support_helps` MODIFY COLUMN `answer` TEXT NOT NULL;
+
+
+-- ============================================================
+-- 2026_06_27_000000_create_promotion_quiz_logs
+-- Audit log for promotion-video quiz attempts (admin Promotion Log page).
+-- One row per quiz submission; retry creates a new row and flips the prior
+-- attempt to status 3. status: 1=attempted, 2=confirmed, 3=retried.
+-- ============================================================
+CREATE TABLE `promotion_quiz_logs` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id` BIGINT UNSIGNED NOT NULL,
+    `promotion_video_id` BIGINT UNSIGNED NULL,
+    `promotion_video_title` VARCHAR(255) NULL,
+    `user_promoter_id` BIGINT UNSIGNED NULL,
+    `user_promoter_session_id` BIGINT UNSIGNED NULL,
+    `promoter_level` TINYINT NULL,
+    `session_type` TINYINT NULL,           -- 1=morning, 2=evening
+    `set_no` TINYINT NULL,                 -- 1=set1, 2=set2
+    `attempt_no` INT UNSIGNED NOT NULL DEFAULT 1,
+    `total_questions` INT UNSIGNED NOT NULL DEFAULT 0,
+    `correct_count` INT UNSIGNED NOT NULL DEFAULT 0,
+    `failed_count` INT UNSIGNED NOT NULL DEFAULT 0,
+    `percentage` DECIMAL(5,2) NOT NULL DEFAULT 0,
+    `earned_amount` DECIMAL(10,2) NOT NULL DEFAULT 0,
+    `offered_retry` TINYINT NOT NULL DEFAULT 0,
+    `status` TINYINT NOT NULL DEFAULT 1,   -- 1=attempted, 2=confirmed, 3=retried
+    `answers` LONGTEXT NULL,               -- JSON per-question audit
+    `attempted_at` TIMESTAMP NULL,
+    `confirmed_at` TIMESTAMP NULL,
+    `created_at` TIMESTAMP NULL,
+    `updated_at` TIMESTAMP NULL,
+    PRIMARY KEY (`id`),
+    KEY `promotion_quiz_logs_user_id_index` (`user_id`),
+    KEY `promotion_quiz_logs_user_promoter_session_id_index` (`user_promoter_session_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Rollback:
+-- DROP TABLE `promotion_quiz_logs`;
+
+
+-- ============================================================
+-- 2026_06_27_000001_add_wallet_split_to_promotion_quiz_logs
+-- Run this if you ALREADY created promotion_quiz_logs earlier.
+-- Adds the wallet-split columns recorded on quiz confirmation.
+-- ============================================================
+ALTER TABLE `promotion_quiz_logs`
+    ADD COLUMN `main_wallet_amount` DECIMAL(10,2) NULL AFTER `earned_amount`,
+    ADD COLUMN `saving_amount` DECIMAL(10,2) NULL AFTER `main_wallet_amount`;
+
+-- Rollback:
+-- ALTER TABLE `promotion_quiz_logs` DROP COLUMN `main_wallet_amount`, DROP COLUMN `saving_amount`;
