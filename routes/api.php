@@ -184,6 +184,7 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     Route::post('activate-pin', [UserPromoterController::class, 'activatePin']);
     Route::get('user-promoters/list', [UserPromoterController::class, 'userPromotersList']);
     Route::get('user-promoter-video-get', [PromotionVideoController::class, 'userPromotionVideo']);
+    Route::post('user-promoter-video-watched', [PromotionVideoController::class, 'markVideoWatched']);
     Route::post('user-promoter-quiz-result-get', [PromotionVideoController::class, 'userPromoterQuizResult']);
     Route::post('user-promoter-quiz-result-confirmation', [PromotionVideoController::class, 'userPromoterQuizResultConfirmation']);
     Route::get('earning-histories', [WithdrawController::class, 'earningHistory']);

@@ -90,6 +90,7 @@ class PromotionQuizLogController extends Controller
                         'offered_retry'         => $row->offered_retry,
                         'status'                => $row->status,
                         'status_label'          => $row->statusLabel(),
+                        'video_watched_at'      => $row->video_watched_at ? $row->video_watched_at->format('d-m-Y h:i A') : null,
                         'attempted_at'          => $row->attempted_at ? $row->attempted_at->format('d-m-Y h:i A') : '-',
                         'confirmed_at'          => $row->confirmed_at ? $row->confirmed_at->format('d-m-Y h:i A') : null,
                     ];
@@ -146,6 +147,7 @@ class PromotionQuizLogController extends Controller
                 'status'                => $row->status,
                 'status_label'          => $row->statusLabel(),
                 'answers'               => $row->answers ?? [],
+                'video_watched_at'      => $row->video_watched_at ? $row->video_watched_at->format('d-m-Y h:i A') : null,
                 'attempted_at'          => $row->attempted_at ? $row->attempted_at->format('d-m-Y h:i A') : '-',
                 'confirmed_at'          => $row->confirmed_at ? $row->confirmed_at->format('d-m-Y h:i A') : null,
             ],

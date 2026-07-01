@@ -620,6 +620,66 @@ class PromotionVideoController extends Controller
             return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
     }
+    /**
+     * Mark the currently-served promotion video as watched for the active
+     * session's current set. This is the server-authoritative "video watched"
+     * flag (set1_status / set2_status = VIDEO_WATCHED) that gates the "Take
+     * Quiz" button — so a cleared PWA cache, a different device, a later day,
+     * or a retry can never wrongly skip the watch. Only upgrades ASSIGNED(0) →
+     * VIDEO_WATCHED(1); it never downgrades a set already at quiz-completed or
+     * submitted, and a retry (which resets the set back to ASSIGNED with a new
+     * video order) naturally requires watching again.
+     */
+    public function markVideoWatched(Request $request)
+    {
+        try {
+            $auth_user_id = Auth::id();
+            $current_session_type = (Carbon::now()->hour < 12) ? 1 : 2;
+
+            $user_promoter = UserPromoter::where('user_id', $auth_user_id)
+                ->where('status', UserPromoter::PIN_STATUS_ACTIVATED)
+                ->orderBy('level', 'DESC')
+                ->first();
+            if (!$user_promoter) {
+                return response()->json(['message' => 'User promoter not found', 'status' => 400], 400);
+            }
+
+            $session = UserPromoterSession::where('user_id', $auth_user_id)
+                ->where('user_promoter_id', $user_promoter->id)
+                ->whereDate('attend_at', today())
+                ->where('session_type', $current_session_type)
+                ->orderBy('id', 'desc')
+                ->first();
+            if (!$session) {
+                return response()->json(['message' => 'User promoter session not found', 'status' => 400], 400);
+            }
+
+            $currentSet = ($session->set1_status > 2) ? 2 : 1;
+            if ($currentSet === 1) {
+                if ((int) $session->set1_status === UserPromoterSession::SET1_STATUS_ASSIGNED) {
+                    $session->set1_status = UserPromoterSession::SET1_STATUS_VIDEO_WATCHED;
+                    $session->set1_watched_at = now();
+                    $session->save();
+                }
+            } else {
+                if ((int) $session->set2_status === UserPromoterSession::SET2_STATUS_ASSIGNED) {
+                    $session->set2_status = UserPromoterSession::SET2_STATUS_VIDEO_WATCHED;
+                    $session->set2_watched_at = now();
+                    $session->save();
+                }
+            }
+
+            return response()->json([
+                'message' => 'Video marked as watched',
+                'status' => 200,
+                'data' => $session,
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('PromotionVideo markVideoWatched failed', ['error' => $e->getMessage()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
+    }
+
     public function userPromoterQuizResult(Request $request)
     {
         try {
@@ -798,6 +858,10 @@ class PromotionVideoController extends Controller
                     'status'                   => PromotionQuizLog::STATUS_ATTEMPTED,
                     'answers'                  => $answers_audit,
                     'attempted_at'             => now(),
+                    // Real watch time recorded by markVideoWatched for this set.
+                    'video_watched_at'         => $currentSet == 1
+                        ? $user_promoter_session->set1_watched_at
+                        : $user_promoter_session->set2_watched_at,
                 ]);
             } catch (\Throwable $e) {
                 Log::error('PromotionQuizLog create failed', ['error' => $e->getMessage()]);
