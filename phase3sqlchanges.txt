@@ -462,3 +462,20 @@ ALTER TABLE `promotion_quiz_logs`
 
 -- Rollback:
 -- ALTER TABLE `promotion_quiz_logs` DROP COLUMN `main_wallet_amount`, DROP COLUMN `saving_amount`;
+
+
+-- ============================================================
+-- 2026_07_01_000000 / 000001 — "video watched at" audit improvement.
+-- Records the real watch time (set by markVideoWatched) and surfaces it on
+-- the promotion quiz log. Run both ALTERs.
+-- ============================================================
+ALTER TABLE `user_promoter_sessions`
+    ADD COLUMN `set1_watched_at` TIMESTAMP NULL AFTER `set1_status`,
+    ADD COLUMN `set2_watched_at` TIMESTAMP NULL AFTER `set2_status`;
+
+ALTER TABLE `promotion_quiz_logs`
+    ADD COLUMN `video_watched_at` TIMESTAMP NULL AFTER `attempted_at`;
+
+-- Rollback:
+-- ALTER TABLE `user_promoter_sessions` DROP COLUMN `set1_watched_at`, DROP COLUMN `set2_watched_at`;
+-- ALTER TABLE `promotion_quiz_logs` DROP COLUMN `video_watched_at`;

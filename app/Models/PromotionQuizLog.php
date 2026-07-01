@@ -39,12 +39,14 @@ class PromotionQuizLog extends Model
         'status',
         'answers',
         'attempted_at',
+        'video_watched_at',
         'confirmed_at',
     ];
 
     protected $casts = [
         'answers'      => 'array',
         'attempted_at' => 'datetime',
+        'video_watched_at' => 'datetime',
         'confirmed_at' => 'datetime',
         'percentage'   => 'float',
         'earned_amount' => 'float',
