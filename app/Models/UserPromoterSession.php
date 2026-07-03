@@ -21,6 +21,9 @@ const SET1_VIDEO_ORDER_1 = 1;
 const SET1_VIDEO_ORDER_2 = 2;
 const SET2_VIDEO_ORDER_3 = 3;
 const SET2_VIDEO_ORDER_4 = 4;
+
+// Each set (set1 / set2) grants at most this many retries.
+const MAX_RETRIES_PER_SET = 1;
  
     public function user()
     {

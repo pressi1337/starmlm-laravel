@@ -525,24 +525,32 @@ class PromotionVideoController extends Controller
             $currentOrder = ($currentSet === 1)
                 ? $user_promoter_session->current_video_order_set1
                 : $user_promoter_session->current_video_order_set2;
+            // Coming back to the video after a completed quiz (status 2) on the
+            // first video of a set = the user chose Retry. Advance to the set's
+            // second video and consume one retry (hard-capped at
+            // MAX_RETRIES_PER_SET). Only advance if a retry is still available.
             if (
                 $currentSet == 1 && $currentOrder == 1 &&
-                $user_promoter_session->set1_status == 2
+                $user_promoter_session->set1_status == 2 &&
+                (int) $user_promoter_session->set1_retry_count < UserPromoterSession::MAX_RETRIES_PER_SET
             ) {
                 $user_promoter_session->current_video_order_set1 = UserPromoterSession::SET1_VIDEO_ORDER_2;
                 $currentOrder = UserPromoterSession::SET1_VIDEO_ORDER_2;
                 $user_promoter_session->earned_amount_set1 = 0;
                 $user_promoter_session->set1_status = 0;
+                $user_promoter_session->set1_retry_count = (int) $user_promoter_session->set1_retry_count + 1;
                 $user_promoter_session->save();
             }
             if (
                 $currentSet == 2 && $currentOrder == 3 &&
-                $user_promoter_session->set2_status == 2
+                $user_promoter_session->set2_status == 2 &&
+                (int) $user_promoter_session->set2_retry_count < UserPromoterSession::MAX_RETRIES_PER_SET
             ) {
                 $user_promoter_session->current_video_order_set2 = 4;
                 $currentOrder = 4;
                 $user_promoter_session->earned_amount_set2 = 0;
                 $user_promoter_session->set2_status = 0;
+                $user_promoter_session->set2_retry_count = (int) $user_promoter_session->set2_retry_count + 1;
                 $user_promoter_session->save();
             }
 
@@ -710,6 +718,29 @@ class PromotionVideoController extends Controller
             if (!$user_promoter_session) {
                 return response()->json(['message' => 'User promoter session expired', 'status' => 400], 400);
             }
+
+            // ── Hard server-side gate (unbypassable) ──────────────────────────
+            // The current set's video MUST be in VIDEO_WATCHED state to accept a
+            // quiz. Enforces "watch before quiz" and caps retries no matter what
+            // the client does:
+            //   * status 0 (ASSIGNED)       → not watched yet → reject.
+            //   * status 2 (QUIZ_COMPLETED) → already answered; a re-take is only
+            //     allowed after the retry flow re-serves a video (resetting the
+            //     set to ASSIGNED) and the user watches it again (→ WATCHED).
+            //   * status 3 (SUBMITTED)      → done → reject.
+            // Without this, a client could POST the quiz repeatedly on the same
+            // slot (the 8-retries-in-one-minute bug) or skip watching entirely.
+            $gateSet = ($user_promoter_session->set1_status > 2) ? 2 : 1;
+            $gateStatus = ($gateSet == 1)
+                ? (int) $user_promoter_session->set1_status
+                : (int) $user_promoter_session->set2_status;
+            if ($gateStatus !== UserPromoterSession::SET1_STATUS_VIDEO_WATCHED) {
+                return response()->json([
+                    'message' => 'Please watch the video before taking the quiz.',
+                    'status'  => 400,
+                ], 400);
+            }
+
             $total_earning = 0;
             // Earning table lives on the User model so the admin ceiling view
             // and the quiz engine never drift apart.
@@ -816,13 +847,21 @@ class PromotionVideoController extends Controller
                 $user_promoter_session->earned_amount_set2 = $total_earning;
                 $user_promoter_session->save();
             }
+            // Offer a retry only on the first video of the set AND while the set
+            // still has a retry left (hard cap = MAX_RETRIES_PER_SET). The count
+            // is consumed by the advance in userPromotionVideo, so this is an
+            // independent second guard that the "one retry per set" rule holds.
+            $maxRetry = UserPromoterSession::MAX_RETRIES_PER_SET;
             $retry = false;
             if ($user_promoter_session->set1_status <= 2) {
-                if ($user_promoter_session->current_video_order_set1 == 1) {
+                if ($user_promoter_session->current_video_order_set1 == 1
+                    && (int) $user_promoter_session->set1_retry_count < $maxRetry) {
                     $retry = true;
                 }
             } else {
-                if ($user_promoter_session->set2_status <= 2 && $user_promoter_session->current_video_order_set2 == 3) {
+                if ($user_promoter_session->set2_status <= 2
+                    && $user_promoter_session->current_video_order_set2 == 3
+                    && (int) $user_promoter_session->set2_retry_count < $maxRetry) {
                     $retry = true;
                 }
             }
