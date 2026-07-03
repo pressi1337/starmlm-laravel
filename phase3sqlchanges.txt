@@ -479,3 +479,16 @@ ALTER TABLE `promotion_quiz_logs`
 -- Rollback:
 -- ALTER TABLE `user_promoter_sessions` DROP COLUMN `set1_watched_at`, DROP COLUMN `set2_watched_at`;
 -- ALTER TABLE `promotion_quiz_logs` DROP COLUMN `video_watched_at`;
+
+
+-- ============================================================
+-- 2026_07_03_000000 — explicit per-set retry counters.
+-- Each set (set1/set2) grants at most ONE retry, capped independently of the
+-- video-order logic (defense-in-depth against the multi-retry bug).
+-- ============================================================
+ALTER TABLE `user_promoter_sessions`
+    ADD COLUMN `set1_retry_count` TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `set1_watched_at`,
+    ADD COLUMN `set2_retry_count` TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER `set2_watched_at`;
+
+-- Rollback:
+-- ALTER TABLE `user_promoter_sessions` DROP COLUMN `set1_retry_count`, DROP COLUMN `set2_retry_count`;
