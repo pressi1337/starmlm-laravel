@@ -24,6 +24,12 @@ const SET2_VIDEO_ORDER_4 = 4;
 
 // Each set (set1 / set2) grants at most this many retries.
 const MAX_RETRIES_PER_SET = 1;
+
+// Minimum seconds between a video being served and its quiz being accepted.
+// A genuine watch always exceeds this; an instant quiz replay/skip does not.
+// Kept low so it can never block a real viewer — the real "watch fully" rule
+// is enforced by the app UI; this is just an anti-replay floor on the server.
+const MIN_WATCH_SECONDS = 5;
  
     public function user()
     {
