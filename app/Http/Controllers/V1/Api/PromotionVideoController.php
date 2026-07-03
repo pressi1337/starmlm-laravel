@@ -534,12 +534,17 @@ class PromotionVideoController extends Controller
                 $user_promoter_session->set1_status == 2 &&
                 (int) $user_promoter_session->set1_retry_count < UserPromoterSession::MAX_RETRIES_PER_SET
             ) {
+                // Core columns first (these always exist) so the retry always
+                // works even if the retry_count column isn't migrated yet.
                 $user_promoter_session->current_video_order_set1 = UserPromoterSession::SET1_VIDEO_ORDER_2;
                 $currentOrder = UserPromoterSession::SET1_VIDEO_ORDER_2;
                 $user_promoter_session->earned_amount_set1 = 0;
                 $user_promoter_session->set1_status = 0;
-                $user_promoter_session->set1_retry_count = (int) $user_promoter_session->set1_retry_count + 1;
                 $user_promoter_session->save();
+                // Optional counter — ignore if the column doesn't exist yet.
+                try {
+                    UserPromoterSession::where('id', $user_promoter_session->id)->increment('set1_retry_count');
+                } catch (\Throwable $e) { /* column not migrated */ }
             }
             if (
                 $currentSet == 2 && $currentOrder == 3 &&
@@ -550,8 +555,11 @@ class PromotionVideoController extends Controller
                 $currentOrder = 4;
                 $user_promoter_session->earned_amount_set2 = 0;
                 $user_promoter_session->set2_status = 0;
-                $user_promoter_session->set2_retry_count = (int) $user_promoter_session->set2_retry_count + 1;
                 $user_promoter_session->save();
+                // Optional counter — ignore if the column doesn't exist yet.
+                try {
+                    UserPromoterSession::where('id', $user_promoter_session->id)->increment('set2_retry_count');
+                } catch (\Throwable $e) { /* column not migrated */ }
             }
 
             // Selection is now random (no date/session/order). Resolve a video
@@ -662,18 +670,25 @@ class PromotionVideoController extends Controller
                 return response()->json(['message' => 'User promoter session not found', 'status' => 400], 400);
             }
 
+            // Flip the status on the always-present column via a direct update
+            // (never touches the optional watched_at column, so it can't fail on
+            // an un-migrated DB). The watched_at timestamp is best-effort.
             $currentSet = ($session->set1_status > 2) ? 2 : 1;
             if ($currentSet === 1) {
                 if ((int) $session->set1_status === UserPromoterSession::SET1_STATUS_ASSIGNED) {
-                    $session->set1_status = UserPromoterSession::SET1_STATUS_VIDEO_WATCHED;
-                    $session->set1_watched_at = now();
-                    $session->save();
+                    UserPromoterSession::where('id', $session->id)
+                        ->update(['set1_status' => UserPromoterSession::SET1_STATUS_VIDEO_WATCHED]);
+                    try {
+                        UserPromoterSession::where('id', $session->id)->update(['set1_watched_at' => now()]);
+                    } catch (\Throwable $e) { /* column not migrated */ }
                 }
             } else {
                 if ((int) $session->set2_status === UserPromoterSession::SET2_STATUS_ASSIGNED) {
-                    $session->set2_status = UserPromoterSession::SET2_STATUS_VIDEO_WATCHED;
-                    $session->set2_watched_at = now();
-                    $session->save();
+                    UserPromoterSession::where('id', $session->id)
+                        ->update(['set2_status' => UserPromoterSession::SET2_STATUS_VIDEO_WATCHED]);
+                    try {
+                        UserPromoterSession::where('id', $session->id)->update(['set2_watched_at' => now()]);
+                    } catch (\Throwable $e) { /* column not migrated */ }
                 }
             }
 
@@ -719,26 +734,52 @@ class PromotionVideoController extends Controller
                 return response()->json(['message' => 'User promoter session expired', 'status' => 400], 400);
             }
 
-            // ── Hard server-side gate (unbypassable) ──────────────────────────
-            // The current set's video MUST be in VIDEO_WATCHED state to accept a
-            // quiz. Enforces "watch before quiz" and caps retries no matter what
-            // the client does:
-            //   * status 0 (ASSIGNED)       → not watched yet → reject.
-            //   * status 2 (QUIZ_COMPLETED) → already answered; a re-take is only
-            //     allowed after the retry flow re-serves a video (resetting the
-            //     set to ASSIGNED) and the user watches it again (→ WATCHED).
-            //   * status 3 (SUBMITTED)      → done → reject.
-            // Without this, a client could POST the quiz repeatedly on the same
-            // slot (the 8-retries-in-one-minute bug) or skip watching entirely.
+            // ── Server-side gate (uses ONLY always-present columns) ───────────
+            // Two independent checks, neither of which depends on the new
+            // watched_at / retry_count columns or on a client "mark watched"
+            // call (which could fail on old cache / un-migrated DB and wrongly
+            // block everyone):
+            //
+            //   1) Replay guard — the current set must NOT already be at
+            //      QUIZ_COMPLETED(2)/SUBMITTED(3). After a quiz the set is 2, so
+            //      a repeat POST on the same slot is refused. A legit retry
+            //      re-serves a video and resets the set to ASSIGNED(0), so it
+            //      passes again. This alone kills the 8-quizzes-in-a-minute bug.
+            //
+            //   2) Watch floor — the slot's video must have been served at least
+            //      MIN_WATCH_SECONDS ago (from user_promotion_video_views, an
+            //      existing table). A real watch always exceeds this; an instant
+            //      skip/replay does not. Kept small so it never blocks a real
+            //      viewer (the app UI already enforces watching the full video).
             $gateSet = ($user_promoter_session->set1_status > 2) ? 2 : 1;
             $gateStatus = ($gateSet == 1)
                 ? (int) $user_promoter_session->set1_status
                 : (int) $user_promoter_session->set2_status;
-            if ($gateStatus !== UserPromoterSession::SET1_STATUS_VIDEO_WATCHED) {
+            $gateOrder = ($gateSet == 1)
+                ? (int) $user_promoter_session->current_video_order_set1
+                : (int) $user_promoter_session->current_video_order_set2;
+
+            if ($gateStatus >= UserPromoterSession::SET1_STATUS_QUIZ_COMPLETED) {
                 return response()->json([
-                    'message' => 'Please watch the video before taking the quiz.',
+                    'message' => 'This quiz was already submitted. Please refresh the page.',
                     'status'  => 400,
                 ], 400);
+            }
+
+            $slotView = DB::table('user_promotion_video_views')
+                ->where('user_promoter_session_id', $user_promoter_session->id)
+                ->where('set_no', $gateSet)
+                ->where('video_order', $gateOrder)
+                ->orderBy('id', 'desc')
+                ->first();
+            if ($slotView) {
+                $servedAgo = Carbon::parse($slotView->created_at)->diffInSeconds(now());
+                if ($servedAgo < UserPromoterSession::MIN_WATCH_SECONDS) {
+                    return response()->json([
+                        'message' => 'Please watch the video before taking the quiz.',
+                        'status'  => 400,
+                    ], 400);
+                }
             }
 
             $total_earning = 0;
