@@ -527,39 +527,27 @@ class PromotionVideoController extends Controller
                 : $user_promoter_session->current_video_order_set2;
             // Coming back to the video after a completed quiz (status 2) on the
             // first video of a set = the user chose Retry. Advance to the set's
-            // second video and consume one retry (hard-capped at
-            // MAX_RETRIES_PER_SET). Only advance if a retry is still available.
+            // second video and reset the set back to ASSIGNED so it must be
+            // watched again.
             if (
                 $currentSet == 1 && $currentOrder == 1 &&
-                $user_promoter_session->set1_status == 2 &&
-                (int) $user_promoter_session->set1_retry_count < UserPromoterSession::MAX_RETRIES_PER_SET
+                $user_promoter_session->set1_status == 2
             ) {
-                // Core columns first (these always exist) so the retry always
-                // works even if the retry_count column isn't migrated yet.
                 $user_promoter_session->current_video_order_set1 = UserPromoterSession::SET1_VIDEO_ORDER_2;
                 $currentOrder = UserPromoterSession::SET1_VIDEO_ORDER_2;
                 $user_promoter_session->earned_amount_set1 = 0;
                 $user_promoter_session->set1_status = 0;
                 $user_promoter_session->save();
-                // Optional counter — ignore if the column doesn't exist yet.
-                try {
-                    UserPromoterSession::where('id', $user_promoter_session->id)->increment('set1_retry_count');
-                } catch (\Throwable $e) { /* column not migrated */ }
             }
             if (
                 $currentSet == 2 && $currentOrder == 3 &&
-                $user_promoter_session->set2_status == 2 &&
-                (int) $user_promoter_session->set2_retry_count < UserPromoterSession::MAX_RETRIES_PER_SET
+                $user_promoter_session->set2_status == 2
             ) {
                 $user_promoter_session->current_video_order_set2 = 4;
                 $currentOrder = 4;
                 $user_promoter_session->earned_amount_set2 = 0;
                 $user_promoter_session->set2_status = 0;
                 $user_promoter_session->save();
-                // Optional counter — ignore if the column doesn't exist yet.
-                try {
-                    UserPromoterSession::where('id', $user_promoter_session->id)->increment('set2_retry_count');
-                } catch (\Throwable $e) { /* column not migrated */ }
             }
 
             // Selection is now random (no date/session/order). Resolve a video
@@ -734,54 +722,6 @@ class PromotionVideoController extends Controller
                 return response()->json(['message' => 'User promoter session expired', 'status' => 400], 400);
             }
 
-            // ── Server-side gate (uses ONLY always-present columns) ───────────
-            // Two independent checks, neither of which depends on the new
-            // watched_at / retry_count columns or on a client "mark watched"
-            // call (which could fail on old cache / un-migrated DB and wrongly
-            // block everyone):
-            //
-            //   1) Replay guard — the current set must NOT already be at
-            //      QUIZ_COMPLETED(2)/SUBMITTED(3). After a quiz the set is 2, so
-            //      a repeat POST on the same slot is refused. A legit retry
-            //      re-serves a video and resets the set to ASSIGNED(0), so it
-            //      passes again. This alone kills the 8-quizzes-in-a-minute bug.
-            //
-            //   2) Watch floor — the slot's video must have been served at least
-            //      MIN_WATCH_SECONDS ago (from user_promotion_video_views, an
-            //      existing table). A real watch always exceeds this; an instant
-            //      skip/replay does not. Kept small so it never blocks a real
-            //      viewer (the app UI already enforces watching the full video).
-            $gateSet = ($user_promoter_session->set1_status > 2) ? 2 : 1;
-            $gateStatus = ($gateSet == 1)
-                ? (int) $user_promoter_session->set1_status
-                : (int) $user_promoter_session->set2_status;
-            $gateOrder = ($gateSet == 1)
-                ? (int) $user_promoter_session->current_video_order_set1
-                : (int) $user_promoter_session->current_video_order_set2;
-
-            if ($gateStatus >= UserPromoterSession::SET1_STATUS_QUIZ_COMPLETED) {
-                return response()->json([
-                    'message' => 'This quiz was already submitted. Please refresh the page.',
-                    'status'  => 400,
-                ], 400);
-            }
-
-            $slotView = DB::table('user_promotion_video_views')
-                ->where('user_promoter_session_id', $user_promoter_session->id)
-                ->where('set_no', $gateSet)
-                ->where('video_order', $gateOrder)
-                ->orderBy('id', 'desc')
-                ->first();
-            if ($slotView) {
-                $servedAgo = Carbon::parse($slotView->created_at)->diffInSeconds(now());
-                if ($servedAgo < UserPromoterSession::MIN_WATCH_SECONDS) {
-                    return response()->json([
-                        'message' => 'Please watch the video before taking the quiz.',
-                        'status'  => 400,
-                    ], 400);
-                }
-            }
-
             $total_earning = 0;
             // Earning table lives on the User model so the admin ceiling view
             // and the quiz engine never drift apart.
@@ -888,21 +828,16 @@ class PromotionVideoController extends Controller
                 $user_promoter_session->earned_amount_set2 = $total_earning;
                 $user_promoter_session->save();
             }
-            // Offer a retry only on the first video of the set AND while the set
-            // still has a retry left (hard cap = MAX_RETRIES_PER_SET). The count
-            // is consumed by the advance in userPromotionVideo, so this is an
-            // independent second guard that the "one retry per set" rule holds.
-            $maxRetry = UserPromoterSession::MAX_RETRIES_PER_SET;
+            // Offer a retry only on the first video of the set. The advance in
+            // userPromotionVideo moves the order to the set's second video on
+            // retry, so a second attempt won't offer another retry.
             $retry = false;
             if ($user_promoter_session->set1_status <= 2) {
-                if ($user_promoter_session->current_video_order_set1 == 1
-                    && (int) $user_promoter_session->set1_retry_count < $maxRetry) {
+                if ($user_promoter_session->current_video_order_set1 == 1) {
                     $retry = true;
                 }
             } else {
-                if ($user_promoter_session->set2_status <= 2
-                    && $user_promoter_session->current_video_order_set2 == 3
-                    && (int) $user_promoter_session->set2_retry_count < $maxRetry) {
+                if ($user_promoter_session->set2_status <= 2 && $user_promoter_session->current_video_order_set2 == 3) {
                     $retry = true;
                 }
             }
