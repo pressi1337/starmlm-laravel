@@ -486,7 +486,7 @@ class PromotionVideoController extends Controller
             }
             $current_session_type = (Carbon::now()->hour < 12) ? 1 : 2;
             $user_promoter_session = UserPromoterSession::where('user_id', $auth_user_id)
-                ->where('user_promoter_id', $user_promoter->id)->whereDate('attend_at', today())
+                ->whereDate('attend_at', today())
                 ->where('session_type', $current_session_type)
                 ->orderBy('id', 'desc')
                 ->first();
@@ -498,6 +498,13 @@ class PromotionVideoController extends Controller
                 $user_promoter_session->session_type = $current_session_type;
                 $user_promoter_session->session_status = 0;
                 $user_promoter_session->attend_at = today();
+                $user_promoter_session->save();
+            } elseif ((int) $user_promoter_session->user_promoter_id !== (int) $user_promoter->id) {
+                // Same day + session_type keeps ONE session even if the user
+                // upgraded their promoter level mid-day. Just re-point the
+                // session at the current (higher) promoter row so it stays in
+                // sync — the session itself is not restarted, so no re-earning.
+                $user_promoter_session->user_promoter_id = $user_promoter->id;
                 $user_promoter_session->save();
             }
 
@@ -635,7 +642,6 @@ class PromotionVideoController extends Controller
             }
 
             $session = UserPromoterSession::where('user_id', $auth_user_id)
-                ->where('user_promoter_id', $user_promoter->id)
                 ->whereDate('attend_at', today())
                 ->where('session_type', $current_session_type)
                 ->orderBy('id', 'desc')
@@ -700,7 +706,7 @@ class PromotionVideoController extends Controller
             }
 
             $user_promoter_session = UserPromoterSession::where('user_id', $auth_user_id)
-                ->where('user_promoter_id', $user_promoter->id)->whereDate('attend_at', today())
+                ->whereDate('attend_at', today())
                 ->where('session_type', $current_session_type)
                 ->orderBy('id', 'desc')
                 ->first();
@@ -800,7 +806,7 @@ class PromotionVideoController extends Controller
             $total_earning = round($video_total_earnable_amount * $percentage_correct, 2);
 
             $user_promoter_session = UserPromoterSession::where('user_id', $auth_user_id)
-                ->where('user_promoter_id', $user_promoter->id)->whereDate('attend_at', today())
+                ->whereDate('attend_at', today())
                 ->where('session_type', $current_session_type)
                 ->orderBy('id', 'desc')
                 ->first();
