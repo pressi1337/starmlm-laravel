@@ -71,15 +71,19 @@ class User extends Authenticatable implements JWTSubject
         4 => ['default' => 92.5, 'max' => 265],
     ];
 
-    // Bonus added per video for each *activated* referred user, keyed by that
-    // referred user's current_promoter_level. Capped against the level's
-    // per-video max in PROMOTER_EARNING_TABLE during computation.
-    public const REFERRAL_BONUS_PER_LEVEL = [
+    // Fixed DAILY bonus for each *activated* referred user, keyed by that
+    // referred user's current_promoter_level. This is a per-DAY amount and is
+    // independent of how many videos the referrer watches — the per-video bonus
+    // is derived as REFERRAL_BONUS_PER_DAY[level] / videosPerDay(referrerLevel)
+    // so a referrer at L3/L4 (4 videos/day) and one at L1/L2 (2 videos/day)
+    // both earn the same daily bonus from the same referred user. Still capped
+    // against the level's per-video max in PROMOTER_EARNING_TABLE.
+    public const REFERRAL_BONUS_PER_DAY = [
         0 => 0,
-        1 => 2.5,
-        2 => 25,
-        3 => 17.5,
-        4 => 25,
+        1 => 5,
+        2 => 50,
+        3 => 70,
+        4 => 100,
     ];
 
     /**
@@ -113,7 +117,7 @@ class User extends Authenticatable implements JWTSubject
     /**
      * Current per-video earning potential for THIS user, given:
      *   • their current_promoter_level (provides default + max)
-     *   • their activated referred users adding REFERRAL_BONUS_PER_LEVEL,
+     *   • their activated referred users adding REFERRAL_BONUS_PER_DAY,
      *     capped at the per-video max.
      * Returns 0 for trainees (null level). Mirrors the live bonus loop in
      * PromotionVideoController::userPromoterQuizResult so the eligibility
@@ -131,6 +135,10 @@ class User extends Authenticatable implements JWTSubject
             return $current; // L0 has no referral bonus path
         }
         $maxPerVideo = (float) $info['max'];
+        // Referral bonus is a fixed DAILY amount; convert to per-video by
+        // dividing by this referrer's videos/day so the daily total is the same
+        // whether they watch 2 or 4 videos/day.
+        $videosPerDay = self::videosPerDay($level);
         // Count children by their activated LEVEL, not promoter_status — a child
         // mid-upgrade temporarily leaves ACTIVATED but is still a promoter at
         // their current_promoter_level, so the referrer keeps earning. Must stay
@@ -144,7 +152,8 @@ class User extends Authenticatable implements JWTSubject
             ->where('current_promoter_level', '!=', 0)
             ->get();
         foreach ($referred as $r) {
-            $add = self::REFERRAL_BONUS_PER_LEVEL[(int) $r->current_promoter_level] ?? 0;
+            $dailyBonus = self::REFERRAL_BONUS_PER_DAY[(int) $r->current_promoter_level] ?? 0;
+            $add = $videosPerDay > 0 ? $dailyBonus / $videosPerDay : 0;
             $remaining = $maxPerVideo - $current;
             if ($remaining <= 0) {
                 break;

@@ -722,6 +722,10 @@ class PromotionVideoController extends Controller
             $max_earnable_per_video = (float) $levelInfo['max'];
             $video_total_earnable_amount = $default_video_total_earnable_amount;
             if ($user_promoter->level > 0) {
+                // Referral bonus is a fixed DAILY amount; convert to per-video by
+                // dividing by this referrer's videos/day so the daily total is
+                // the same whether they watch 2 (L1/L2) or 4 (L3/L4) videos/day.
+                $videos_per_day = User::videosPerDay($user_promoter->level);
                 // Count referred children by their activated promoter LEVEL, not
                 // by promoter_status. When a child requests the next-level
                 // upgrade their promoter_status temporarily leaves ACTIVATED
@@ -738,7 +742,8 @@ class PromotionVideoController extends Controller
                     ->where('current_promoter_level', '<=', $user_promoter->level)
                     ->where('current_promoter_level', '!=', 0)->get();
                 foreach ($referred_users as $referred_user) {
-                    $add_amount = User::REFERRAL_BONUS_PER_LEVEL[(int) $referred_user->current_promoter_level] ?? 0;
+                    $daily_bonus = User::REFERRAL_BONUS_PER_DAY[(int) $referred_user->current_promoter_level] ?? 0;
+                    $add_amount = $videos_per_day > 0 ? $daily_bonus / $videos_per_day : 0;
                     $remaining_allowance = $max_earnable_per_video - $video_total_earnable_amount;
                     if ($remaining_allowance <= 0) {
                         break;
