@@ -258,8 +258,26 @@ class OfferController extends Controller
                 $query->skip(($page_number - 1) * $page_size)->take($page_size);
             }
 
-            $rows = collect($query->get())->map(function ($row) {
+            // True leaderboard position, so the rank stays correct no matter how
+            // the admin sorts or which page they're on. Ordered identically to
+            // topList() (points DESC, then user_id) so both views agree.
+            $rankMap = [];
+            $position = 0;
+            foreach (
+                DB::table('offer_points')
+                    ->select('user_id', DB::raw('COALESCE(SUM(points), 0) as tp'))
+                    ->where('is_deleted', 0)
+                    ->groupBy('user_id')
+                    ->orderByDesc('tp')
+                    ->orderBy('user_id')
+                    ->pluck('user_id') as $uid
+            ) {
+                $rankMap[$uid] = ++$position;
+            }
+
+            $rows = collect($query->get())->map(function ($row) use ($rankMap) {
                 return [
+                    'rank'            => $rankMap[$row->user_id] ?? null,
                     'user_id'         => $row->user_id,
                     'username'        => $row->username ?? 'N/A',
                     'name'            => trim(($row->first_name ?? '') . ' ' . ($row->last_name ?? '')),
