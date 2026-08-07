@@ -9,6 +9,7 @@ use App\Http\Controllers\V1\Api\TrainingVideoController;
 use App\Http\Controllers\V1\Api\TrainingQuizController;
 use App\Http\Controllers\V1\Api\PromotionVideoController;
 use App\Http\Controllers\V1\Api\PromotionQuizLogController;
+use App\Http\Controllers\V1\Api\OfferController;
 use App\Http\Controllers\V1\Api\PromotionQuizController;
 use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
@@ -163,6 +164,19 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
 
     // Terms & Conditions — admin saves the single document via upsert.
     Route::post('terms-and-conditions/upsert', [TermsAndConditionController::class, 'upsert']);
+
+    // ── Offer module (admin) ────────────────────────────────────────────────
+    // Master config (active flag, start datetime, leaderboard size), the
+    // per-upgrade point values (one row per option: own / referral), and the
+    // per-user points tab with its drill-down history. The numeric constraint
+    // on {userId} keeps the drill-down from shadowing the listing route.
+    Route::get('offers/config', [OfferController::class, 'getConfig']);
+    Route::post('offers/config', [OfferController::class, 'saveConfig']);
+    Route::get('offer-settings', [OfferController::class, 'settingsIndex']);
+    Route::post('offer-settings/upsert', [OfferController::class, 'settingsSave']);
+    Route::delete('offer-settings/{id}', [OfferController::class, 'settingsDestroy'])->where('id', '[0-9]+');
+    Route::get('admin-offer-points', [OfferController::class, 'adminPoints']);
+    Route::get('admin-offer-points/{userId}', [OfferController::class, 'adminUserHistory'])->where('userId', '[0-9]+');
 });
 
 // Public T&C read endpoint — usable by the PWA reader and also reachable
@@ -210,6 +224,14 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     // Support & Help — active Q&A list for the PWA accordion. Read-only,
     // ordered by id ASC (admin-insertion order).
     Route::get('support-helps/list', [SupportHelpController::class, 'userList']);
+
+    // ── Offer module (user) ─────────────────────────────────────────────────
+    // status drives menu visibility + the pre-start countdown; the rest feed
+    // the points cards, the paginated history page, and the leaderboard.
+    Route::get('offer-status', [OfferController::class, 'userStatus']);
+    Route::get('my-offer-points', [OfferController::class, 'myPoints']);
+    Route::get('my-offer-history', [OfferController::class, 'myHistory']);
+    Route::get('offer-top-list', [OfferController::class, 'topList']);
 
     // Suggestions — user CRUD on their own suggestions. Hard-cap of 3
     // unread enforced in the controller. Edit/delete blocked once admin

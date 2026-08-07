@@ -492,3 +492,70 @@ ALTER TABLE `user_promoter_sessions`
 
 -- Rollback:
 -- ALTER TABLE `user_promoter_sessions` DROP COLUMN `set1_retry_count`, DROP COLUMN `set2_retry_count`;
+
+
+-- ============================================================
+-- 2026_07_05_000000/000001/000002 — OFFER MODULE (new feature).
+-- Run all three CREATE TABLEs.
+--   offers         : single-row master config (active flag, start datetime,
+--                    leaderboard size).
+--   offer_settings : points per upgrade step, ONE row per option
+--                    (option_type 1 = Own, 2 = Referral). Each column is the
+--                    TARGET level of the upgrade.
+--   offer_points   : ledger; every award is one row. All totals (user cards,
+--                    admin tab 2, leaderboard) are aggregated from it.
+-- ============================================================
+CREATE TABLE `offers` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `title` VARCHAR(255) NULL,
+    `is_active` TINYINT NOT NULL DEFAULT 0,
+    `start_at` DATETIME NULL,
+    `top_list_count` INT NOT NULL DEFAULT 10,
+    `created_by` INT NULL,
+    `updated_by` INT NULL,
+    `is_deleted` TINYINT NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP NULL,
+    `updated_at` TIMESTAMP NULL,
+    PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `offer_settings` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `option_type` TINYINT NOT NULL,               -- 1 = Own, 2 = Referral
+    `trainee_to_promotor` DECIMAL(10,2) NOT NULL DEFAULT 0,
+    `promotor_to_promotor1` DECIMAL(10,2) NOT NULL DEFAULT 0,
+    `promotor1_to_promotor2` DECIMAL(10,2) NOT NULL DEFAULT 0,
+    `promotor2_to_promotor3` DECIMAL(10,2) NOT NULL DEFAULT 0,
+    `promotor3_to_promotor4` DECIMAL(10,2) NOT NULL DEFAULT 0,
+    `created_by` INT NULL,
+    `updated_by` INT NULL,
+    `is_active` TINYINT NOT NULL DEFAULT 1,
+    `is_deleted` TINYINT NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP NULL,
+    `updated_at` TIMESTAMP NULL,
+    PRIMARY KEY (`id`),
+    KEY `offer_settings_option_idx` (`option_type`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `offer_points` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id` BIGINT UNSIGNED NOT NULL,           -- who earned
+    `source_user_id` BIGINT UNSIGNED NULL,        -- whose upgrade triggered it
+    `user_promoter_id` BIGINT UNSIGNED NULL,
+    `option_type` TINYINT NOT NULL,               -- 1 = Own, 2 = Referral
+    `level` TINYINT NULL,                         -- TARGET level 0..4
+    `points` DECIMAL(10,2) NOT NULL DEFAULT 0,
+    `description` VARCHAR(255) NULL,
+    `earned_at` DATETIME NULL,
+    `is_deleted` TINYINT NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP NULL,
+    `updated_at` TIMESTAMP NULL,
+    PRIMARY KEY (`id`),
+    KEY `offer_points_user_idx` (`user_id`, `is_deleted`),
+    KEY `offer_points_user_option_idx` (`user_id`, `option_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Rollback:
+-- DROP TABLE `offer_points`;
+-- DROP TABLE `offer_settings`;
+-- DROP TABLE `offers`;
