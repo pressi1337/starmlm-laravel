@@ -559,3 +559,29 @@ CREATE TABLE `offer_points` (
 -- DROP TABLE `offer_points`;
 -- DROP TABLE `offer_settings`;
 -- DROP TABLE `offers`;
+
+
+-- ============================================================
+-- 2026_07_05_000003 — OFFER: manual (display-only) leaderboard rows.
+-- NOT real users: no user_id, earn nothing, never included in any points
+-- calculation, payout, or the admin "User Points" analytics. Merged into the
+-- Top Points list for display only. Kept in their own table so real earnings
+-- data can never be polluted and these stay auditable.
+-- ============================================================
+CREATE TABLE `offer_dummy_entries` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `username` VARCHAR(255) NOT NULL,
+    `name` VARCHAR(255) NULL,
+    `points` DECIMAL(10,2) NOT NULL DEFAULT 0,
+    `created_by` INT NULL,
+    `updated_by` INT NULL,
+    `is_active` TINYINT NOT NULL DEFAULT 1,
+    `is_deleted` TINYINT NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP NULL,
+    `updated_at` TIMESTAMP NULL,
+    PRIMARY KEY (`id`),
+    KEY `offer_dummy_active_idx` (`is_active`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Rollback:
+-- DROP TABLE `offer_dummy_entries`;

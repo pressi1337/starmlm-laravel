@@ -4,6 +4,7 @@ namespace App\Http\Controllers\V1\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Offer;
+use App\Models\OfferDummyEntry;
 use App\Models\OfferPoint;
 use App\Models\OfferSetting;
 use App\Models\User;
@@ -408,25 +409,12 @@ class OfferController extends Controller
                 $limit = max(1, min($limit, (int) $request->limit));
             }
 
-            $rows = OfferPoint::aggregateQuery()
-                ->havingRaw('COALESCE(SUM(op.points), 0) > 0')
-                ->orderBy('total_points', 'DESC')
-                ->orderBy('op.user_id', 'ASC')
-                ->take($limit)
-                ->get();
-
-            $data = [];
-            $rank = 0;
-            foreach ($rows as $row) {
-                $rank++;
-                $data[] = [
-                    'rank'     => $rank,
-                    'user_id'  => $row->user_id,
-                    'username' => $row->username ?? 'N/A',
-                    'name'     => trim(($row->first_name ?? '') . ' ' . ($row->last_name ?? '')),
-                    'points'   => round((float) $row->total_points, 2),
-                ];
-            }
+            // Drop the internal is_manual flag — the user-facing list is a
+            // plain ranking.
+            $data = array_map(function ($row) {
+                unset($row['is_manual']);
+                return $row;
+            }, $this->buildTopList($limit));
 
             return response()->json([
                 'success' => true,
@@ -440,7 +428,215 @@ class OfferController extends Controller
         }
     }
 
+    // ─────────────── Admin: manual (display-only) leaderboard rows ───────────
+
+    /** List the manually-added display rows. */
+    public function dummyIndex(Request $request)
+    {
+        try {
+            $page_size = (int) $request->query('page_size', 10);
+            $page_number = max(1, (int) $request->query('page_number', 1));
+            $search_term = trim((string) $request->query('search', ''));
+
+            $base = OfferDummyEntry::where('is_deleted', 0);
+            if ($search_term !== '') {
+                $like = '%' . $search_term . '%';
+                $base->where(function ($q) use ($like) {
+                    $q->where('username', 'LIKE', $like)->orWhere('name', 'LIKE', $like);
+                });
+            }
+
+            $total_records = (clone $base)->count();
+
+            $rows = $base->orderByDesc('points')
+                ->orderBy('id', 'asc')
+                ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
+                    return $q->skip(($page_number - 1) * $page_size)->take($page_size);
+                })
+                ->get()
+                ->map(function ($row) {
+                    return [
+                        'id'         => $row->id,
+                        'username'   => $row->username,
+                        'name'       => $row->name,
+                        'points'     => round((float) $row->points, 2),
+                        'is_active'  => (int) $row->is_active,
+                        'created_at' => $row->created_at ? $row->created_at->format('d-m-Y h:i A') : '-',
+                    ];
+                });
+
+            return response()->json([
+                'success'  => true,
+                'message'  => 'Success',
+                'data'     => $rows,
+                'pageInfo' => [
+                    'page_size'     => $page_size,
+                    'page_number'   => $page_number,
+                    'total_pages'   => $page_size > 0 ? (int) ceil($total_records / max(1, $page_size)) : 1,
+                    'total_records' => $total_records,
+                ],
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Offer dummyIndex failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    /** Create or update a manual display row. */
+    public function dummySave(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'id'        => 'nullable|integer',
+                'username'  => 'required|string|max:100',
+                'name'      => 'nullable|string|max:150',
+                'points'    => 'required|numeric|min:0',
+                'is_active' => 'nullable|boolean',
+            ], [
+                'username.required' => 'Username is required',
+                'points.required'   => 'Points are required',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
+            }
+
+            $authId = Auth::id();
+            $entry = null;
+            if ($request->filled('id')) {
+                $entry = OfferDummyEntry::where('id', $request->id)->where('is_deleted', 0)->first();
+                if (!$entry) {
+                    return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+                }
+            }
+            if (!$entry) {
+                $entry = new OfferDummyEntry();
+                $entry->created_by = $authId;
+            }
+            $entry->username = $request->username;
+            $entry->name = $request->name;
+            $entry->points = (float) $request->points;
+            $entry->is_active = $request->has('is_active')
+                ? ((int) $request->input('is_active') ? 1 : 0)
+                : 1;
+            $entry->updated_by = $authId;
+            $entry->is_deleted = 0;
+            $entry->save();
+
+            return response()->json(['message' => 'Saved successfully', 'status' => 200]);
+        } catch (\Throwable $e) {
+            Log::error('Offer dummySave failed', ['error' => $e->getMessage()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
+    }
+
+    /** Soft-delete a manual display row. */
+    public function dummyDestroy($id)
+    {
+        try {
+            $entry = OfferDummyEntry::where('id', $id)->where('is_deleted', 0)->first();
+            if (!$entry) {
+                return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+            $entry->is_deleted = 1;
+            $entry->updated_by = Auth::id();
+            $entry->save();
+
+            return response()->json(['message' => 'Deleted successfully', 'status' => 200]);
+        } catch (\Throwable $e) {
+            Log::error('Offer dummyDestroy failed', ['error' => $e->getMessage()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
+    }
+
+    /**
+     * Admin preview of the merged leaderboard — exactly what users see, but
+     * with each row flagged real vs manual so staff can always tell them apart.
+     */
+    public function adminTopList()
+    {
+        try {
+            $offer = Offer::current();
+            $limit = $offer ? $offer->topCount() : 10;
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Success',
+                'data'    => $this->buildTopList($limit),
+                'meta'    => ['limit' => $limit],
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Offer adminTopList failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
     // ───────────────────────────── Helpers ───────────────────────────────────
+
+    /**
+     * Build the ranked Top Points list: real earners merged with the manual
+     * display rows, ordered by points.
+     *
+     * Manual rows are display-only — they never touch offer_points, so they
+     * can't affect anyone's real totals, the admin User Points tab, or payouts.
+     * Only the top $limit real users can reach the final list, so we fetch just
+     * those before merging.
+     */
+    protected function buildTopList(int $limit): array
+    {
+        $merged = [];
+
+        foreach (
+            OfferPoint::aggregateQuery()
+                ->havingRaw('COALESCE(SUM(op.points), 0) > 0')
+                ->orderBy('total_points', 'DESC')
+                ->orderBy('op.user_id', 'ASC')
+                ->take($limit)
+                ->get() as $row
+        ) {
+            $merged[] = [
+                'user_id'   => $row->user_id,
+                'username'  => $row->username ?? 'N/A',
+                'name'      => trim(($row->first_name ?? '') . ' ' . ($row->last_name ?? '')),
+                'points'    => round((float) $row->total_points, 2),
+                'is_manual' => 0,
+            ];
+        }
+
+        foreach (OfferDummyEntry::activeEntries() as $entry) {
+            $merged[] = [
+                'user_id'   => null,
+                'username'  => $entry->username,
+                'name'      => $entry->name ?? '',
+                'points'    => round((float) $entry->points, 2),
+                'is_manual' => 1,
+            ];
+        }
+
+        // Highest points first, with a stable tiebreak so the order doesn't
+        // shuffle between requests.
+        usort($merged, function ($a, $b) {
+            if ($a['points'] === $b['points']) {
+                return strcasecmp((string) $a['username'], (string) $b['username']);
+            }
+            return $b['points'] <=> $a['points'];
+        });
+
+        $merged = array_slice($merged, 0, $limit);
+
+        // Build a fresh array rather than iterating by reference — a dangling
+        // &$row reference is the classic PHP foreach trap that duplicates the
+        // last element if the array is looped again later.
+        $ranked = [];
+        $rank = 0;
+        foreach ($merged as $row) {
+            $row['rank'] = ++$rank;
+            $ranked[] = $row;
+        }
+
+        return $ranked;
+    }
+
 
     /** Shared paginated-history builder (admin drill-down + user's own page). */
     protected function historyPayload(Request $request, $userId): array

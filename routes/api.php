@@ -177,6 +177,13 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     Route::delete('offer-settings/{id}', [OfferController::class, 'settingsDestroy'])->where('id', '[0-9]+');
     Route::get('admin-offer-points', [OfferController::class, 'adminPoints']);
     Route::get('admin-offer-points/{userId}', [OfferController::class, 'adminUserHistory'])->where('userId', '[0-9]+');
+
+    // Manual, display-only leaderboard rows + the merged preview of what users
+    // see (real earners and manual rows flagged apart).
+    Route::get('offer-dummy-entries', [OfferController::class, 'dummyIndex']);
+    Route::post('offer-dummy-entries/upsert', [OfferController::class, 'dummySave']);
+    Route::delete('offer-dummy-entries/{id}', [OfferController::class, 'dummyDestroy'])->where('id', '[0-9]+');
+    Route::get('admin-offer-top-list', [OfferController::class, 'adminTopList']);
 });
 
 // Public T&C read endpoint — usable by the PWA reader and also reachable
