@@ -14,7 +14,8 @@ return new class extends Migration
      *   source_user_id — whose upgrade triggered it (= user_id for "own",
      *                    the referred child's id for "referral").
      *   option_type    — 1 = own upgrade, 2 = referral upgrade.
-     *   level          — TARGET promoter level of the upgrade (0..4).
+     *   level          — the promoter level REACHED (0..4); levels can be
+     *                    skipped, so this is the achieved level, not a step.
      */
     public function up(): void
     {

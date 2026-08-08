@@ -499,9 +499,9 @@ ALTER TABLE `user_promoter_sessions`
 -- Run all three CREATE TABLEs.
 --   offers         : single-row master config (active flag, start datetime,
 --                    leaderboard size).
---   offer_settings : points per upgrade step, ONE row per option
---                    (option_type 1 = Own, 2 = Referral). Each column is the
---                    TARGET level of the upgrade.
+--   offer_settings : points per level REACHED, ONE row per option
+--                    (option_type 1 = Own, 2 = Referral). Keyed by the level
+--                    achieved — levels can be skipped (P1 -> P3/P4 directly).
 --   offer_points   : ledger; every award is one row. All totals (user cards,
 --                    admin tab 2, leaderboard) are aggregated from it.
 -- ============================================================
@@ -522,11 +522,11 @@ CREATE TABLE `offers` (
 CREATE TABLE `offer_settings` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `option_type` TINYINT NOT NULL,               -- 1 = Own, 2 = Referral
-    `trainee_to_promotor` DECIMAL(10,2) NOT NULL DEFAULT 0,
-    `promotor_to_promotor1` DECIMAL(10,2) NOT NULL DEFAULT 0,
-    `promotor1_to_promotor2` DECIMAL(10,2) NOT NULL DEFAULT 0,
-    `promotor2_to_promotor3` DECIMAL(10,2) NOT NULL DEFAULT 0,
-    `promotor3_to_promotor4` DECIMAL(10,2) NOT NULL DEFAULT 0,
+    `promotor_points` DECIMAL(10,2) NOT NULL DEFAULT 0,   -- reached level 0
+    `promotor1_points` DECIMAL(10,2) NOT NULL DEFAULT 0,  -- reached level 1
+    `promotor2_points` DECIMAL(10,2) NOT NULL DEFAULT 0,  -- reached level 2
+    `promotor3_points` DECIMAL(10,2) NOT NULL DEFAULT 0,  -- reached level 3
+    `promotor4_points` DECIMAL(10,2) NOT NULL DEFAULT 0,  -- reached level 4
     `created_by` INT NULL,
     `updated_by` INT NULL,
     `is_active` TINYINT NOT NULL DEFAULT 1,
@@ -543,7 +543,7 @@ CREATE TABLE `offer_points` (
     `source_user_id` BIGINT UNSIGNED NULL,        -- whose upgrade triggered it
     `user_promoter_id` BIGINT UNSIGNED NULL,
     `option_type` TINYINT NOT NULL,               -- 1 = Own, 2 = Referral
-    `level` TINYINT NULL,                         -- TARGET level 0..4
+    `level` TINYINT NULL,                         -- level REACHED 0..4
     `points` DECIMAL(10,2) NOT NULL DEFAULT 0,
     `description` VARCHAR(255) NULL,
     `earned_at` DATETIME NULL,

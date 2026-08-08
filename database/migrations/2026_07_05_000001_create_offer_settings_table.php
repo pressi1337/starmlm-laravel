@@ -12,23 +12,26 @@ return new class extends Migration
      * option_type: 1 = Own (the upgrading user earns), 2 = Referral (their
      * direct referrer earns). Only ONE active row per option type.
      *
-     * Each column is keyed by the TARGET level of the upgrade:
-     *   trainee_to_promotor     → activates at level 0
-     *   promotor_to_promotor1   → level 1
-     *   promotor1_to_promotor2  → level 2
-     *   promotor2_to_promotor3  → level 3
-     *   promotor3_to_promotor4  → level 4
+     * Points are keyed by the level the user REACHES — not by a from→to pair,
+     * because levels can be skipped (a Promoter 1 can jump straight to
+     * Promoter 3 or 4). Whatever level the activated pin grants, that level's
+     * points are awarded:
+     *   promotor_points  → reached level 0 (Promoter)
+     *   promotor1_points → level 1
+     *   promotor2_points → level 2
+     *   promotor3_points → level 3
+     *   promotor4_points → level 4
      */
     public function up(): void
     {
         Schema::create('offer_settings', function (Blueprint $table) {
             $table->id();
             $table->tinyInteger('option_type'); // 1 = own, 2 = referral
-            $table->decimal('trainee_to_promotor', 10, 2)->default(0);
-            $table->decimal('promotor_to_promotor1', 10, 2)->default(0);
-            $table->decimal('promotor1_to_promotor2', 10, 2)->default(0);
-            $table->decimal('promotor2_to_promotor3', 10, 2)->default(0);
-            $table->decimal('promotor3_to_promotor4', 10, 2)->default(0);
+            $table->decimal('promotor_points', 10, 2)->default(0);
+            $table->decimal('promotor1_points', 10, 2)->default(0);
+            $table->decimal('promotor2_points', 10, 2)->default(0);
+            $table->decimal('promotor3_points', 10, 2)->default(0);
+            $table->decimal('promotor4_points', 10, 2)->default(0);
             $table->integer('created_by')->nullable();
             $table->integer('updated_by')->nullable();
             $table->tinyInteger('is_active')->default(1);

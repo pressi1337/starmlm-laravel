@@ -12,31 +12,35 @@ class OfferSetting extends Model
     const OPTION_OWN      = 1;
     const OPTION_REFERRAL = 2;
 
-    /** Upgrade TARGET level → the column holding its point value. */
+    /**
+     * Level REACHED → the column holding its point value. Keyed by the level
+     * achieved, never by a from→to pair, because levels can be skipped (a
+     * Promoter 1 can go straight to Promoter 3 or 4).
+     */
     const LEVEL_COLUMNS = [
-        0 => 'trainee_to_promotor',
-        1 => 'promotor_to_promotor1',
-        2 => 'promotor1_to_promotor2',
-        3 => 'promotor2_to_promotor3',
-        4 => 'promotor3_to_promotor4',
+        0 => 'promotor_points',
+        1 => 'promotor1_points',
+        2 => 'promotor2_points',
+        3 => 'promotor3_points',
+        4 => 'promotor4_points',
     ];
 
-    /** Human label for each upgrade step. */
+    /** Human label for each level. */
     const LEVEL_LABELS = [
-        0 => 'Trainee to Promoter',
-        1 => 'Promoter to Promoter 1',
-        2 => 'Promoter 1 to Promoter 2',
-        3 => 'Promoter 2 to Promoter 3',
-        4 => 'Promoter 3 to Promoter 4',
+        0 => 'Promoter',
+        1 => 'Promoter 1',
+        2 => 'Promoter 2',
+        3 => 'Promoter 3',
+        4 => 'Promoter 4',
     ];
 
     protected $fillable = [
         'option_type',
-        'trainee_to_promotor',
-        'promotor_to_promotor1',
-        'promotor1_to_promotor2',
-        'promotor2_to_promotor3',
-        'promotor3_to_promotor4',
+        'promotor_points',
+        'promotor1_points',
+        'promotor2_points',
+        'promotor3_points',
+        'promotor4_points',
         'created_by',
         'updated_by',
         'is_active',
@@ -44,11 +48,11 @@ class OfferSetting extends Model
     ];
 
     protected $casts = [
-        'trainee_to_promotor'    => 'float',
-        'promotor_to_promotor1'  => 'float',
-        'promotor1_to_promotor2' => 'float',
-        'promotor2_to_promotor3' => 'float',
-        'promotor3_to_promotor4' => 'float',
+        'promotor_points'  => 'float',
+        'promotor1_points' => 'float',
+        'promotor2_points' => 'float',
+        'promotor3_points' => 'float',
+        'promotor4_points' => 'float',
     ];
 
     /** The single active config row for an option type, or null. */
@@ -61,7 +65,7 @@ class OfferSetting extends Model
             ->first();
     }
 
-    /** Points configured for an upgrade whose TARGET level is $level. */
+    /** Points configured for REACHING $level (skipped levels don't matter). */
     public function pointsForLevel($level): float
     {
         $column = self::LEVEL_COLUMNS[(int) $level] ?? null;

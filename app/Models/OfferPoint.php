@@ -50,8 +50,11 @@ class OfferPoint extends Model
      * No-ops unless the offer exists, is active, and its start moment has
      * passed. Never throws — a failure here must not break pin activation.
      *
+     * Levels may be skipped (e.g. Promoter 1 straight to Promoter 4) — points
+     * are always those configured for the level actually REACHED.
+     *
      * @param User $user  the user who just upgraded
-     * @param int  $level the TARGET promoter level (0..4)
+     * @param int  $level the promoter level reached (0..4)
      */
     public static function awardForUpgrade(User $user, int $level, $userPromoterId = null): void
     {
@@ -75,7 +78,7 @@ class OfferPoint extends Model
                         'option_type'      => OfferSetting::OPTION_OWN,
                         'level'            => $level,
                         'points'           => $points,
-                        'description'      => 'Own upgrade: ' . $levelLabel,
+                        'description'      => 'Reached ' . $levelLabel,
                         'earned_at'        => now(),
                     ]);
                 }
@@ -99,7 +102,7 @@ class OfferPoint extends Model
                                 'option_type'      => OfferSetting::OPTION_REFERRAL,
                                 'level'            => $level,
                                 'points'           => $points,
-                                'description'      => 'Referral upgrade (' . ($user->username ?? 'user') . '): ' . $levelLabel,
+                                'description'      => 'Referral ' . ($user->username ?? 'user') . ' reached ' . $levelLabel,
                                 'earned_at'        => now(),
                             ]);
                         }
