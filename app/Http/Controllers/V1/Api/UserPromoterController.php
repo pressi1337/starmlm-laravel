@@ -12,6 +12,7 @@ use App\Models\ScratchCard;
 use App\Models\User;
 use App\Models\UserPromoter;
 use App\Models\PromoterBoxRequest;
+use App\Models\OfferPoint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -634,6 +635,12 @@ class UserPromoterController extends Controller
         $user->promoter_status = User::PROMOTER_STATUS_ACTIVATED;
         $user->promoter_activated_at = now();
         $user->save();
+
+        // Offer module: this upgrade earns "own" points for the user and
+        // "referral" points for their direct referrer. Silently no-ops unless
+        // an offer is active and its start datetime has passed, and never
+        // throws — activation must not depend on the offer module.
+        OfferPoint::awardForUpgrade($user, (int) $promoter->level, $promoter->id);
 
         // First box allocation for this activation, recorded as "Requested".
         // Wrapped so a box failure never breaks the (already saved) activation.
