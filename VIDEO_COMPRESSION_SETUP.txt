@@ -1,0 +1,172 @@
+============================================================
+ VIDEO COMPRESSION - SETUP & RUN GUIDE
+============================================================
+
+WHY:
+App data usage was ~2.3 GB/day per user because uploaded videos were served
+raw (a 5-min phone video is 400-600 MB). After this setup videos are
+re-encoded to 720p - about 5x smaller, with near-identical quality.
+
+
+============================================================
+ 1. WHAT TO INSTALL
+============================================================
+
+Only ONE thing: ffmpeg, on the BACKEND SERVER (the machine running
+starmlm-laravel).
+
+  - It is a SYSTEM program, not a Composer or npm package.
+  - Nothing to install for the admin web or the PWA.
+  - Laravel ffmpeg packages (pbmedia/laravel-ffmpeg etc.) are only wrappers,
+    they still need this same binary - so we do not use them.
+
+
+OPTION A - you have root / SSH  (recommended)
+---------------------------------------------
+    sudo apt update && sudo apt install ffmpeg      (Ubuntu / Debian)
+    sudo dnf install ffmpeg                         (CentOS / AlmaLinux)
+
+
+OPTION B - shared hosting, no root
+-----------------------------------
+Use a self-contained static binary (just a file upload, no package manager):
+
+  1. Download "ffmpeg-release-amd64-static" from:
+         https://johnvansickle.com/ffmpeg/
+  2. Extract it - you only need the "ffmpeg" file (~80 MB)
+  3. Upload it by FTP / cPanel File Manager, e.g.
+         /home/youruser/bin/ffmpeg
+  4. Set permissions to 755 (executable)
+  5. Add the path to .env  (see section 3)
+
+
+VERIFY IT WORKS
+---------------
+    ffmpeg -version                             (Option A)
+    /home/youruser/bin/ffmpeg -version          (Option B)
+
+PHP must also be allowed to run external programs (some shared hosts block it):
+
+    php -r "echo function_exists('proc_open') ? 'OK' : 'BLOCKED';"
+
+BLOCKED means compression cannot run. Uploads still work fine, they just stay
+uncompressed. Ask the host to enable proc_open.
+
+
+============================================================
+ 2. FILES TO DEPLOY
+============================================================
+
+BACKEND - starmlm-laravel
+    app/Http/Controllers/VideoUploadController.php    (auto-compress on upload)
+    config/services.php                               (ffmpeg settings)
+    app/Console/Commands/CompressUploadedVideos.php   (batch for old videos)
+
+ADMIN WEB - starmlm-web
+    src/components/FileUpload.tsx     (500 MB sanity cap + helper text)
+    then:  npm run build     and upload the dist/ folder
+
+PWA - mlm_app_PWA
+    src/utils/videoPlayerConfig.ts    (preload metadata - no data until play)
+    then:  npm run build     and upload the dist/ folder
+
+
+============================================================
+ 3. .ENV SETTINGS
+============================================================
+
+LARAVEL .env   (all optional - sensible defaults are built in)
+
+    # Only needed for OPTION B (static binary).
+    # Leave it out if ffmpeg is on the system PATH.
+    FFMPEG_PATH=/home/youruser/bin/ffmpeg
+
+    # Quality. Lower = better quality + bigger file. Default 24.
+    # Use 22 if videos have a lot of on-screen text.
+    # Use 26-28 if you want smaller files.
+    FFMPEG_CRF=24
+
+    # Max output height. Smaller videos are never upscaled. Default 720.
+    FFMPEG_HEIGHT=720
+
+
+ADMIN WEB .env   (optional)
+
+    VITE_MAX_VIDEO_MB=500        # upload sanity cap
+
+
+AFTER CHANGING .env:
+
+    php artisan config:clear
+
+
+============================================================
+ 4. COMMANDS TO RUN
+============================================================
+
+ONE-TIME: compress the videos already on the server.
+(New uploads are compressed automatically - this is only for old ones.)
+
+    Step 1 - preview only, changes nothing:
+        php artisan videos:compress --dry-run
+
+    Step 2 - do a few first, then check playback in the app:
+        php artisan videos:compress --limit=3
+
+    Step 3 - once happy, do the rest:
+        php artisan videos:compress
+
+
+USEFUL FLAGS
+------------
+    --dry-run             Report only, change nothing
+    --limit=5             Process at most 5 files (run in batches)
+    --min-mb=20           Skip files smaller than this
+    --crf=22              Better quality for this run
+    --file=name.mp4       Only this one file
+    --delete-originals    Do not keep backups (saves disk, no rollback)
+
+RUN IT OFF-PEAK - encoding is CPU heavy. Use --limit to go in batches instead
+of loading the server all at once.
+
+
+AFTER VERIFYING PLAYBACK - reclaim disk space:
+
+    rm -rf storage/app/public/uploads/original/
+
+
+============================================================
+ 5. TESTING IT WORKED
+============================================================
+
+    1. Upload a video in the admin panel.
+    2. Check the upload response, or storage/logs/laravel.log - you should see
+       the before/after size, e.g.  from: 412 MB   to: 79 MB
+    3. Play it in the PWA and confirm it looks fine.
+
+
+============================================================
+ 6. SAFETY NOTES
+============================================================
+
+Nothing here can break an upload or destroy a video:
+
+  - No ffmpeg / encode fails / result not smaller
+        -> the ORIGINAL file is kept and the upload still succeeds
+           (it simply is not compressed).
+
+  - Filenames NEVER change
+        -> no database updates needed; every existing video_path
+           reference stays valid.
+
+  - The batch command backs up originals to uploads/original/ before
+    replacing, so any file can be restored.
+
+  - The batch command is idempotent - safe to re-run; already-small files
+    are skipped.
+
+NOTE: keeping originals temporarily doubles video storage. Delete the backup
+folder (section 4) once playback is verified - you will then end up well below
+where you started.
+
+============================================================

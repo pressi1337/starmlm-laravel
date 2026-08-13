@@ -35,4 +35,24 @@ return [
         ],
     ],
 
+    /*
+     * ffmpeg is a SYSTEM program (installed on the server OS, not via composer)
+     * used to compress uploaded videos. Leave as "ffmpeg" when it's on the
+     * system PATH. On shared hosting where you can't install system packages,
+     * drop a static build somewhere and set the absolute path instead, e.g.
+     * FFMPEG_PATH=/home/youruser/bin/ffmpeg
+     */
+    'ffmpeg' => [
+        'path' => env('FFMPEG_PATH', 'ffmpeg'),
+
+        // Quality dial for uploaded videos. Lower CRF = better quality, bigger
+        // file. 24 is near-identical to the source while still ~5x smaller than
+        // a raw phone upload; 26-28 shrink further but can soften fine text.
+        'crf' => env('FFMPEG_CRF', 24),
+
+        // Max output height. 720p is already sharp on a phone; 1080p sources
+        // are downscaled, smaller sources are left as-is (never upscaled).
+        'height' => env('FFMPEG_HEIGHT', 720),
+    ],
+
 ];
