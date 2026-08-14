@@ -585,3 +585,39 @@ CREATE TABLE `offer_dummy_entries` (
 
 -- Rollback:
 -- DROP TABLE `offer_dummy_entries`;
+
+
+-- ============================================================
+-- 2026_08_14_000000_add_performance_indexes
+-- The core business tables had NO indexes beyond the primary key, so every
+-- user query was a full table scan. Harmless on a small DB, progressively
+-- slower as rows pile up (i.e. "the app got slow recently").
+--
+-- Adding an index rebuilds the table. InnoDB does it online, but on a large
+-- table it still costs time + IO -> RUN OFF-PEAK.
+-- Safe to skip any line that errors with "Duplicate key name".
+-- ============================================================
+ALTER TABLE `users`                  ADD INDEX `idx_users_referred_by` (`referred_by`);
+ALTER TABLE `users`                  ADD INDEX `idx_users_mobile` (`mobile`);
+ALTER TABLE `users`                  ADD INDEX `idx_users_role_deleted` (`role`, `is_deleted`);
+
+ALTER TABLE `earning_histories`      ADD INDEX `idx_eh_user_deleted` (`user_id`, `is_deleted`);
+ALTER TABLE `earning_histories`      ADD INDEX `idx_eh_date` (`earning_date`);
+
+ALTER TABLE `user_promoter_sessions` ADD INDEX `idx_ups_user_date_type` (`user_id`, `attend_at`, `session_type`);
+
+ALTER TABLE `user_promoters`         ADD INDEX `idx_up_user_status` (`user_id`, `status`, `is_deleted`);
+
+ALTER TABLE `scratch_cards`          ADD INDEX `idx_sc_user_deleted` (`user_id`, `is_deleted`);
+
+ALTER TABLE `withdraw_requests`      ADD INDEX `idx_wr_user_deleted` (`user_id`, `is_deleted`);
+ALTER TABLE `withdraw_requests`      ADD INDEX `idx_wr_status` (`status`);
+ALTER TABLE `withdraw_requests`      ADD INDEX `idx_wr_request_at` (`request_at`);
+
+ALTER TABLE `user_referrals`         ADD INDEX `idx_ur_parent` (`parent_id`);
+ALTER TABLE `user_referrals`         ADD INDEX `idx_ur_child` (`child_id`);
+
+ALTER TABLE `user_training_videos`   ADD INDEX `idx_utv_user_status` (`user_id`, `status`);
+
+-- Check what a table has:   SHOW INDEX FROM `earning_histories`;
+-- Rollback example:         ALTER TABLE `users` DROP INDEX `idx_users_referred_by`;
