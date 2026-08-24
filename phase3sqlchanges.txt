@@ -621,3 +621,51 @@ ALTER TABLE `user_training_videos`   ADD INDEX `idx_utv_user_status` (`user_id`,
 
 -- Check what a table has:   SHOW INDEX FROM `earning_histories`;
 -- Rollback example:         ALTER TABLE `users` DROP INDEX `idx_users_referred_by`;
+
+
+-- ============================================================
+-- CUSTOMER ID NUMBERING — first block 1..500, then jump to 15130
+--   STARUP001 .. STARUP500, then STARUP15130, STARUP15131, ...
+--   Nothing is ever issued between 501 and 15129.
+--
+-- The generator lives in App\Models\User::nextCustomerId() (constants
+-- CUSTOMER_ID_FIRST_BLOCK_END / CUSTOMER_ID_SECOND_BLOCK_START), so NEW
+-- registrations follow this automatically once the code is deployed.
+-- customer_id is only ever issued to end users (role = 2); admins and
+-- sub-admins keep NULL.
+--
+-- The queries below are for CHECKING / FIXING existing rows.
+-- ============================================================
+
+-- 1) CURRENT STATE — how many members, highest number used, and whether any
+--    row already sits inside the unused 501..15129 gap.
+SELECT
+    COUNT(*)                                                   AS total_members,
+    MIN(CAST(SUBSTRING(customer_id, 7) AS UNSIGNED))           AS lowest_number,
+    MAX(CAST(SUBSTRING(customer_id, 7) AS UNSIGNED))           AS highest_number,
+    SUM(CAST(SUBSTRING(customer_id, 7) AS UNSIGNED)
+        BETWEEN 501 AND 15129)                                 AS rows_in_gap
+FROM `users`
+WHERE `role` = 2 AND `customer_id` LIKE 'STARUP%';
+
+-- 2) If rows_in_gap > 0, list them before changing anything.
+SELECT `id`, `username`, `customer_id`, `created_at`
+FROM `users`
+WHERE `role` = 2
+  AND `customer_id` LIKE 'STARUP%'
+  AND CAST(SUBSTRING(`customer_id`, 7) AS UNSIGNED) BETWEEN 501 AND 15129
+ORDER BY `id` ASC;
+
+-- 3) OPTIONAL — renumber those rows into the 15130+ block, oldest first.
+--    WARNING: this CHANGES the customer ID of existing members. Skip it if
+--    they have already been told their number. Take a backup first.
+SET @n := 15129;
+UPDATE `users`
+SET `customer_id` = CONCAT('STARUP', (@n := @n + 1))
+WHERE `role` = 2
+  AND `customer_id` LIKE 'STARUP%'
+  AND CAST(SUBSTRING(`customer_id`, 7) AS UNSIGNED) BETWEEN 501 AND 15129
+ORDER BY `id` ASC;
+
+-- 4) Verify after running (rows_in_gap should be 0).
+--    Re-run query 1.

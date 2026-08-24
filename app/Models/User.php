@@ -275,8 +275,17 @@ class User extends Authenticatable implements JWTSubject
     }
 
     /**
+     * The first block of members is numbered 1..500 (STARUP001..STARUP500).
+     * Once that block is used up, numbering jumps to 15130 and continues from
+     * there (STARUP15130, STARUP15131, ...). Nothing is ever issued in the
+     * 501..15129 gap.
+     */
+    public const CUSTOMER_ID_FIRST_BLOCK_END = 500;
+    public const CUSTOMER_ID_SECOND_BLOCK_START = 15130;
+
+    /**
      * Generate the next sequential customer_id for a ROLE_USER registration.
-     * Format: STARUP001, STARUP002, ... STARUP999, STARUP1000, ...
+     * Format: STARUP001 .. STARUP500, then STARUP15130, STARUP15131, ...
      *
      * Race-safe: takes a `FOR UPDATE` lock on the customer_id range while
      * computing MAX, so two concurrent registrations serialize. The unique
@@ -292,6 +301,14 @@ class User extends Authenticatable implements JWTSubject
             ->value('n');
 
         $next = $maxSuffix + 1;
+
+        // Skip the unused gap: the number after the first block is 15130.
+        if ($next > self::CUSTOMER_ID_FIRST_BLOCK_END
+            && $next < self::CUSTOMER_ID_SECOND_BLOCK_START) {
+            $next = self::CUSTOMER_ID_SECOND_BLOCK_START;
+        }
+
+        // Pad only the first block (001..500); 15130+ is already 5 digits.
         return 'STARUP' . str_pad((string) $next, 3, '0', STR_PAD_LEFT);
     }
     public function userTrainingVideos()
