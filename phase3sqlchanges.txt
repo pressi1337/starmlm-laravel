@@ -728,9 +728,11 @@ CREATE TABLE `app_settings` (
 -- Admin-side only; NEVER shown to end users (separate from company_documents,
 -- which is the user-facing "Company Docs" list).
 --
--- Workflow: a sub-admin holding can_personal_documents may ADD entries, which
--- are saved INACTIVE (is_active = 0). Only a super-admin can show / hide
--- (toggle is_active). A super-admin's own upload is active at once.
+-- Visibility: is_sub_admin_visible controls whether SUB-ADMINS can see a
+-- document. The super-admin sees everything and owns the flag. A sub-admin
+-- sees a document only if it is visible OR they uploaded it themselves.
+-- Sub-admin uploads default to hidden (0); a super-admin's upload is 1.
+-- Only a super-admin can change the flag.
 -- file_type: 1 = image, 2 = pdf, 3 = excel.
 -- Run BOTH statements.
 -- ============================================================
@@ -739,7 +741,7 @@ CREATE TABLE `company_personal_documents` (
     `title` VARCHAR(255) NOT NULL,
     `file_path` VARCHAR(255) NOT NULL,
     `file_type` TINYINT NOT NULL DEFAULT 1,   -- 1 image, 2 pdf, 3 excel
-    `is_active` TINYINT NOT NULL DEFAULT 0,   -- 0 inactive (default), 1 active
+    `is_sub_admin_visible` TINYINT NOT NULL DEFAULT 0,  -- 0 hidden, 1 visible
     `remark` TEXT NULL,
     `created_by` BIGINT UNSIGNED NULL,
     `updated_by` BIGINT UNSIGNED NULL,
@@ -749,7 +751,7 @@ CREATE TABLE `company_personal_documents` (
     `created_at` TIMESTAMP NULL,
     `updated_at` TIMESTAMP NULL,
     PRIMARY KEY (`id`),
-    KEY `cpd_status_idx` (`is_active`, `is_deleted`),
+    KEY `cpd_visible_idx` (`is_sub_admin_visible`, `is_deleted`),
     KEY `cpd_creator_idx` (`created_by`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
