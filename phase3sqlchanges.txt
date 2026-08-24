@@ -721,3 +721,42 @@ CREATE TABLE `app_settings` (
 
 -- Rollback:
 -- DROP TABLE `app_settings`;
+
+
+-- ============================================================
+-- 2026_08_14_000003 / 000004 — COMPANY PERSONAL DOCUMENTS (internal).
+-- Admin-side only; NEVER shown to end users (separate from company_documents,
+-- which is the user-facing "Company Docs" list).
+--
+-- Workflow: a sub-admin holding can_personal_documents may ADD entries, which
+-- are saved INACTIVE (is_active = 0). Only a super-admin can show / hide
+-- (toggle is_active). A super-admin's own upload is active at once.
+-- file_type: 1 = image, 2 = pdf, 3 = excel.
+-- Run BOTH statements.
+-- ============================================================
+CREATE TABLE `company_personal_documents` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `title` VARCHAR(255) NOT NULL,
+    `file_path` VARCHAR(255) NOT NULL,
+    `file_type` TINYINT NOT NULL DEFAULT 1,   -- 1 image, 2 pdf, 3 excel
+    `is_active` TINYINT NOT NULL DEFAULT 0,   -- 0 inactive (default), 1 active
+    `remark` TEXT NULL,
+    `created_by` BIGINT UNSIGNED NULL,
+    `updated_by` BIGINT UNSIGNED NULL,
+    `status_changed_by` BIGINT UNSIGNED NULL,
+    `status_changed_at` TIMESTAMP NULL,
+    `is_deleted` TINYINT NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP NULL,
+    `updated_at` TIMESTAMP NULL,
+    PRIMARY KEY (`id`),
+    KEY `cpd_status_idx` (`is_active`, `is_deleted`),
+    KEY `cpd_creator_idx` (`created_by`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Fifth sub-admin permission. Defaults to 0 — grant it explicitly per sub-admin.
+ALTER TABLE `users`
+    ADD COLUMN `can_personal_documents` TINYINT(1) NOT NULL DEFAULT 0 AFTER `can_suggestions`;
+
+-- Rollback:
+-- DROP TABLE `company_personal_documents`;
+-- ALTER TABLE `users` DROP COLUMN `can_personal_documents`;

@@ -12,6 +12,7 @@ use App\Http\Controllers\V1\Api\PromotionQuizLogController;
 use App\Http\Controllers\V1\Api\OfferController;
 use App\Http\Controllers\V1\Api\CompanyDocumentController;
 use App\Http\Controllers\V1\Api\MenuSettingController;
+use App\Http\Controllers\V1\Api\CompanyPersonalDocumentController;
 use App\Http\Controllers\V1\Api\PromotionQuizController;
 use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
@@ -98,6 +99,16 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         Route::patch('admin-box-requests/mark-delivered', [BoxRequestController::class, 'adminMarkDelivered']);
         Route::patch('admin-box-requests/update-quantity', [BoxRequestController::class, 'adminUpdateQuantity']);
         Route::get('admin-box-requests', [BoxRequestController::class, 'adminIndex']);
+    });
+
+    // Company Personal Documents — internal docs (image / PDF / Excel).
+    // Sub-admin needs the explicit can_personal_documents flag; their uploads
+    // start Pending. status-update is declared before the resource and is
+    // rejected inside the controller for anyone who isn't a super-admin.
+    Route::middleware('subadmin.permission:personal_documents')->group(function () {
+        Route::patch('company-personal-documents/status-update', [CompanyPersonalDocumentController::class, 'statusUpdate']);
+        Route::resource('company-personal-documents', CompanyPersonalDocumentController::class)
+            ->where(['company_personal_document' => '[0-9]+']);
     });
 
     // Suggestions — admin read-only listing + mark-as-read action.

@@ -35,6 +35,7 @@ class SubAdminController extends Controller
         'can_promotion_videos.boolean'  => 'Promotion Videos permission must be true/false',
         'can_pin_requests.boolean'      => 'Pin Requests permission must be true/false',
         'can_suggestions.boolean'       => 'Suggestions permission must be true/false',
+        'can_personal_documents.boolean' => 'Personal Documents permission must be true/false',
     ];
 
     /**
@@ -53,6 +54,8 @@ class SubAdminController extends Controller
                 ? (int) (bool) $request->input('can_pin_requests') : 0,
             'can_suggestions'      => $request->has('can_suggestions')
                 ? (int) (bool) $request->input('can_suggestions') : 0,
+            'can_personal_documents' => $request->has('can_personal_documents')
+                ? (int) (bool) $request->input('can_personal_documents') : 0,
         ];
 
         if ($required && array_sum($perms) === 0) {
@@ -124,6 +127,7 @@ class SubAdminController extends Controller
                 'id', 'first_name', 'last_name', 'username',
                 'is_active', 'role', 'created_at', 'updated_at',
                 'can_daily_videos', 'can_promotion_videos', 'can_pin_requests', 'can_suggestions',
+                'can_personal_documents',
             ])
             ->map(function ($row) {
                 $row->created_at_formatted = $row->created_at ? $row->created_at->format('d-m-Y h:i A') : '-';
@@ -157,6 +161,7 @@ class SubAdminController extends Controller
             'can_promotion_videos' => 'nullable|boolean',
             'can_pin_requests'     => 'nullable|boolean',
             'can_suggestions'      => 'nullable|boolean',
+            'can_personal_documents' => 'nullable|boolean',
         ], $this->messages);
 
         if ($validator->fails()) {
@@ -185,6 +190,7 @@ class SubAdminController extends Controller
             $user->can_promotion_videos = $perms['can_promotion_videos'];
             $user->can_pin_requests     = $perms['can_pin_requests'];
             $user->can_suggestions      = $perms['can_suggestions'];
+            $user->can_personal_documents = $perms['can_personal_documents'];
             $user->created_by = $actorId;
             $user->updated_by = $actorId;
             $user->save();
@@ -246,6 +252,7 @@ class SubAdminController extends Controller
             'can_promotion_videos' => 'nullable|boolean',
             'can_pin_requests'     => 'nullable|boolean',
             'can_suggestions'      => 'nullable|boolean',
+            'can_personal_documents' => 'nullable|boolean',
         ], $this->messages);
 
         if ($validator->fails()) {
@@ -258,7 +265,8 @@ class SubAdminController extends Controller
         $permsTouched = $request->has('can_daily_videos')
             || $request->has('can_promotion_videos')
             || $request->has('can_pin_requests')
-            || $request->has('can_suggestions');
+            || $request->has('can_suggestions')
+            || $request->has('can_personal_documents');
 
         $perms = null;
         if ($permsTouched) {
@@ -293,6 +301,7 @@ class SubAdminController extends Controller
                 $user->can_promotion_videos = $perms['can_promotion_videos'];
                 $user->can_pin_requests     = $perms['can_pin_requests'];
                 $user->can_suggestions      = $perms['can_suggestions'];
+            $user->can_personal_documents = $perms['can_personal_documents'];
                 // Permissions are embedded in the JWT, so a token issued under
                 // the old perms must be invalidated to avoid staleness.
                 $user->remember_token = null;
@@ -391,6 +400,7 @@ class SubAdminController extends Controller
             'can_promotion_videos' => (int) ($user->can_promotion_videos ?? 0),
             'can_pin_requests'     => (int) ($user->can_pin_requests ?? 0),
             'can_suggestions'      => (int) ($user->can_suggestions ?? 0),
+            'can_personal_documents' => (int) ($user->can_personal_documents ?? 0),
             'created_at'           => $user->created_at,
             'updated_at'           => $user->updated_at,
         ];
