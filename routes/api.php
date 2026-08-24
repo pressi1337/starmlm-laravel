@@ -10,6 +10,8 @@ use App\Http\Controllers\V1\Api\TrainingQuizController;
 use App\Http\Controllers\V1\Api\PromotionVideoController;
 use App\Http\Controllers\V1\Api\PromotionQuizLogController;
 use App\Http\Controllers\V1\Api\OfferController;
+use App\Http\Controllers\V1\Api\CompanyDocumentController;
+use App\Http\Controllers\V1\Api\MenuSettingController;
 use App\Http\Controllers\V1\Api\PromotionQuizController;
 use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
@@ -157,6 +159,17 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     Route::resource('support-helps', SupportHelpController::class)
         ->where(['support_help' => '[0-9]+']);
 
+    // Company Documents — admin CRUD + show/hide. status-update is declared
+    // before the resource so the {id} slot doesn't swallow it, and the numeric
+    // constraint keeps it clear of the user-side `company-documents/list` route.
+    // Show / hide user-facing menus (admin).
+    Route::get('menu-settings', [MenuSettingController::class, 'index']);
+    Route::post('menu-settings', [MenuSettingController::class, 'update']);
+
+    Route::patch('company-documents/status-update', [CompanyDocumentController::class, 'statusUpdate']);
+    Route::resource('company-documents', CompanyDocumentController::class)
+        ->where(['company_document' => '[0-9]+']);
+
     // Admin clear-bank action — wipes a user's locked bank details so they
     // can re-enter them. Body carries `user_id`; POST verb matches the
     // existing user-bank-detail/upsert style.
@@ -231,6 +244,12 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     // Support & Help — active Q&A list for the PWA accordion. Read-only,
     // ordered by id ASC (admin-insertion order).
     Route::get('support-helps/list', [SupportHelpController::class, 'userList']);
+
+    // Company Docs — active documents for the PWA list (view-only).
+    Route::get('company-documents/list', [CompanyDocumentController::class, 'userList']);
+
+    // Which user menus the admin has switched on — read once by the layout.
+    Route::get('user-menu-settings', [MenuSettingController::class, 'userMenus']);
 
     // ── Offer module (user) ─────────────────────────────────────────────────
     // status drives menu visibility + the pre-start countdown; the rest feed

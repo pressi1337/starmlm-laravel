@@ -669,3 +669,55 @@ ORDER BY `id` ASC;
 
 -- 4) Verify after running (rows_in_gap should be 0).
 --    Re-run query 1.
+
+
+-- ============================================================
+-- 2026_08_14_000001_create_company_documents_table
+-- Company Documents: admin uploads an image (any format) or PDF with a title
+-- and can show/hide, edit or delete it. Users see active rows under
+-- "Company Docs" and view them in-app (no download action offered).
+-- file_path holds the stored filename from the chunked /upload endpoint,
+-- served from /storage/uploads/final/ (same as video_path).
+-- file_type: 1 = image, 2 = pdf.
+-- ============================================================
+CREATE TABLE `company_documents` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `title` VARCHAR(255) NOT NULL,
+    `file_path` VARCHAR(255) NOT NULL,
+    `file_type` TINYINT NOT NULL DEFAULT 1,     -- 1 = image, 2 = pdf
+    `created_by` INT NULL,
+    `updated_by` INT NULL,
+    `is_active` TINYINT NOT NULL DEFAULT 1,     -- show / hide for users
+    `is_deleted` TINYINT NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP NULL,
+    `updated_at` TIMESTAMP NULL,
+    PRIMARY KEY (`id`),
+    KEY `company_docs_visible_idx` (`is_active`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Rollback:
+-- DROP TABLE `company_documents`;
+
+
+-- ============================================================
+-- 2026_08_14_000002_create_app_settings_table
+-- Generic key/value store. Currently backs the "show / hide this menu for
+-- users" toggles (AppSetting::MENU_KEYS) — a new toggle needs only a new key,
+-- not a new table or endpoint. First use: the Company Docs menu.
+-- Menu flags are stored as setting_key = 'menu_visible_<menu>', value '1'/'0'.
+-- A missing row means "use the default" (visible), so nothing needs seeding.
+-- (`key` is reserved in MySQL, hence setting_key / setting_value.)
+-- ============================================================
+CREATE TABLE `app_settings` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `setting_key` VARCHAR(255) NOT NULL,
+    `setting_value` TEXT NULL,
+    `updated_by` INT NULL,
+    `created_at` TIMESTAMP NULL,
+    `updated_at` TIMESTAMP NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `app_settings_setting_key_unique` (`setting_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Rollback:
+-- DROP TABLE `app_settings`;
