@@ -49,14 +49,16 @@ class User extends Authenticatable implements JWTSubject
         'can_promotion_videos',
         'can_pin_requests',
         'can_suggestions',
+        'can_personal_documents',
     ];
 
     // Permission keys map to the boolean columns added for sub-admins.
     public const PERMISSION_COLUMNS = [
-        'daily_videos'     => 'can_daily_videos',
-        'promotion_videos' => 'can_promotion_videos',
-        'pin_requests'     => 'can_pin_requests',
-        'suggestions'      => 'can_suggestions',
+        'daily_videos'       => 'can_daily_videos',
+        'promotion_videos'   => 'can_promotion_videos',
+        'pin_requests'       => 'can_pin_requests',
+        'suggestions'        => 'can_suggestions',
+        'personal_documents' => 'can_personal_documents',
     ];
 
     // Promoter daily earning model (single source of truth).
@@ -187,10 +189,11 @@ class User extends Authenticatable implements JWTSubject
     public function adminPermissionsMap(): array
     {
         return [
-            'daily_videos'     => (int) ($this->can_daily_videos ?? 0) === 1,
-            'promotion_videos' => (int) ($this->can_promotion_videos ?? 0) === 1,
-            'pin_requests'     => (int) ($this->can_pin_requests ?? 0) === 1,
-            'suggestions'      => (int) ($this->can_suggestions ?? 0) === 1,
+            'daily_videos'       => (int) ($this->can_daily_videos ?? 0) === 1,
+            'promotion_videos'   => (int) ($this->can_promotion_videos ?? 0) === 1,
+            'pin_requests'       => (int) ($this->can_pin_requests ?? 0) === 1,
+            'suggestions'        => (int) ($this->can_suggestions ?? 0) === 1,
+            'personal_documents' => (int) ($this->can_personal_documents ?? 0) === 1,
         ];
     }
 
