@@ -22,7 +22,7 @@ class CompanyPersonalDocument extends Model
         'title',
         'file_path',
         'file_type',
-        'is_active',
+        'is_sub_admin_visible',
         'remark',
         'created_by',
         'updated_by',
@@ -78,8 +78,9 @@ class CompanyPersonalDocument extends Model
         ][(int) $this->file_type] ?? 'File';
     }
 
-    public function statusLabel(): string
+    /** Whether sub-admins can see this document. */
+    public function visibilityLabel(): string
     {
-        return (int) $this->is_active === 1 ? 'Active' : 'Inactive';
+        return (int) $this->is_sub_admin_visible === 1 ? 'Visible' : 'Hidden';
     }
 }

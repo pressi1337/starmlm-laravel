@@ -11,9 +11,13 @@ return new class extends Migration
      * end users. Distinct from `company_documents`, which is the user-facing
      * "Company Docs" list.
      *
-     * Sub-admins holding the `personal_documents` permission can add entries;
-     * anything they add starts INACTIVE and only a super-admin can activate it.
-     * Documents added by a super-admin are active immediately.
+     * is_sub_admin_visible controls whether SUB-ADMINS may see the document.
+     * The super-admin always sees everything and owns this flag. A sub-admin
+     * sees a document only when it is visible, or when they uploaded it
+     * themselves (so they can track their own submissions).
+     *
+     * Sub-admin uploads default to hidden; a super-admin's own upload is
+     * visible immediately.
      *
      * file_type: 1 = image, 2 = pdf, 3 = excel (see the model constants).
      */
@@ -24,19 +28,19 @@ return new class extends Migration
             $table->string('title');
             $table->string('file_path');
             $table->tinyInteger('file_type')->default(1);
-            // Show / hide. Defaults to 0 so a sub-admin's upload waits for the
-            // super-admin to activate it; the controller sets 1 for super-admin.
-            $table->tinyInteger('is_active')->default(0);
+            // Deliberately NOT called is_active: this is an access flag, not
+            // the usual show/hide. 0 = hidden from sub-admins (the default).
+            $table->tinyInteger('is_sub_admin_visible')->default(0);
             $table->text('remark')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
             $table->unsignedBigInteger('updated_by')->nullable();
-            // Who last flipped active/inactive, and when.
+            // Who last changed visibility, and when.
             $table->unsignedBigInteger('status_changed_by')->nullable();
             $table->timestamp('status_changed_at')->nullable();
             $table->tinyInteger('is_deleted')->default(0);
             $table->timestamps();
 
-            $table->index(['is_active', 'is_deleted'], 'cpd_status_idx');
+            $table->index(['is_sub_admin_visible', 'is_deleted'], 'cpd_visible_idx');
             $table->index(['created_by'], 'cpd_creator_idx');
         });
     }

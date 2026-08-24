@@ -18,17 +18,18 @@ use Illuminate\Support\Facades\Validator;
  * Access: `subadmin.permission:personal_documents` — super-admin always passes,
  * a sub-admin needs the explicit flag.
  *
- * Workflow:
- *   • sub-admin adds  -> saved INACTIVE, and they can only edit or delete
- *     their OWN entry while it is still inactive;
- *   • super-admin adds -> ACTIVE immediately;
- *   • only a super-admin can show / hide (toggle active).
+ * Visibility:
+ *   • the super-admin sees every document and owns the visibility flag;
+ *   • a sub-admin sees a document only if it is marked visible OR they
+ *     uploaded it themselves (so their own submissions never disappear);
+ *   • sub-admin uploads default to hidden; a super-admin's upload is visible
+ *     at once; a sub-admin may edit/delete only their own, still-hidden rows.
  */
 class CompanyPersonalDocumentController extends Controller
 {
     use HandlesJson;
 
-    protected array $sortable = ['id', 'title', 'is_active', 'created_at'];
+    protected array $sortable = ['id', 'title', 'is_sub_admin_visible', 'created_at'];
 
     private function isSuperAdmin(): bool
     {
@@ -51,11 +52,22 @@ class CompanyPersonalDocumentController extends Controller
             $query = CompanyPersonalDocument::with(['creator:id,username,first_name,last_name,role'])
                 ->where('is_deleted', 0);
 
+            // A sub-admin only gets documents made visible to them, plus their
+            // own uploads. This is what makes the "Sub Admin Visible" flag mean
+            // something — without it the label would be cosmetic.
+            if (!$this->isSuperAdmin()) {
+                $authId = Auth::id();
+                $query->where(function ($q) use ($authId) {
+                    $q->where('is_sub_admin_visible', 1)
+                        ->orWhere('created_by', $authId);
+                });
+            }
+
             if ($search_term !== '') {
                 $query->where('title', 'LIKE', '%' . $search_term . '%');
             }
-            if (isset($search_param['is_active']) && $search_param['is_active'] !== '') {
-                $query->where('is_active', (int) $search_param['is_active']);
+            if (isset($search_param['is_sub_admin_visible']) && $search_param['is_sub_admin_visible'] !== '') {
+                $query->where('is_sub_admin_visible', (int) $search_param['is_sub_admin_visible']);
             }
 
             $total_records = (clone $query)->count();
@@ -106,10 +118,10 @@ class CompanyPersonalDocumentController extends Controller
             $doc->file_path = $request->file_path;
             $doc->file_type = CompanyPersonalDocument::detectFileType($request->file_path);
             $doc->remark = $request->remark;
-            // A sub-admin's upload starts hidden until the super-admin shows
-            // it; a super-admin's own upload is active right away. A sub-admin
-            // cannot set this themselves.
-            $doc->is_active = $isSuper ? 1 : 0;
+            // A sub-admin's upload starts hidden from other sub-admins until
+            // the super-admin makes it visible; a super-admin's own upload is
+            // visible at once. A sub-admin cannot set this themselves.
+            $doc->is_sub_admin_visible = $isSuper ? 1 : 0;
             if ($isSuper) {
                 $doc->status_changed_by = $authId;
                 $doc->status_changed_at = now();
@@ -144,7 +156,7 @@ class CompanyPersonalDocumentController extends Controller
             }
             if (!$this->canModify($doc)) {
                 return response()->json([
-                    'message' => 'You can only edit your own documents while they are inactive.',
+                    'message' => 'You can only edit your own documents while they are still hidden.',
                     'status'  => 403,
                 ], 403);
             }
@@ -177,7 +189,7 @@ class CompanyPersonalDocumentController extends Controller
             }
             if (!$this->canModify($doc)) {
                 return response()->json([
-                    'message' => 'You can only delete your own documents while they are inactive.',
+                    'message' => 'You can only delete your own documents while they are still hidden.',
                     'status'  => 403,
                 ], 403);
             }
@@ -194,8 +206,8 @@ class CompanyPersonalDocumentController extends Controller
     }
 
     /**
-     * Show / hide a document — SUPER-ADMIN ONLY.
-     * A sub-admin can see the status but never change it.
+     * Show / hide a document from sub-admins — SUPER-ADMIN ONLY.
+     * A sub-admin can see the flag but never change it.
      */
     public function statusUpdate(Request $request)
     {
@@ -208,9 +220,9 @@ class CompanyPersonalDocumentController extends Controller
             }
 
             $validator = Validator::make($request->all(), [
-                'id'        => 'required|integer',
-                'is_active' => 'required|boolean',
-                'remark'    => 'nullable|string|max:500',
+                'id'                   => 'required|integer',
+                'is_sub_admin_visible' => 'required|boolean',
+                'remark'               => 'nullable|string|max:500',
             ]);
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
@@ -221,7 +233,7 @@ class CompanyPersonalDocumentController extends Controller
                 return response()->json(['message' => 'Data not found', 'status' => 400], 400);
             }
 
-            $doc->is_active = (int) $request->is_active ? 1 : 0;
+            $doc->is_sub_admin_visible = (int) $request->is_sub_admin_visible ? 1 : 0;
             if ($request->filled('remark')) {
                 $doc->remark = $request->remark;
             }
@@ -237,14 +249,14 @@ class CompanyPersonalDocumentController extends Controller
         }
     }
 
-    /** Super-admin: anything. Sub-admin: only their own, still-inactive rows. */
+    /** Super-admin: anything. Sub-admin: only their own, still-hidden rows. */
     private function canModify(CompanyPersonalDocument $doc): bool
     {
         if ($this->isSuperAdmin()) {
             return true;
         }
         return (int) $doc->created_by === (int) Auth::id()
-            && (int) $doc->is_active === 0;
+            && (int) $doc->is_sub_admin_visible === 0;
     }
 
     private function validatePayload(Request $request)
@@ -271,14 +283,14 @@ class CompanyPersonalDocumentController extends Controller
     private function present(CompanyPersonalDocument $row): array
     {
         $creator = $row->creator;
-        return [
+        $isSuper = $this->isSuperAdmin();
+
+        $data = [
             'id'                   => $row->id,
             'title'                => $row->title,
             'file_path'            => $row->file_path,
             'file_type'            => (int) $row->file_type,
             'type_label'           => $row->typeLabel(),
-            'is_active'            => (int) $row->is_active,
-            'status_label'         => $row->statusLabel(),
             'remark'               => $row->remark,
             'created_by'           => $row->created_by,
             'added_by'             => $creator->username ?? 'N/A',
@@ -292,5 +304,14 @@ class CompanyPersonalDocumentController extends Controller
                 ? $row->status_changed_at->format('d-m-Y h:i A')
                 : null,
         ];
+
+        // Visibility is a super-admin concern only — a sub-admin never sees
+        // that the flag exists, so it is omitted from their payload entirely.
+        if ($isSuper) {
+            $data['is_sub_admin_visible'] = (int) $row->is_sub_admin_visible;
+            $data['visibility_label'] = $row->visibilityLabel();
+        }
+
+        return $data;
     }
 }
