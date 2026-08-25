@@ -28,13 +28,20 @@ class LoginLog extends Model
         'browser',
         'device_id',
         'device_model',
+        'device_brand',
         'screen',
         'user_agent',
+        'city',
+        'region',
+        'country',
+        'isp',
+        'location_checked_at',
         'logged_in_at',
     ];
 
     protected $casts = [
-        'logged_in_at' => 'datetime',
+        'logged_in_at'        => 'datetime',
+        'location_checked_at' => 'datetime',
     ];
 
     public function user()
@@ -55,6 +62,7 @@ class LoginLog extends Model
             // Sent by the app; absent for older clients, which is fine.
             $deviceId = $request->input('device_id');
             $screen = $request->input('screen');
+            $model = self::parseDeviceModel($agent);
 
             self::create([
                 'user_id'      => $user->id,
@@ -66,7 +74,8 @@ class LoginLog extends Model
                 'os'           => $parsed['os'],
                 'browser'      => $parsed['browser'],
                 'device_id'    => is_string($deviceId) ? substr($deviceId, 0, 64) : null,
-                'device_model' => self::parseDeviceModel($agent),
+                'device_model' => $model,
+                'device_brand' => self::parseDeviceBrand($model, $agent),
                 'screen'       => is_string($screen) ? substr($screen, 0, 30) : null,
                 'user_agent'   => $agent,
                 'logged_in_at' => now(),
@@ -150,6 +159,128 @@ class LoginLog extends Model
         if (preg_match('/\biPod\b/i', $ua))   return 'iPod';
 
         return null;
+    }
+
+    /**
+     * Work out the manufacturer — "Samsung", "Xiaomi", "Oppo" — from the model
+     * code. Android phones report a code, not a brand: "SM-G991B" means nothing
+     * to somebody reading the admin list, but every maker uses its own code
+     * prefix, so the brand can be recovered from it.
+     *
+     * Brand words are checked before code prefixes because some agents already
+     * spell it out ("Redmi Note 12", "vivo 1904").
+     *
+     * Known limit: OnePlus shifted to Oppo's "CPH" codes after the two merged,
+     * so a recent OnePlus Nord reads as Oppo. The model code is always shown
+     * next to the brand, so nothing is hidden by that.
+     */
+    public static function parseDeviceBrand(?string $model, ?string $agent = null): ?string
+    {
+        $haystack = trim((string) $model);
+        if ($haystack === '') {
+            $haystack = (string) $agent;
+        }
+        if ($haystack === '') {
+            return null;
+        }
+
+        // Spelled-out brand names first — an exact word beats a code guess.
+        $names = [
+            '/\b(Samsung|Galaxy)\b/i'  => 'Samsung',
+            '/\b(Xiaomi|Redmi|POCO|POCOPHONE)\b/i' => 'Xiaomi',
+            '/\brealme\b/i'            => 'Realme',
+            '/\bOnePlus\b/i'           => 'OnePlus',
+            '/\bOPPO\b/i'              => 'Oppo',
+            '/\bvivo\b/i'              => 'Vivo',
+            '/\biQOO\b/i'              => 'iQOO',
+            '/\b(Motorola|moto)\b/i'   => 'Motorola',
+            '/\bPixel\b/i'             => 'Google',
+            '/\b(iPhone|iPad|iPod|Macintosh)\b/i' => 'Apple',
+            '/\bNokia\b/i'             => 'Nokia',
+            '/\bInfinix\b/i'           => 'Infinix',
+            '/\bTECNO\b/i'             => 'Tecno',
+            '/\bitel\b/i'              => 'itel',
+            '/\bLava\b/i'              => 'Lava',
+            '/\bMicromax\b/i'          => 'Micromax',
+            '/\bHonor\b/i'             => 'Honor',
+            '/\bHUAWEI\b/i'            => 'Huawei',
+            '/\b(ASUS|ZenFone)\b/i'    => 'Asus',
+            '/\bLenovo\b/i'            => 'Lenovo',
+            '/\bNothing\b/i'           => 'Nothing',
+            '/\bJioPhone\b/i'          => 'Jio',
+        ];
+        foreach ($names as $pattern => $brand) {
+            if (preg_match($pattern, $haystack)) {
+                return $brand;
+            }
+        }
+
+        // Then the maker-specific model code prefixes.
+        $codes = [
+            '/^(SM-|GT-|SGH-|SCH-|SPH-)/i'   => 'Samsung',   // SM-G991B
+            '/^(M\d{4}[A-Z]|\d{4}[A-Z0-9]{5,}|MI\s)/i' => 'Xiaomi', // M2101K6G / 22011119UY
+            '/^RMX\d/i'                      => 'Realme',    // RMX3231
+            '/^CPH\d/i'                      => 'Oppo',      // CPH2185
+            '/^(V\d{4}|vivo)/i'              => 'Vivo',      // V2027
+            '/^(I\d{4})/i'                   => 'iQOO',      // I2201
+            '/^XT\d{4}/i'                    => 'Motorola',  // XT2041-1
+            '/^TA-\d{4}/i'                   => 'Nokia',     // TA-1234
+            '/^(KB2|IN2|HD19|GM19|AC2|LE2|BE2|DN2|EB2|NE2)\d/i' => 'OnePlus',
+            '/^(ANE|VOG|ELE|MAR|POT|JNY|STK)-/i' => 'Huawei',
+            '/^(CMA|RMO|NTH|LLY|ANY|WDY)-/i' => 'Honor',
+        ];
+        foreach ($codes as $pattern => $brand) {
+            if (preg_match($pattern, $haystack)) {
+                return $brand;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The stored brand, working it out on the fly for rows logged before the
+     * column existed — so old history reads the same as new history.
+     */
+    public function brand(): ?string
+    {
+        if (is_string($this->device_brand) && trim($this->device_brand) !== '') {
+            return $this->device_brand;
+        }
+        return self::parseDeviceBrand($this->device_model, $this->user_agent);
+    }
+
+    /**
+     * What the admin actually reads, e.g. "Samsung SM-G991B", "Xiaomi Redmi
+     * Note 12 Pro", "Apple iPhone". Falls back to the device class when the
+     * agent gives no model (desktops, and iOS beyond the family name).
+     */
+    public function deviceName(): string
+    {
+        $model = trim((string) $this->device_model);
+        $brand = trim((string) $this->brand());
+
+        if ($model === '') {
+            if ($this->os === 'Windows') return 'Windows PC';
+            if ($this->os === 'macOS')   return 'Mac';
+            return $this->device ?: 'Unknown';
+        }
+
+        // Don't print "Xiaomi Xiaomi Redmi …" when the model already names it.
+        if ($brand === '' || stripos($model, $brand) === 0) {
+            return $model;
+        }
+
+        return $brand . ' ' . $model;
+    }
+
+    /** "Chennai, Tamil Nadu, India" — whichever parts resolved. */
+    public function locationLabel(): ?string
+    {
+        $parts = array_filter([$this->city, $this->region, $this->country], function ($p) {
+            return is_string($p) && trim($p) !== '';
+        });
+        return $parts ? implode(', ', $parts) : null;
     }
 
     /** e.g. "Mobile · Android · Chrome" for the admin list. */

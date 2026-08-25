@@ -5,6 +5,7 @@ namespace App\Http\Controllers\V1\Api;
 use App\Http\Controllers\Controller;
 use App\Models\LoginLog;
 use App\Models\User;
+use App\Services\IpLocationService;
 use App\Traits\HandlesJson;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -45,7 +46,11 @@ class LoginLogController extends Controller
                         // Paste a device id here to see every account that has
                         // logged in from that phone.
                         ->orWhere('device_id', 'LIKE', $like)
-                        ->orWhere('device_model', 'LIKE', $like);
+                        ->orWhere('device_model', 'LIKE', $like)
+                        ->orWhere('device_brand', 'LIKE', $like)
+                        ->orWhere('city', 'LIKE', $like)
+                        ->orWhere('country', 'LIKE', $like)
+                        ->orWhere('isp', 'LIKE', $like);
                 });
             }
 
@@ -73,6 +78,9 @@ class LoginLogController extends Controller
                     return $q->skip(($page_number - 1) * $page_size)->take($page_size);
                 })
                 ->get();
+
+            // Resolve city/ISP for any IP on this page we haven't seen before.
+            $this->fillLocations($rows);
 
             // How many DISTINCT accounts each device on this page has been used
             // for. >1 is the signal worth investigating: one phone, several
@@ -103,6 +111,9 @@ class LoginLogController extends Controller
                         'device_label' => $row->deviceLabel(),
                         'device_id'    => $row->device_id,
                         'device_model' => $row->device_model,
+                        'device_brand' => $row->brand(),
+                        // Ready to print, e.g. "Samsung SM-G991B".
+                        'device_name'  => $row->deviceName(),
                         'screen'       => $row->screen,
                         // 1 = only this account uses the device. >1 means the
                         // same phone has signed into that many accounts.
@@ -110,6 +121,13 @@ class LoginLogController extends Controller
                             ? (int) ($accountsPerDevice[$row->device_id] ?? 1)
                             : null,
                         'ip_address'   => $row->ip_address,
+                        'city'         => $row->city,
+                        'region'       => $row->region,
+                        'country'      => $row->country,
+                        // The network the IP belongs to. A mobile carrier here
+                        // explains a shared IP on its own.
+                        'isp'          => $row->isp,
+                        'location'     => $row->locationLabel(),
                         'logged_in_at' => $row->logged_in_at
                             ? $row->logged_in_at->format('d-m-Y h:i A')
                             : '-',
@@ -137,6 +155,53 @@ class LoginLogController extends Controller
         } catch (\Throwable $e) {
             Log::error('LoginLog index failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    /**
+     * Fill in city / ISP for the rows being displayed, on first view only.
+     *
+     * Deliberately not done at login time: a login must never wait on an
+     * outside service. Instead the first admin who looks at a row resolves it,
+     * the answer is written to the database, and every future view reads it
+     * straight from there. The whole page costs one HTTP call, and rows sharing
+     * an IP are all updated together — so the table backfills itself as it's
+     * browsed and the work keeps shrinking.
+     *
+     * Failure is not fatal: unresolved rows simply keep showing the raw IP and
+     * get another chance next time.
+     */
+    private function fillLocations($rows): void
+    {
+        try {
+            $pending = $rows->filter(function ($row) {
+                return $row->location_checked_at === null && !empty($row->ip_address);
+            });
+
+            if ($pending->isEmpty()) {
+                return;
+            }
+
+            $ips = $pending->pluck('ip_address')->unique()->values()->all();
+            $located = app(IpLocationService::class)->lookupMany($ips);
+
+            foreach ($located as $ip => $location) {
+                $payload = array_merge($location, ['location_checked_at' => now()]);
+
+                // Every unresolved row on this IP, not just the ones on screen.
+                LoginLog::where('ip_address', $ip)
+                    ->whereNull('location_checked_at')
+                    ->update($payload);
+
+                // Reflect it on the already-loaded rows so this response shows it.
+                foreach ($pending as $row) {
+                    if ($row->ip_address === $ip) {
+                        $row->forceFill($payload);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('LoginLog location backfill failed', ['error' => $e->getMessage()]);
         }
     }
 }
