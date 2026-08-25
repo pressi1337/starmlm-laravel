@@ -518,26 +518,24 @@ class PromotionVideoController extends Controller
             $currentOrder = ($currentSet === 1)
                 ? $user_promoter_session->current_video_order_set1
                 : $user_promoter_session->current_video_order_set2;
-            // Coming back to the video after a completed quiz (status 2) on the
-            // first video of a set = the user chose Retry. Advance to the set's
-            // second video and reset the set back to ASSIGNED so it must be
-            // watched again.
-            if (
-                $currentSet == 1 && $currentOrder == 1 &&
-                $user_promoter_session->set1_status == 2
-            ) {
-                $user_promoter_session->current_video_order_set1 = UserPromoterSession::SET1_VIDEO_ORDER_2;
-                $currentOrder = UserPromoterSession::SET1_VIDEO_ORDER_2;
+            // Coming back to the video after a completed quiz (status 2) means
+            // the user chose Retry. Move to the next video slot and reset the
+            // set to ASSIGNED so the new video has to be watched again.
+            //
+            // Retries are UNLIMITED: the order simply keeps incrementing, and
+            // because a video is resolved per (session, set, order) slot the
+            // user gets a fresh random video on every retry. The previous
+            // attempt's earning is discarded — only the confirmed one counts.
+            if ($currentSet == 1 && $user_promoter_session->set1_status == 2) {
+                $user_promoter_session->current_video_order_set1 = $currentOrder + 1;
+                $currentOrder = $currentOrder + 1;
                 $user_promoter_session->earned_amount_set1 = 0;
                 $user_promoter_session->set1_status = 0;
                 $user_promoter_session->save();
             }
-            if (
-                $currentSet == 2 && $currentOrder == 3 &&
-                $user_promoter_session->set2_status == 2
-            ) {
-                $user_promoter_session->current_video_order_set2 = 4;
-                $currentOrder = 4;
+            if ($currentSet == 2 && $user_promoter_session->set2_status == 2) {
+                $user_promoter_session->current_video_order_set2 = $currentOrder + 1;
+                $currentOrder = $currentOrder + 1;
                 $user_promoter_session->earned_amount_set2 = 0;
                 $user_promoter_session->set2_status = 0;
                 $user_promoter_session->save();
@@ -825,19 +823,11 @@ class PromotionVideoController extends Controller
                 $user_promoter_session->earned_amount_set2 = $total_earning;
                 $user_promoter_session->save();
             }
-            // Offer a retry only on the first video of the set. The advance in
-            // userPromotionVideo moves the order to the set's second video on
-            // retry, so a second attempt won't offer another retry.
-            $retry = false;
-            if ($user_promoter_session->set1_status <= 2) {
-                if ($user_promoter_session->current_video_order_set1 == 1) {
-                    $retry = true;
-                }
-            } else {
-                if ($user_promoter_session->set2_status <= 2 && $user_promoter_session->current_video_order_set2 == 3) {
-                    $retry = true;
-                }
-            }
+            // Retries are unlimited — always offer one. The user either
+            // confirms this attempt's earning or retries for a fresh video.
+            // (The set was just moved to QUIZ_COMPLETED above, so it is always
+            // a valid point to offer a retry.)
+            $retry = true;
 
             // ── Audit log: record this quiz attempt. Wrapped so a logging
             // failure can never break the user's quiz result. A prior un-

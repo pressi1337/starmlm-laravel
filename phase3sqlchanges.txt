@@ -800,3 +800,15 @@ CREATE TABLE `login_logs` (
 -- Housekeeping: this table grows one row per login. If it ever gets large,
 -- trim old rows, e.g.:
 -- DELETE FROM `login_logs` WHERE `logged_in_at` < DATE_SUB(NOW(), INTERVAL 6 MONTH);
+
+
+-- ============================================================
+-- 2026_08_25_000001_widen_video_order_for_unlimited_retries
+-- Promotion-video retries are now UNLIMITED. Each retry advances the video
+-- order by one (so the user gets a fresh random video), which could overflow
+-- the old TINYINT (max 127) and hard-fail the video endpoint mid-session.
+-- ============================================================
+ALTER TABLE `user_promotion_video_views` MODIFY COLUMN `video_order` SMALLINT NULL;
+
+-- Rollback:
+-- ALTER TABLE `user_promotion_video_views` MODIFY COLUMN `video_order` TINYINT NULL;
