@@ -41,7 +41,11 @@ class LoginLogController extends Controller
                 $query->where(function ($q) use ($like) {
                     $q->where('username', 'LIKE', $like)
                         ->orWhere('customer_id', 'LIKE', $like)
-                        ->orWhere('ip_address', 'LIKE', $like);
+                        ->orWhere('ip_address', 'LIKE', $like)
+                        // Paste a device id here to see every account that has
+                        // logged in from that phone.
+                        ->orWhere('device_id', 'LIKE', $like)
+                        ->orWhere('device_model', 'LIKE', $like);
                 });
             }
 
@@ -64,12 +68,28 @@ class LoginLogController extends Controller
 
             $total_records = (clone $query)->count();
 
-            $items = $query->orderBy($sort_column, $sort_direction)
+            $rows = $query->orderBy($sort_column, $sort_direction)
                 ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
                     return $q->skip(($page_number - 1) * $page_size)->take($page_size);
                 })
-                ->get()
-                ->map(function ($row) {
+                ->get();
+
+            // How many DISTINCT accounts each device on this page has been used
+            // for. >1 is the signal worth investigating: one phone, several
+            // accounts. Done as a single query for the whole page.
+            $deviceIds = $rows->pluck('device_id')->filter()->unique()->values()->all();
+            $accountsPerDevice = [];
+            if (!empty($deviceIds)) {
+                $accountsPerDevice = \Illuminate\Support\Facades\DB::table('login_logs')
+                    ->whereIn('device_id', $deviceIds)
+                    ->selectRaw('device_id, COUNT(DISTINCT user_id) as accounts')
+                    ->groupBy('device_id')
+                    ->pluck('accounts', 'device_id')
+                    ->all();
+            }
+
+            $items = $rows
+                ->map(function ($row) use ($accountsPerDevice) {
                     return [
                         'id'           => $row->id,
                         'user_id'      => $row->user_id,
@@ -81,6 +101,14 @@ class LoginLogController extends Controller
                         'os'           => $row->os,
                         'browser'      => $row->browser,
                         'device_label' => $row->deviceLabel(),
+                        'device_id'    => $row->device_id,
+                        'device_model' => $row->device_model,
+                        'screen'       => $row->screen,
+                        // 1 = only this account uses the device. >1 means the
+                        // same phone has signed into that many accounts.
+                        'accounts_on_device' => $row->device_id
+                            ? (int) ($accountsPerDevice[$row->device_id] ?? 1)
+                            : null,
                         'ip_address'   => $row->ip_address,
                         'logged_in_at' => $row->logged_in_at
                             ? $row->logged_in_at->format('d-m-Y h:i A')

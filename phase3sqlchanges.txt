@@ -812,3 +812,36 @@ ALTER TABLE `user_promotion_video_views` MODIFY COLUMN `video_order` SMALLINT NU
 
 -- Rollback:
 -- ALTER TABLE `user_promotion_video_views` MODIFY COLUMN `video_order` TINYINT NULL;
+
+
+-- ============================================================
+-- 2026_08_25_000002_add_device_identity_to_login_logs
+-- Tell DEVICES apart, not just networks. An IP identifies a connection — a
+-- household or a whole mobile carrier (CGNAT) shares one — so "10 accounts on
+-- one IP" proves nothing. These answer "same phone or different phone?":
+--   device_id    : random id the app stores once per install and sends at
+--                  login. Same id under several accounts = strong evidence of
+--                  one person running them. Cleared by app-data wipe /
+--                  reinstall, so a NEW id is not proof of a different person.
+--   device_model : parsed from the user agent (e.g. SM-G991B). Android exposes
+--                  it; iOS does not (iPhones report only "iPhone").
+--   screen       : viewport size, a cheap extra discriminator.
+-- ============================================================
+ALTER TABLE `login_logs`
+    ADD COLUMN `device_id` VARCHAR(64) NULL AFTER `browser`,
+    ADD COLUMN `device_model` VARCHAR(100) NULL AFTER `device_id`,
+    ADD COLUMN `screen` VARCHAR(30) NULL AFTER `device_model`,
+    ADD INDEX `login_logs_device_idx` (`device_id`);
+
+-- Find devices used by more than one account (the multi-accounting signal):
+-- SELECT `device_id`, COUNT(DISTINCT `user_id`) AS accounts,
+--        GROUP_CONCAT(DISTINCT `username`) AS usernames
+-- FROM `login_logs`
+-- WHERE `device_id` IS NOT NULL
+-- GROUP BY `device_id`
+-- HAVING accounts > 1
+-- ORDER BY accounts DESC;
+
+-- Rollback:
+-- ALTER TABLE `login_logs` DROP INDEX `login_logs_device_idx`,
+--   DROP COLUMN `device_id`, DROP COLUMN `device_model`, DROP COLUMN `screen`;

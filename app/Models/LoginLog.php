@@ -26,6 +26,9 @@ class LoginLog extends Model
         'device',
         'os',
         'browser',
+        'device_id',
+        'device_model',
+        'screen',
         'user_agent',
         'logged_in_at',
     ];
@@ -49,6 +52,10 @@ class LoginLog extends Model
             $agent = (string) $request->userAgent();
             $parsed = self::parseUserAgent($agent);
 
+            // Sent by the app; absent for older clients, which is fine.
+            $deviceId = $request->input('device_id');
+            $screen = $request->input('screen');
+
             self::create([
                 'user_id'      => $user->id,
                 'username'     => $user->username,
@@ -58,6 +65,9 @@ class LoginLog extends Model
                 'device'       => $parsed['device'],
                 'os'           => $parsed['os'],
                 'browser'      => $parsed['browser'],
+                'device_id'    => is_string($deviceId) ? substr($deviceId, 0, 64) : null,
+                'device_model' => self::parseDeviceModel($agent),
+                'screen'       => is_string($screen) ? substr($screen, 0, 30) : null,
                 'user_agent'   => $agent,
                 'logged_in_at' => now(),
             ]);
@@ -111,6 +121,35 @@ class LoginLog extends Model
         elseif (preg_match('/Safari\//i', $ua))          $browser = 'Safari';
 
         return ['device' => $device, 'os' => $os, 'browser' => $browser];
+    }
+
+    /**
+     * Pull the phone model out of the user agent, e.g. "SM-G991B" (Samsung
+     * S21) or "Redmi Note 12". Android exposes it; iOS deliberately does not,
+     * so iPhones/iPads report only the family name.
+     */
+    public static function parseDeviceModel(?string $agent): ?string
+    {
+        $ua = (string) $agent;
+        if ($ua === '') {
+            return null;
+        }
+
+        // Android: "... (Linux; Android 13; SM-G991B Build/...)" — the model is
+        // the segment after the Android version.
+        if (preg_match('/Android\s+[\d.]+;\s*([^;)]+?)(?:\s+Build\/[^;)]*)?[;)]/i', $ua, $m)) {
+            $model = trim($m[1]);
+            // Some UAs carry a locale ("en-us") in that slot instead.
+            if ($model !== '' && !preg_match('/^[a-z]{2}(-[a-z]{2})?$/i', $model)) {
+                return substr($model, 0, 100);
+            }
+        }
+
+        if (preg_match('/\biPad\b/i', $ua))   return 'iPad';
+        if (preg_match('/\biPhone\b/i', $ua)) return 'iPhone';
+        if (preg_match('/\biPod\b/i', $ua))   return 'iPod';
+
+        return null;
     }
 
     /** e.g. "Mobile · Android · Chrome" for the admin list. */
