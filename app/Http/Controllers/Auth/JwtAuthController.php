@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\TrainingVideo;
 use App\Models\UserTrainingVideo;
+use App\Models\LoginLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -239,6 +240,10 @@ class JwtAuthController extends Controller
             // Save JTI to remember_token to enforce single session
             $user->remember_token = $jti;
             $user->save();
+
+            // Audit trail: who signed in, when, and from what device. Wrapped
+            // internally so a logging failure can never block a login.
+            LoginLog::record($user, $request);
 
             // Fetch user data for response
             $userData = User::where('id', $user->id)

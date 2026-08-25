@@ -762,3 +762,41 @@ ALTER TABLE `users`
 -- Rollback:
 -- DROP TABLE `company_personal_documents`;
 -- ALTER TABLE `users` DROP COLUMN `can_personal_documents`;
+
+
+-- ============================================================
+-- 2026_08_25_000000_create_login_logs_table
+-- Audit trail of successful logins: who signed in, when, and from what device.
+-- Written by JwtAuthController::login (wrapped so a logging failure can never
+-- block a login). Admin views it under "Login History" (super-admin only).
+--
+-- username / customer_id / role are SNAPSHOTS taken at login time, so the log
+-- stays readable if the account is later renamed or soft-deleted.
+-- device: Mobile / Tablet / Desktop. The raw user_agent is kept as the source
+-- of truth in case a device isn't recognised.
+-- ============================================================
+CREATE TABLE `login_logs` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id` BIGINT UNSIGNED NULL,
+    `username` VARCHAR(255) NULL,
+    `customer_id` VARCHAR(20) NULL,
+    `role` TINYINT NULL,                  -- 0 super-admin, 1 sub-admin, 2 user
+    `ip_address` VARCHAR(45) NULL,        -- IPv6-safe length
+    `device` VARCHAR(60) NULL,            -- Mobile / Tablet / Desktop
+    `os` VARCHAR(60) NULL,
+    `browser` VARCHAR(60) NULL,
+    `user_agent` TEXT NULL,
+    `logged_in_at` TIMESTAMP NULL,
+    `created_at` TIMESTAMP NULL,
+    `updated_at` TIMESTAMP NULL,
+    PRIMARY KEY (`id`),
+    KEY `login_logs_user_time_idx` (`user_id`, `logged_in_at`),
+    KEY `login_logs_time_idx` (`logged_in_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Rollback:
+-- DROP TABLE `login_logs`;
+
+-- Housekeeping: this table grows one row per login. If it ever gets large,
+-- trim old rows, e.g.:
+-- DELETE FROM `login_logs` WHERE `logged_in_at` < DATE_SUB(NOW(), INTERVAL 6 MONTH);
