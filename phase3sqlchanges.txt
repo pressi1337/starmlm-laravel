@@ -845,3 +845,61 @@ ALTER TABLE `login_logs`
 -- Rollback:
 -- ALTER TABLE `login_logs` DROP INDEX `login_logs_device_idx`,
 --   DROP COLUMN `device_id`, DROP COLUMN `device_model`, DROP COLUMN `screen`;
+
+
+-- ============================================================
+-- 2026_08_25_000003_add_brand_and_location_to_login_logs
+-- Make the login log readable at a glance.
+--   device_brand : manufacturer worked out from the model code (SM-G991B ->
+--                  Samsung, CPH2185 -> Oppo, RMX3231 -> Realme). Shown as
+--                  "Samsung SM-G991B" in the admin list.
+--   city/region/country/isp : resolved from the IP the first time an admin
+--                  views that row, then kept forever, so an IP is only ever
+--                  looked up once. Country is reliable; CITY IS A GUESS and is
+--                  often wrong on mobile data (it shows the carrier's routing
+--                  city). The isp is the useful part — a mobile carrier there
+--                  is why unrelated people share one IP.
+--   location_checked_at : stamped after the lookup runs, success or not, so
+--                  failed rows are not retried on every page view.
+-- ============================================================
+ALTER TABLE `login_logs`
+    ADD COLUMN `device_brand` VARCHAR(40) NULL AFTER `device_model`,
+    ADD COLUMN `city` VARCHAR(80) NULL AFTER `ip_address`,
+    ADD COLUMN `region` VARCHAR(80) NULL AFTER `city`,
+    ADD COLUMN `country` VARCHAR(80) NULL AFTER `region`,
+    ADD COLUMN `isp` VARCHAR(120) NULL AFTER `country`,
+    ADD COLUMN `location_checked_at` TIMESTAMP NULL AFTER `isp`,
+    ADD INDEX `login_logs_ip_geo_idx` (`ip_address`, `location_checked_at`);
+
+-- Rows logged before this change have no device_brand stored; the admin list
+-- works it out from the user agent on the fly, so nothing looks different.
+-- To also make OLD rows searchable by brand, run this one-off backfill:
+-- UPDATE `login_logs` SET `device_brand` = 'Samsung'  WHERE `device_brand` IS NULL AND `device_model` LIKE 'SM-%';
+-- UPDATE `login_logs` SET `device_brand` = 'Xiaomi'   WHERE `device_brand` IS NULL AND (`device_model` LIKE 'Redmi%' OR `device_model` LIKE 'POCO%' OR `device_model` LIKE 'Xiaomi%');
+-- UPDATE `login_logs` SET `device_brand` = 'Realme'   WHERE `device_brand` IS NULL AND (`device_model` LIKE 'RMX%' OR `device_model` LIKE 'realme%');
+-- UPDATE `login_logs` SET `device_brand` = 'Oppo'     WHERE `device_brand` IS NULL AND `device_model` LIKE 'CPH%';
+-- UPDATE `login_logs` SET `device_brand` = 'Vivo'     WHERE `device_brand` IS NULL AND `device_model` LIKE 'vivo%';
+-- UPDATE `login_logs` SET `device_brand` = 'Apple'    WHERE `device_brand` IS NULL AND `device_model` IN ('iPhone','iPad','iPod');
+
+-- Which networks the users are actually on (explains shared IPs):
+-- SELECT `isp`, `city`, COUNT(DISTINCT `user_id`) AS accounts, COUNT(*) AS logins
+-- FROM `login_logs`
+-- WHERE `isp` IS NOT NULL
+-- GROUP BY `isp`, `city`
+-- ORDER BY accounts DESC;
+
+-- Accounts sharing one IP, with the device split — if the device count is far
+-- lower than the account count, it is one phone running many accounts:
+-- SELECT `ip_address`, `isp`, `city`,
+--        COUNT(DISTINCT `user_id`) AS accounts,
+--        COUNT(DISTINCT `device_id`) AS devices,
+--        GROUP_CONCAT(DISTINCT `username`) AS usernames
+-- FROM `login_logs`
+-- GROUP BY `ip_address`, `isp`, `city`
+-- HAVING accounts > 1
+-- ORDER BY accounts DESC;
+
+-- Rollback:
+-- ALTER TABLE `login_logs` DROP INDEX `login_logs_ip_geo_idx`,
+--   DROP COLUMN `device_brand`, DROP COLUMN `city`, DROP COLUMN `region`,
+--   DROP COLUMN `country`, DROP COLUMN `isp`, DROP COLUMN `location_checked_at`;

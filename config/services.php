@@ -55,4 +55,21 @@ return [
         'height' => env('FFMPEG_HEIGHT', 720),
     ],
 
+    /*
+     * Turns login IP addresses into a city / ISP for the admin Login History
+     * page. Nothing to install — it's a plain HTTP call, batched (one request
+     * per page of results), cached for 30 days, and the answer is stored on the
+     * login_logs row so each IP is only ever fetched once.
+     *
+     * ip-api.com's free tier is HTTP-only and allows 15 batch calls a minute,
+     * which is far more than an admin browsing a list will ever use. Only the
+     * IP address is sent — no user data. Set IP_LOCATION_ENABLED=false to turn
+     * the lookups off entirely; the page then just shows the raw IP.
+     */
+    'ip_location' => [
+        'enabled'  => env('IP_LOCATION_ENABLED', true),
+        'endpoint' => env('IP_LOCATION_ENDPOINT', 'http://ip-api.com/batch'),
+        'timeout'  => env('IP_LOCATION_TIMEOUT', 5),
+    ],
+
 ];
