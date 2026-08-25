@@ -13,6 +13,7 @@ use App\Http\Controllers\V1\Api\OfferController;
 use App\Http\Controllers\V1\Api\CompanyDocumentController;
 use App\Http\Controllers\V1\Api\MenuSettingController;
 use App\Http\Controllers\V1\Api\CompanyPersonalDocumentController;
+use App\Http\Controllers\V1\Api\LoginLogController;
 use App\Http\Controllers\V1\Api\PromotionQuizController;
 use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
@@ -173,6 +174,10 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     // Company Documents — admin CRUD + show/hide. status-update is declared
     // before the resource so the {id} slot doesn't swallow it, and the numeric
     // constraint keeps it clear of the user-side `company-documents/list` route.
+    // Login history — read-only audit. Super-admin only: it exposes IPs and
+    // devices for every account, including other admins.
+    Route::get('login-logs', [LoginLogController::class, 'index']);
+
     // Show / hide user-facing menus (admin).
     Route::get('menu-settings', [MenuSettingController::class, 'index']);
     Route::post('menu-settings', [MenuSettingController::class, 'update']);
