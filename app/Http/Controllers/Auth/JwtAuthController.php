@@ -292,12 +292,49 @@ class JwtAuthController extends Controller
    
 
     /**
-     * Log out the currently authenticated user (invalidate the token).
+     * Log out the currently authenticated user.
+     *
+     * `Auth::logout()` alone is not enough here. JWT is stateless — the token
+     * the client already holds stays valid for its full lifetime no matter what
+     * happens on this request. So the only thing that genuinely ends a session
+     * is clearing the `jti` marker that both JWT middlewares compare against:
+     * once `remember_token` is null nothing can match it, and every further
+     * request with that token is rejected as `session_expired`.
+     *
+     * This is what makes logout survive the app being reopened — even if a copy
+     * of the token is still sitting on the device, it is already dead.
      */
     public function logout()
     {
-        Auth::logout();
-        return response()->noContent();
+        try {
+            $user = Auth::user();
+
+            if ($user) {
+                // Direct update, not $user->save(), so nothing else on the
+                // model can be written back by accident.
+                User::where('id', $user->id)->update(['remember_token' => null]);
+            }
+
+            // Blacklist the token too, so it can't be replayed even if the
+            // marker were somehow restored. Best-effort: the blacklist lives in
+            // the cache, and a cache hiccup must not fail the logout.
+            try {
+                JWTAuth::invalidate(JWTAuth::getToken());
+            } catch (\Throwable $e) {
+                Log::warning('JWT invalidate failed on logout', ['error' => $e->getMessage()]);
+            }
+
+            Auth::logout();
+        } catch (\Throwable $e) {
+            Log::error('Logout failed', ['error' => $e->getMessage()]);
+        }
+
+        // Always 200 with a body: the client treats logout as done regardless,
+        // and an empty 204 trips up the frontend's JSON parsing.
+        return response()->json([
+            'success' => true,
+            'message' => 'Logged out successfully',
+        ], 200);
     }
 
     /**
