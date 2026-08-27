@@ -903,3 +903,21 @@ ALTER TABLE `login_logs`
 -- ALTER TABLE `login_logs` DROP INDEX `login_logs_ip_geo_idx`,
 --   DROP COLUMN `device_brand`, DROP COLUMN `city`, DROP COLUMN `region`,
 --   DROP COLUMN `country`, DROP COLUMN `isp`, DROP COLUMN `location_checked_at`;
+
+
+-- ============================================================
+-- OPERATIONAL (no schema change) — force-logout
+-- Login stores the JWT's `jti` in users.remember_token, and both JWT
+-- middlewares reject any request whose token jti does not match it. Clearing
+-- the column therefore kills the session: nothing can match NULL.
+-- The client is kicked on its NEXT api call, not instantly on screen.
+-- ============================================================
+
+-- Log out EVERY client (admins included — you will be signed out too):
+-- UPDATE `users` SET `remember_token` = NULL;
+
+-- Log out end users only, leaving admin/sub-admin sessions alone:
+-- UPDATE `users` SET `remember_token` = NULL WHERE `role` = 2;
+
+-- Log out one person:
+-- UPDATE `users` SET `remember_token` = NULL WHERE `username` = 'xxxx';

@@ -411,7 +411,10 @@ class UserPromoterController extends Controller
             // confirm to enable
             $user = User::find($authId);
             // $user->current_promoter_level = $promoter->level;
-            $user->promoter_status = UserPromoter::PIN_STATUS_PENDING;
+            // Terms are raised the instant the request is made — no admin
+            // action and no waiting period. The user lands on the acceptance
+            // screen as soon as their pin page refreshes.
+            $user->promoter_status = User::PROMOTER_STATUS_SHOW_TERM;
             $user->save();
             DB::commit();
             }
@@ -768,7 +771,7 @@ class UserPromoterController extends Controller
         // applies these ~once a minute, but running them here (scoped to this
         // user) gives the waiting user instant accuracy on their own pin page.
         // Raise the term if it has been pending > 10 minutes... Idempotent.
-        UserPromoter::autoRaiseDueTerms(10, $userId);
+        UserPromoter::autoRaiseDueTerms(0, $userId);
         // ...and reject the request if no pin was generated within 5 days.
         UserPromoter::autoRejectStalePins(5, $userId);
 
