@@ -42,11 +42,13 @@ class UserPromoter extends Model
     }
 
     /**
-     * Auto-raise Terms & Conditions for pin requests that have stayed pending
-     * for more than $minutes without an admin manually raising the term.
-     * Mirrors UserPromoterController::termRaised() — flips the requesting
-     * user's promoter_status from PENDING to SHOW_TERM so the user isn't stuck
-     * waiting on an absent admin. Idempotent and safe to call repeatedly (the
+     * Safety net that raises Terms & Conditions for any pin request still
+     * sitting at PENDING. The request itself now raises the term inline (see
+     * UserPromoterController::store), so this only catches rows created before
+     * that change, or ones whose inline raise failed. $minutes defaults to 0 —
+     * no waiting period.
+     * Flips the requesting user's promoter_status from PENDING to SHOW_TERM.
+     * Idempotent and safe to call repeatedly (the
      * traffic-driven maintenance middleware and the lazy controller fallback
      * both invoke it).
      *
@@ -54,7 +56,7 @@ class UserPromoter extends Model
      * fallback on the user's own pin screen); omit it to sweep everyone (used
      * by the maintenance middleware). Returns the number of terms raised.
      */
-    public static function autoRaiseDueTerms(int $minutes = 10, ?int $userId = null): int
+    public static function autoRaiseDueTerms(int $minutes = 0, ?int $userId = null): int
     {
         $cutoff = now()->subMinutes($minutes);
 

@@ -47,7 +47,7 @@ class PromoterMaintenanceSweep
                 return;
             }
 
-            UserPromoter::autoRaiseDueTerms(10);
+            UserPromoter::autoRaiseDueTerms(0);
             UserPromoter::autoRejectStalePins(5);
         } catch (\Throwable $e) {
             Log::error('Promoter maintenance sweep failed', ['error' => $e->getMessage()]);
