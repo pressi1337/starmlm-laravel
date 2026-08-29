@@ -112,6 +112,18 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
     // rejected inside the controller for anyone who isn't a super-admin.
     Route::middleware('subadmin.permission:personal_documents')->group(function () {
         Route::patch('company-personal-documents/status-update', [CompanyPersonalDocumentController::class, 'statusUpdate']);
+
+        // Downloads. Both stream the file(s) under their ORIGINAL upload
+        // names; download-all zips the whole set. Declared before the resource
+        // so neither is swallowed by the implicit show route.
+        Route::get('company-personal-documents/{id}/download-all', [CompanyPersonalDocumentController::class, 'downloadAll'])
+            ->where('id', '[0-9]+');
+        Route::get('company-personal-documents/{id}/files/{fileId}/download', [CompanyPersonalDocumentController::class, 'downloadFile'])
+            ->where(['id' => '[0-9]+', 'fileId' => '[0-9]+']);
+        // Inline preview — the UI uses this instead of a public storage URL.
+        Route::get('company-personal-documents/{id}/files/{fileId}/view', [CompanyPersonalDocumentController::class, 'viewFile'])
+            ->where(['id' => '[0-9]+', 'fileId' => '[0-9]+']);
+
         Route::resource('company-personal-documents', CompanyPersonalDocumentController::class)
             ->where(['company_personal_document' => '[0-9]+']);
     });

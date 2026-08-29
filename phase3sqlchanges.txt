@@ -954,3 +954,93 @@ ALTER TABLE `users`
 
 -- Rollback:
 -- ALTER TABLE `users` DROP COLUMN `can_promotion_logs`;
+
+
+-- ============================================================
+-- Personal documents become multi-file SETS — direct SQL. Equivalent of
+-- migration 2026_08_29_000002_create_company_personal_document_files.
+-- One record (title / remark / visibility) now holds many files, e.g. a
+-- "GST Bills" set with 10 PDFs.
+--
+-- Each file keeps its ORIGINAL upload name. The uploader rewrites files to
+-- "{uuid}_{original}" for safe unique storage, so without original_name the
+-- real name is only recoverable by string surgery — which breaks on any
+-- filename containing an underscore ("GST_March_2026.pdf" -> "2026.pdf").
+-- ============================================================
+
+CREATE TABLE `company_personal_document_files` (
+    `id`            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `document_id`   BIGINT UNSIGNED NOT NULL,
+    `file_path`     VARCHAR(255) NOT NULL,
+    `original_name` VARCHAR(255) NULL DEFAULT NULL,
+    `file_type`     TINYINT NOT NULL DEFAULT 1,
+    `sort_order`    INT UNSIGNED NOT NULL DEFAULT 0,
+    `is_deleted`    TINYINT NOT NULL DEFAULT 0,
+    `created_at`    TIMESTAMP NULL DEFAULT NULL,
+    `updated_at`    TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    KEY `cpdf_doc_idx` (`document_id`, `is_deleted`),
+    CONSTRAINT `cpdf_doc_fk` FOREIGN KEY (`document_id`)
+        REFERENCES `company_personal_documents` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- The parent no longer needs its own file; sets carry files instead.
+-- Kept (nullable) rather than dropped so nothing is lost.
+ALTER TABLE `company_personal_documents`
+    MODIFY `file_path` VARCHAR(255) NULL;
+
+-- Backfill: move every existing single file into the new child table,
+-- recovering the original name from the "{uuid}_{original}" stored name.
+-- A UUID is 36 chars + "_" = 37, so the real name starts at 38.
+INSERT INTO `company_personal_document_files`
+    (`document_id`, `file_path`, `original_name`, `file_type`, `sort_order`, `is_deleted`, `created_at`, `updated_at`)
+SELECT
+    `id`,
+    `file_path`,
+    CASE WHEN `file_path` REGEXP '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}_'
+         THEN SUBSTRING(`file_path`, 38)
+         ELSE `file_path` END,
+    COALESCE(`file_type`, 1),
+    0, 0,
+    COALESCE(`created_at`, NOW()),
+    COALESCE(`updated_at`, NOW())
+FROM `company_personal_documents`
+WHERE `file_path` IS NOT NULL AND `file_path` <> '';
+
+-- Sanity check — every document should now show its file count:
+-- SELECT d.`id`, d.`title`, COUNT(f.`id`) AS files
+-- FROM `company_personal_documents` d
+-- LEFT JOIN `company_personal_document_files` f
+--        ON f.`document_id` = d.`id` AND f.`is_deleted` = 0
+-- WHERE d.`is_deleted` = 0
+-- GROUP BY d.`id`, d.`title`;
+
+-- Rollback:
+-- DROP TABLE `company_personal_document_files`;
+
+
+-- ============================================================
+-- OPERATIONAL (no schema change) — personal documents made private
+-- Internal documents used to sit in storage/app/public/uploads/final, which
+-- the public/storage symlink exposes to the web: anyone with the URL could
+-- fetch one without logging in. They now live in
+-- storage/app/personal-documents (outside the symlink) and are served only
+-- through the authenticated view/download endpoints.
+--
+-- ONLY personal documents move. Videos and Company Docs keep using
+-- uploads/final exactly as before.
+-- ============================================================
+
+-- New uploads are moved automatically on save. For everything uploaded
+-- before this change, run ONCE on the server (from the Laravel root):
+--
+--   php artisan documents:privatise --dry-run    # preview, moves nothing
+--   php artisan documents:privatise              # do it
+--
+-- Safe to re-run (already-private files are skipped) and safe to postpone:
+-- the app falls back to the old public path, so documents keep working
+-- whether or not the command has been run. Until it is, OLD files remain
+-- publicly fetchable by URL — that is the thing the command closes.
+--
+-- The web server needs write access to storage/app/personal-documents; the
+-- command creates it. Nothing else references that directory.
