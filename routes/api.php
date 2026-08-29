@@ -71,9 +71,13 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         Route::patch('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
         Route::resource('promotion-videos', PromotionVideoController::class)->except(['destroy']);
         Route::resource('promotion-video-quizzes', PromotionQuizController::class)->except(['destroy']);
+    });
 
-        // Promotion Log — read-only audit of quiz attempts. Detail route uses a
-        // numeric constraint so it never shadows the listing.
+    // Promotion Log — read-only audit of promotion quiz attempts. It carries
+    // its own permission so log access can be granted without granting
+    // promotion-video editing. Detail route uses a numeric constraint so it
+    // never shadows the listing.
+    Route::middleware('subadmin.permission:promotion_logs')->group(function () {
         Route::get('admin-promotion-quiz-logs', [PromotionQuizLogController::class, 'index']);
         Route::get('admin-promotion-quiz-logs/{id}', [PromotionQuizLogController::class, 'show'])->where('id', '[0-9]+');
     });

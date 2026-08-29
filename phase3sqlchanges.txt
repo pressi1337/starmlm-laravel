@@ -921,3 +921,36 @@ ALTER TABLE `login_logs`
 
 -- Log out one person:
 -- UPDATE `users` SET `remember_token` = NULL WHERE `username` = 'xxxx';
+
+
+-- ============================================================
+-- Sixth sub-admin permission: Promotion Log — direct SQL. Equivalent of
+-- migration 2026_08_29_000001_add_can_promotion_logs_to_users.
+-- The Promotion Log (admin-promotion-quiz-logs) used to ride along with
+-- can_promotion_videos. It now has its own flag, so log access can be
+-- granted without granting promotion-video editing, and vice versa.
+-- Defaults to 0 — grant it explicitly per sub-admin.
+-- ============================================================
+
+ALTER TABLE `users`
+    ADD COLUMN `can_promotion_logs` TINYINT(1) NOT NULL DEFAULT 0 AFTER `can_personal_documents`;
+
+-- OPTIONAL backfill. Because the new column defaults to 0, every existing
+-- sub-admin who could previously see the Promotion Log (via their promotion
+-- videos permission) LOSES it until granted. Run this to preserve the old
+-- behaviour for current sub-admins; skip it to start everyone at no access.
+-- UPDATE `users` SET `can_promotion_logs` = 1
+--  WHERE `role` = 1 AND `can_promotion_videos` = 1;
+
+-- Permissions are embedded in the JWT, so anyone whose flags you change must
+-- get a fresh token. Clearing remember_token forces them to log in again:
+-- UPDATE `users` SET `remember_token` = NULL WHERE `role` = 1;
+
+-- Who has what (sanity check):
+-- SELECT `id`, `username`, `can_daily_videos`, `can_promotion_videos`,
+--        `can_promotion_logs`, `can_pin_requests`, `can_suggestions`,
+--        `can_personal_documents`
+-- FROM `users` WHERE `role` = 1 AND `is_deleted` = 0;
+
+-- Rollback:
+-- ALTER TABLE `users` DROP COLUMN `can_promotion_logs`;
