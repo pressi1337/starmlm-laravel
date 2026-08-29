@@ -35,6 +35,15 @@ class CompanyPersonalDocument extends Model
         'status_changed_at' => 'datetime',
     ];
 
+    /** The files that make up this set (a set may hold many). */
+    public function files()
+    {
+        return $this->hasMany(CompanyPersonalDocumentFile::class, 'document_id')
+            ->where('is_deleted', 0)
+            ->orderBy('sort_order')
+            ->orderBy('id');
+    }
+
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
