@@ -40,6 +40,48 @@ class PromotionVideoController extends Controller
             "session_type.required" => "Session Type Required",
         ];
     }
+    /**
+     * How far back a sub-admin may see/manage promotion videos.
+     */
+    private const SUB_ADMIN_VISIBLE_HOURS = 24;
+
+    /**
+     * Cutoff timestamp for the acting user, or null when they are unrestricted
+     * (super-admin). Sub-admins only work with videos created in the last
+     * SUB_ADMIN_VISIBLE_HOURS hours.
+     */
+    private function subAdminCutoff(): ?Carbon
+    {
+        $actor = Auth::user();
+        if ($actor && (int) $actor->role === User::ROLE_SUB_ADMIN) {
+            return now()->subHours(self::SUB_ADMIN_VISIBLE_HOURS);
+        }
+
+        return null;
+    }
+
+    /**
+     * 403 when a sub-admin reaches for a video outside their 24-hour window.
+     * The listing already hides those rows; this closes the direct-API path so
+     * the restriction is real and not just cosmetic. Returns null when allowed.
+     */
+    private function denyIfOutsideSubAdminWindow($video)
+    {
+        $cutoff = $this->subAdminCutoff();
+        if ($cutoff === null || !$video) {
+            return null;
+        }
+
+        if ($video->created_at === null || $video->created_at->lt($cutoff)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Sub-admins can only manage promotion videos created in the last 24 hours.',
+                'code'    => 'forbidden',
+            ], 403);
+        }
+
+        return null;
+    }
     public function index(Request $request)
     {
         // Default sorting
@@ -65,6 +107,14 @@ class PromotionVideoController extends Controller
         // Start building the query
         $query = PromotionVideo::query();
         $query->where('is_deleted', 0);
+
+        // Sub-admins only see promotion videos created in the last 24 hours.
+        // Applied before any client-supplied filter so it cannot be widened
+        // from the frontend. Super-admin is unrestricted.
+        $cutoff = $this->subAdminCutoff();
+        if ($cutoff !== null) {
+            $query->where('created_at', '>=', $cutoff);
+        }
 
         // Apply search_param filters
         foreach ($search_param as $key => $value) {
@@ -207,6 +257,9 @@ class PromotionVideoController extends Controller
     public function show($id)
     {
         $promotion_video = PromotionVideo::find($id);
+        if ($error = $this->denyIfOutsideSubAdminWindow($promotion_video)) {
+            return $error;
+        }
 
         return response()->json([
             'success' => true,
@@ -224,6 +277,9 @@ class PromotionVideoController extends Controller
     {
 
         $promotion_video = PromotionVideo::find($id);
+        if ($error = $this->denyIfOutsideSubAdminWindow($promotion_video)) {
+            return $error;
+        }
 
         return response()->json([
             'success' => true,
@@ -259,6 +315,10 @@ class PromotionVideoController extends Controller
             if (!$w) {
                 DB::rollBack();
                 return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+            if ($error = $this->denyIfOutsideSubAdminWindow($w)) {
+                DB::rollBack();
+                return $error;
             }
             $w->title = $request->title;
             $w->description = $request->description;
@@ -317,6 +377,9 @@ class PromotionVideoController extends Controller
             if (!$w) {
                 return response()->json(['message' => 'Data not found', 'status' => 400], 400);
             }
+            if ($error = $this->denyIfOutsideSubAdminWindow($w)) {
+                return $error;
+            }
             $isActiveInput = $request->has('is_active') ? $request->input('is_active') : ($request->has('active') ? $request->input('active') : 1);
             $w->is_active = (int) $isActiveInput ? 1 : 0;
             $w->updated_by =  $auth_user_id;
@@ -342,6 +405,9 @@ class PromotionVideoController extends Controller
             $w = PromotionVideo::find($request->id);
             if (!$w) {
                 return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+            if ($error = $this->denyIfOutsideSubAdminWindow($w)) {
+                return $error;
             }
 
             $w->is_basic_level = $request->boolean('is_basic_level') ? 1 : 0;
