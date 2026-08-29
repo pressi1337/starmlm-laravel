@@ -36,6 +36,7 @@ class SubAdminController extends Controller
         'can_pin_requests.boolean'      => 'Pin Requests permission must be true/false',
         'can_suggestions.boolean'       => 'Suggestions permission must be true/false',
         'can_personal_documents.boolean' => 'Personal Documents permission must be true/false',
+        'can_promotion_logs.boolean'    => 'Promotion Log permission must be true/false',
     ];
 
     /**
@@ -56,13 +57,15 @@ class SubAdminController extends Controller
                 ? (int) (bool) $request->input('can_suggestions') : 0,
             'can_personal_documents' => $request->has('can_personal_documents')
                 ? (int) (bool) $request->input('can_personal_documents') : 0,
+            'can_promotion_logs'   => $request->has('can_promotion_logs')
+                ? (int) (bool) $request->input('can_promotion_logs') : 0,
         ];
 
         if ($required && array_sum($perms) === 0) {
             return response()->json([
                 'success' => false,
                 'errors'  => [
-                    'permissions' => 'Grant at least one permission (Daily Videos, Promotion Videos, Pin Requests, or Suggestions).',
+                    'permissions' => 'Grant at least one permission (Daily Videos, Promotion Videos, Promotion Log, Pin Requests, Suggestions, or Personal Documents).',
                 ],
             ], 422);
         }
@@ -128,6 +131,7 @@ class SubAdminController extends Controller
                 'is_active', 'role', 'created_at', 'updated_at',
                 'can_daily_videos', 'can_promotion_videos', 'can_pin_requests', 'can_suggestions',
                 'can_personal_documents',
+                'can_promotion_logs',
             ])
             ->map(function ($row) {
                 $row->created_at_formatted = $row->created_at ? $row->created_at->format('d-m-Y h:i A') : '-';
@@ -162,6 +166,7 @@ class SubAdminController extends Controller
             'can_pin_requests'     => 'nullable|boolean',
             'can_suggestions'      => 'nullable|boolean',
             'can_personal_documents' => 'nullable|boolean',
+            'can_promotion_logs'   => 'nullable|boolean',
         ], $this->messages);
 
         if ($validator->fails()) {
@@ -191,6 +196,7 @@ class SubAdminController extends Controller
             $user->can_pin_requests     = $perms['can_pin_requests'];
             $user->can_suggestions      = $perms['can_suggestions'];
             $user->can_personal_documents = $perms['can_personal_documents'];
+            $user->can_promotion_logs   = $perms['can_promotion_logs'];
             $user->created_by = $actorId;
             $user->updated_by = $actorId;
             $user->save();
@@ -253,6 +259,7 @@ class SubAdminController extends Controller
             'can_pin_requests'     => 'nullable|boolean',
             'can_suggestions'      => 'nullable|boolean',
             'can_personal_documents' => 'nullable|boolean',
+            'can_promotion_logs'   => 'nullable|boolean',
         ], $this->messages);
 
         if ($validator->fails()) {
@@ -266,7 +273,8 @@ class SubAdminController extends Controller
             || $request->has('can_promotion_videos')
             || $request->has('can_pin_requests')
             || $request->has('can_suggestions')
-            || $request->has('can_personal_documents');
+            || $request->has('can_personal_documents')
+            || $request->has('can_promotion_logs');
 
         $perms = null;
         if ($permsTouched) {
@@ -302,6 +310,7 @@ class SubAdminController extends Controller
                 $user->can_pin_requests     = $perms['can_pin_requests'];
                 $user->can_suggestions      = $perms['can_suggestions'];
             $user->can_personal_documents = $perms['can_personal_documents'];
+            $user->can_promotion_logs   = $perms['can_promotion_logs'];
                 // Permissions are embedded in the JWT, so a token issued under
                 // the old perms must be invalidated to avoid staleness.
                 $user->remember_token = null;
@@ -401,6 +410,7 @@ class SubAdminController extends Controller
             'can_pin_requests'     => (int) ($user->can_pin_requests ?? 0),
             'can_suggestions'      => (int) ($user->can_suggestions ?? 0),
             'can_personal_documents' => (int) ($user->can_personal_documents ?? 0),
+            'can_promotion_logs'   => (int) ($user->can_promotion_logs ?? 0),
             'created_at'           => $user->created_at,
             'updated_at'           => $user->updated_at,
         ];
