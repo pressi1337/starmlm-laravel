@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\V1\Api;
 
+use App\Exports\BoxRequestExport;
 use App\Http\Controllers\Controller;
 use App\Traits\HandlesJson;
 use App\Models\PromoterBoxRequest;
@@ -11,13 +12,31 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Maatwebsite\Excel\Facades\Excel;
 
 class BoxRequestController extends Controller
 {
     use HandlesJson;
 
-    protected array $sortable = ['created_at', 'status', 'level', 'quantity', 'updated_at'];
-    protected array $filterable = ['status', 'level', 'user_id', 'fromdate', 'todate'];
+    protected array $sortable = [
+        'created_at', 'status', 'level', 'quantity', 'updated_at',
+        // Lifecycle dates — each column in the list is sortable.
+        'requested_at', 'sent_at', 'delivered_at',
+    ];
+    protected array $filterable = [
+        'status', 'level', 'user_id', 'fromdate', 'todate',
+        // Independent date ranges, one pair per lifecycle stage.
+        'requested_from', 'requested_to',
+        'sent_from', 'sent_to',
+        'delivered_from', 'delivered_to',
+    ];
+
+    /** search_param key => the column its from/to pair filters on. */
+    private const DATE_RANGE_FILTERS = [
+        'requested' => 'requested_at',
+        'sent'      => 'sent_at',
+        'delivered' => 'delivered_at',
+    ];
 
     /* ===================== USER SIDE ===================== */
 
@@ -187,50 +206,15 @@ class BoxRequestController extends Controller
         $search_term = trim((string) $request->query('search', ''));
         $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
 
-        $query = PromoterBoxRequest::query()->where('is_deleted', 0);
-
-        foreach ($search_param as $key => $value) {
-            if ($value === '' || $value === null) {
-                continue;
-            }
-            if (!in_array($key, $this->filterable, true)) {
-                continue;
-            }
-            if ($key === 'fromdate' || $key === 'todate') {
-                continue;
-            }
-            if (is_array($value)) {
-                if (!empty($value)) {
-                    $query->whereIn($key, $value);
-                }
-            } else {
-                $query->where($key, $value);
-            }
-        }
-
-        $fromDate = $search_param['fromdate'] ?? null;
-        $toDate = $search_param['todate'] ?? null;
-        if ($fromDate && $toDate) {
-            $query->whereBetween('created_at', [$fromDate, $toDate]);
-        } elseif ($fromDate) {
-            $query->whereDate('created_at', '>=', $fromDate);
-        } elseif ($toDate) {
-            $query->whereDate('created_at', '<=', $toDate);
-        }
-
-        if ($search_term !== '') {
-            $query->whereHas('user', function ($q) use ($search_term) {
-                $q->where('username', 'LIKE', '%' . $search_term . '%')
-                    ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
-                    ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
-                    ->orWhere('mobile', 'LIKE', '%' . $search_term . '%')
-                    ->orWhere('customer_id', 'LIKE', '%' . $search_term . '%');
-            });
-        }
+        $query = $this->buildAdminQuery($search_param, $search_term);
 
         $total_records = $query->count();
 
         $list = $query->orderBy($sort_column, $sort_direction)
+            // Deterministic tiebreak. sent_at/delivered_at are NULL for most
+            // rows, so without it equal values order arbitrarily and a paged
+            // list can repeat or skip rows between pages.
+            ->orderBy('id', $sort_direction)
             ->when($page_size > 0, function ($q) use ($page_size, $page_number) {
                 return $q->skip(($page_number - 1) * $page_size)->take($page_size);
             })
@@ -239,6 +223,14 @@ class BoxRequestController extends Controller
             ->map(function ($b) {
                 $b->status_label = $b->statusLabel();
                 $b->created_at_formatted = $b->created_at ? $b->created_at->format('d-m-Y h:i A') : '-';
+
+                // Lifecycle dates. sent/delivered are null until they
+                // happen, and the UI shows a dash for those. requested_at
+                // falls back to created_at for any row written before that
+                // column existed.
+                $b->requested_at_formatted = $this->formatDate($b->requested_at ?: $b->created_at);
+                $b->sent_at_formatted = $this->formatDate($b->sent_at);
+                $b->delivered_at_formatted = $this->formatDate($b->delivered_at);
 
                 // Quantity is adjustable only while still Requested and at a
                 // manual level (3/4). Reducing it frees cap room for the user to
@@ -376,6 +368,123 @@ class BoxRequestController extends Controller
             return response()->json(['success' => true, 'message' => 'Quantity updated', 'data' => $box], 200);
         } catch (\Throwable $e) {
             Log::error('BoxRequest adminUpdateQuantity failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    /**
+     * The admin listing scope: soft-delete, plain filters, the three date
+     * ranges and the user search.
+     *
+     * Shared by adminIndex() and exportExcel() on purpose — the export must
+     * always match what the admin is looking at, and duplicating this logic is
+     * how the two silently drift apart.
+     */
+    private function buildAdminQuery(array $search_param, string $search_term)
+    {
+        $query = PromoterBoxRequest::query()->where('is_deleted', 0);
+
+        $rangeKeys = [];
+        foreach (array_keys(self::DATE_RANGE_FILTERS) as $prefix) {
+            $rangeKeys[] = $prefix . '_from';
+            $rangeKeys[] = $prefix . '_to';
+        }
+        $skip = array_merge(['fromdate', 'todate'], $rangeKeys);
+
+        foreach ($search_param as $key => $value) {
+            if ($value === '' || $value === null) {
+                continue;
+            }
+            if (!in_array($key, $this->filterable, true)) {
+                continue;
+            }
+            if (in_array($key, $skip, true)) {
+                continue; // handled as ranges below
+            }
+            if (is_array($value)) {
+                if (!empty($value)) {
+                    $query->whereIn($key, $value);
+                }
+            } else {
+                $query->where($key, $value);
+            }
+        }
+
+        // Legacy created_at range, kept so existing saved filters still work.
+        $fromDate = $search_param['fromdate'] ?? null;
+        $toDate = $search_param['todate'] ?? null;
+        if ($fromDate && $toDate) {
+            $query->whereBetween('created_at', [$fromDate, $toDate]);
+        } elseif ($fromDate) {
+            $query->whereDate('created_at', '>=', $fromDate);
+        } elseif ($toDate) {
+            $query->whereDate('created_at', '<=', $toDate);
+        }
+
+        // One independent range per lifecycle date. Filtering on sent/delivered
+        // naturally excludes rows that haven't reached that stage, since NULL
+        // never satisfies a date comparison.
+        foreach (self::DATE_RANGE_FILTERS as $prefix => $column) {
+            $from = $search_param[$prefix . '_from'] ?? null;
+            $to = $search_param[$prefix . '_to'] ?? null;
+            if ($from) {
+                $query->whereDate($column, '>=', $from);
+            }
+            if ($to) {
+                $query->whereDate($column, '<=', $to);
+            }
+        }
+
+        if ($search_term !== '') {
+            $query->whereHas('user', function ($q) use ($search_term) {
+                $q->where('username', 'LIKE', '%' . $search_term . '%')
+                    ->orWhere('first_name', 'LIKE', '%' . $search_term . '%')
+                    ->orWhere('last_name', 'LIKE', '%' . $search_term . '%')
+                    ->orWhere('mobile', 'LIKE', '%' . $search_term . '%')
+                    ->orWhere('customer_id', 'LIKE', '%' . $search_term . '%');
+            });
+        }
+
+        return $query;
+    }
+
+    /** Display helper: a formatted date, or "-" when it hasn't happened yet. */
+    private function formatDate($value): string
+    {
+        if (empty($value)) {
+            return '-';
+        }
+
+        return date('d-m-Y h:i A', strtotime((string) $value));
+    }
+
+    /**
+     * Excel export of the Plan Product list. Applies the same filters, search
+     * and sort as the on-screen table, unpaginated.
+     */
+    public function exportExcel(Request $request)
+    {
+        try {
+            $search_term = trim((string) $request->query('search', ''));
+            $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
+
+            $sort_column = $request->query('sort_column', $request->query('sortBy', 'created_at'));
+            if (!in_array($sort_column, $this->sortable, true)) {
+                $sort_column = 'created_at';
+            }
+            $sort_direction = strtoupper((string) $request->query('sort_direction', $request->query('sortDir', 'DESC'))) === 'ASC'
+                ? 'ASC'
+                : 'DESC';
+
+            $rows = $this->buildAdminQuery($search_param, $search_term)
+                ->with('user')
+                ->orderBy($sort_column, $sort_direction)
+                ->orderBy('id', $sort_direction)
+                ->get();
+
+            return Excel::download(new BoxRequestExport($rows), 'plan_product_requests.xlsx');
+        } catch (\Throwable $e) {
+            Log::error('BoxRequest export failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
         }
     }

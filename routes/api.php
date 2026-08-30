@@ -103,6 +103,9 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         Route::patch('admin-box-requests/mark-sent', [BoxRequestController::class, 'markSent']);
         Route::patch('admin-box-requests/mark-delivered', [BoxRequestController::class, 'adminMarkDelivered']);
         Route::patch('admin-box-requests/update-quantity', [BoxRequestController::class, 'adminUpdateQuantity']);
+        // Export before the listing route for clarity; it mirrors the
+        // list's filters, search and sort exactly.
+        Route::get('admin-box-requests/export/excel', [BoxRequestController::class, 'exportExcel']);
         Route::get('admin-box-requests', [BoxRequestController::class, 'adminIndex']);
     });
 
