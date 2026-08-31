@@ -9,6 +9,9 @@ class PromoterBoxRequest extends Model
     const STATUS_REQUESTED = 1;
     const STATUS_SENT = 2;
     const STATUS_DELIVERED = 3;
+    // The user reported the dispatched batch never arrived. The admin can
+    // send it again (back to Sent) or mark it delivered.
+    const STATUS_NOT_RECEIVED = 4;
 
     const DELIVERY_TYPE_PICKUP = 1;
     const DELIVERY_TYPE_DELIVERY = 2;
@@ -55,6 +58,7 @@ class PromoterBoxRequest extends Model
         'courier_name',
         'courier_number',
         'delivered_at',
+        'not_received_at',
         'created_by',
         'updated_by',
         'is_active',
@@ -159,6 +163,7 @@ class PromoterBoxRequest extends Model
             self::STATUS_REQUESTED => 'Requested',
             self::STATUS_SENT => 'Sent',
             self::STATUS_DELIVERED => 'Delivered',
+            self::STATUS_NOT_RECEIVED => 'Not Received',
         ][(int) $this->status] ?? 'Requested';
     }
 }

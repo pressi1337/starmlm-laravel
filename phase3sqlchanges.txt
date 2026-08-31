@@ -1105,3 +1105,34 @@ ALTER TABLE `promoter_box_requests`
 -- ALTER TABLE `promoter_box_requests`
 --     DROP COLUMN `dispatch_method`, DROP COLUMN `collected_date`,
 --     DROP COLUMN `courier_name`, DROP COLUMN `courier_number`;
+
+
+-- ============================================================
+-- Plan Product "Not Received" — direct SQL. Equivalent of migration
+-- 2026_08_31_000002_add_not_received_to_promoter_box_requests.
+-- The user can report that a dispatched batch never arrived, putting it in
+-- status 4 for the admin to chase (Send Again / Mark Delivered).
+--
+-- promoter_box_requests.status: 1 Requested, 2 Sent, 3 Delivered,
+--                               4 Not Received  <-- new
+--
+-- Re-sending a batch clears not_received_at along with the status, so a
+-- re-dispatched row reads as cleanly Sent with no leftover complaint.
+-- ============================================================
+
+ALTER TABLE `promoter_box_requests`
+    ADD COLUMN `not_received_at` TIMESTAMP NULL DEFAULT NULL AFTER `delivered_at`;
+
+-- Everything currently reported as missing:
+-- SELECT b.`id`, u.`username`, b.`quantity`, b.`level`,
+--        b.`sent_at`, b.`not_received_at`, b.`courier_name`, b.`courier_number`
+-- FROM `promoter_box_requests` b
+-- JOIN `users` u ON u.`id` = b.`user_id`
+-- WHERE b.`status` = 4 AND b.`is_deleted` = 0
+-- ORDER BY b.`not_received_at` DESC;
+
+-- Note: because a re-send clears the column, not_received_at is only ever
+-- populated on rows currently sitting at status 4.
+
+-- Rollback:
+-- ALTER TABLE `promoter_box_requests` DROP COLUMN `not_received_at`;

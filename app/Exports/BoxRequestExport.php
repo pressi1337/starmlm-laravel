@@ -55,6 +55,7 @@ class BoxRequestExport extends DefaultValueBinder implements FromCollection, Wit
             'Dispatch Method',
             'Dispatch Details',
             'Delivered Date',
+            'Not Received Date',
         ];
     }
 
@@ -102,6 +103,7 @@ class BoxRequestExport extends DefaultValueBinder implements FromCollection, Wit
             $row->dispatchLabel() ?: '-',
             $row->dispatchSummary() ?: '-',
             $this->date($row->delivered_at),
+            $this->date($row->not_received_at),
         ];
     }
 

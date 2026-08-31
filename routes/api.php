@@ -272,6 +272,7 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     Route::get('box-requests/list', [BoxRequestController::class, 'userBoxRequests']);
     Route::post('box-requests/request', [BoxRequestController::class, 'requestBoxes']);
     Route::post('box-requests/delivered', [BoxRequestController::class, 'markDelivered']);
+    Route::post('box-requests/not-received', [BoxRequestController::class, 'markNotReceived']);
 
     // Dashboard API
     Route::get('user-dashboard', [UserPromoterController::class, 'dashboard']);

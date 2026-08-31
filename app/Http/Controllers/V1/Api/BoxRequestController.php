@@ -21,7 +21,7 @@ class BoxRequestController extends Controller
     protected array $sortable = [
         'created_at', 'status', 'level', 'quantity', 'updated_at',
         // Lifecycle dates — each column in the list is sortable.
-        'requested_at', 'sent_at', 'delivered_at',
+        'requested_at', 'sent_at', 'delivered_at', 'not_received_at',
     ];
     protected array $filterable = [
         'status', 'level', 'user_id', 'fromdate', 'todate',
@@ -29,6 +29,7 @@ class BoxRequestController extends Controller
         'requested_from', 'requested_to',
         'sent_from', 'sent_to',
         'delivered_from', 'delivered_to',
+        'not_received_from', 'not_received_to',
     ];
 
     /** search_param key => the column its from/to pair filters on. */
@@ -36,6 +37,7 @@ class BoxRequestController extends Controller
         'requested' => 'requested_at',
         'sent'      => 'sent_at',
         'delivered' => 'delivered_at',
+        'not_received' => 'not_received_at',
     ];
 
     /* ===================== USER SIDE ===================== */
@@ -72,6 +74,9 @@ class BoxRequestController extends Controller
                         : null;
                     $b->sent_at_formatted = $b->sent_at
                         ? date('d-m-Y h:i A', strtotime((string) $b->sent_at))
+                        : null;
+                    $b->not_received_at_formatted = $b->not_received_at
+                        ? date('d-m-Y h:i A', strtotime((string) $b->not_received_at))
                         : null;
                     return $b;
                 });
@@ -205,6 +210,48 @@ class BoxRequestController extends Controller
      * Admin listing of box requests (paginated/filterable like the other admin
      * index endpoints). Route is gated by the pin_requests permission.
      */
+    /**
+     * The user reports that a dispatched batch never arrived.
+     *
+     * Only valid from Sent: a batch still Requested hasn't gone anywhere, one
+     * already Delivered was confirmed by the user themselves, and reporting the
+     * same batch twice in a row is pointless. The admin picks it up from the
+     * Not Received tab and either re-sends it or marks it delivered.
+     */
+    public function markNotReceived(Request $request)
+    {
+        try {
+            $userId = Auth::id();
+            $box = PromoterBoxRequest::where('id', $request->id)
+                ->where('user_id', $userId)
+                ->where('is_deleted', 0)
+                ->first();
+            if (!$box) {
+                return response()->json(['success' => false, 'message' => 'Box request not found'], 400);
+            }
+            if ((int) $box->status !== PromoterBoxRequest::STATUS_SENT) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only a dispatched product can be reported as not received',
+                ], 400);
+            }
+
+            $box->status = PromoterBoxRequest::STATUS_NOT_RECEIVED;
+            $box->not_received_at = now();
+            $box->updated_by = $userId;
+            $box->save();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Reported as not received. The team will look into it.',
+                'data'    => $box,
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('BoxRequest markNotReceived failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
     public function adminIndex(Request $request)
     {
         $sort_column = $request->query('sort_column', 'created_at');
@@ -244,6 +291,7 @@ class BoxRequestController extends Controller
                 $b->requested_at_formatted = $this->formatDate($b->requested_at ?: $b->created_at);
                 $b->sent_at_formatted = $this->formatDate($b->sent_at);
                 $b->delivered_at_formatted = $this->formatDate($b->delivered_at);
+                $b->not_received_at_formatted = $this->formatDate($b->not_received_at);
 
                 // How it was dispatched (null until it is marked Sent).
                 $b->dispatch_label = $b->dispatchLabel();
@@ -325,6 +373,9 @@ class BoxRequestController extends Controller
             $box->status = PromoterBoxRequest::STATUS_SENT;
             $box->sent_at = now();
             $box->sent_by = Auth::id();
+            // A fresh dispatch settles any previous "not received" report —
+            // clear it so the row reads as cleanly Sent again.
+            $box->not_received_at = null;
             $box->dispatch_method = $method;
             // Only keep the fields belonging to the chosen method, so a
             // re-send by the other method can't leave stale details behind.
