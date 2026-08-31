@@ -23,6 +23,14 @@ class PromoterBoxRequest extends Model
     const DISPATCH_COURIER = 2;
 
     /**
+     * How long after dispatch we start reminding the user to confirm whether
+     * the product arrived. A courier gets longer because it genuinely takes
+     * longer to turn up.
+     */
+    const REMINDER_DAYS_DIRECT  = 5;
+    const REMINDER_DAYS_COURIER = 10;
+
+    /**
      * Per-level box rules:
      *   - cap:     cumulative max boxes a user may receive at that level.
      *   - default: quantity auto-granted at activation (auto levels only).
@@ -155,6 +163,39 @@ class PromoterBoxRequest extends Model
         }
 
         return null;
+    }
+
+    /** Days to wait before nagging, based on how the batch was dispatched. */
+    public function reminderDays(): int
+    {
+        // Anything dispatched before the method was recorded gets the longer,
+        // gentler window rather than being nagged early on a guess.
+        return (int) $this->dispatch_method === self::DISPATCH_DIRECT
+            ? self::REMINDER_DAYS_DIRECT
+            : self::REMINDER_DAYS_COURIER;
+    }
+
+    /**
+     * True when the batch has been sitting at Sent past its reminder window,
+     * i.e. the user has neither confirmed delivery nor reported it missing.
+     */
+    public function isStatusReminderDue(): bool
+    {
+        if ((int) $this->status !== self::STATUS_SENT || empty($this->sent_at)) {
+            return false;
+        }
+
+        return strtotime((string) $this->sent_at) <= strtotime('-' . $this->reminderDays() . ' days');
+    }
+
+    /** Whole days since dispatch, or null when it hasn't been sent. */
+    public function daysSinceSent(): ?int
+    {
+        if (empty($this->sent_at)) {
+            return null;
+        }
+
+        return (int) floor((time() - strtotime((string) $this->sent_at)) / 86400);
     }
 
     public function statusLabel(): string

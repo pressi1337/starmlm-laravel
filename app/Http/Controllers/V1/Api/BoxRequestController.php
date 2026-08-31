@@ -252,6 +252,54 @@ class BoxRequestController extends Controller
         }
     }
 
+    /**
+     * Batches the signed-in user still hasn't confirmed, past their reminder
+     * window (5 days direct, 10 days courier).
+     *
+     * Drives the nag popup in the PWA. Deliberately tiny: the app asks for
+     * this on load, so it must stay cheap. Returns an empty list — never an
+     * error — when there is nothing to chase.
+     */
+    public function statusReminders()
+    {
+        try {
+            $userId = Auth::id();
+
+            $due = PromoterBoxRequest::where('user_id', $userId)
+                ->where('is_deleted', 0)
+                ->where('status', PromoterBoxRequest::STATUS_SENT)
+                ->whereNotNull('sent_at')
+                ->orderBy('sent_at')
+                ->get()
+                ->filter(fn ($b) => $b->isStatusReminderDue())
+                ->values()
+                ->map(function ($b) {
+                    return [
+                        'id'                => $b->id,
+                        'quantity'          => (int) $b->quantity,
+                        'level'             => (int) $b->level,
+                        'dispatch_label'    => $b->dispatchLabel(),
+                        'days_since_sent'   => $b->daysSinceSent(),
+                        'reminder_days'     => $b->reminderDays(),
+                        'sent_at_formatted' => $b->sent_at
+                            ? date('d-m-Y', strtotime((string) $b->sent_at))
+                            : null,
+                    ];
+                });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Success',
+                'data'    => $due,
+                'meta'    => ['count' => $due->count()],
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('BoxRequest statusReminders failed', ['error' => $e->getMessage()]);
+            // A broken reminder must never break the app shell it renders in.
+            return response()->json(['success' => true, 'data' => [], 'meta' => ['count' => 0]], 200);
+        }
+    }
+
     public function adminIndex(Request $request)
     {
         $sort_column = $request->query('sort_column', 'created_at');

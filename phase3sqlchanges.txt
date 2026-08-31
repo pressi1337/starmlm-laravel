@@ -1136,3 +1136,29 @@ ALTER TABLE `promoter_box_requests`
 
 -- Rollback:
 -- ALTER TABLE `promoter_box_requests` DROP COLUMN `not_received_at`;
+
+
+-- ============================================================
+-- OPERATIONAL (no schema change) — product status reminder
+-- If a user neither confirms delivery nor reports a product missing, the PWA
+-- nags them on every menu until they do. The waiting period depends on how
+-- the batch was dispatched:
+--     Direct  -> 5 days after sent_at
+--     Courier -> 10 days after sent_at
+-- A batch dispatched before dispatch_method existed uses the longer 10-day
+-- window rather than nagging early on a guess.
+--
+-- Thresholds live in PromoterBoxRequest::REMINDER_DAYS_DIRECT / _COURIER.
+-- Change them there — there is nothing to migrate.
+-- ============================================================
+
+-- Who is currently being reminded:
+-- SELECT b.`id`, u.`username`, b.`quantity`, b.`sent_at`,
+--        CASE b.`dispatch_method` WHEN 1 THEN 'Direct' WHEN 2 THEN 'Courier'
+--             ELSE 'Unknown' END AS method,
+--        DATEDIFF(NOW(), b.`sent_at`) AS days_since_sent
+-- FROM `promoter_box_requests` b
+-- JOIN `users` u ON u.`id` = b.`user_id`
+-- WHERE b.`status` = 2 AND b.`is_deleted` = 0 AND b.`sent_at` IS NOT NULL
+--   AND DATEDIFF(NOW(), b.`sent_at`) >= IF(b.`dispatch_method` = 1, 5, 10)
+-- ORDER BY b.`sent_at`;
