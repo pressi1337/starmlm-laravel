@@ -1076,3 +1076,89 @@ WHERE `file_path` IS NOT NULL AND `file_path` <> '';
 -- UNION ALL SELECT 'training', video_path FROM training_videos WHERE is_deleted = 0 AND video_path IS NOT NULL
 -- UNION ALL SELECT 'company_doc', file_path FROM company_documents WHERE is_deleted = 0
 -- UNION ALL SELECT 'personal_doc', file_path FROM company_personal_document_files WHERE is_deleted = 0;
+
+
+-- ============================================================
+-- Plan Product dispatch details — direct SQL. Equivalent of migration
+-- 2026_08_31_000001_add_dispatch_details_to_promoter_box_requests.
+-- Captured when the admin marks a batch Sent:
+--   Direct  (1) -> collected_date
+--   Courier (2) -> courier_name + courier_number
+-- All nullable: batches sent before this have none, and a batch still
+-- Requested has none yet. The user sees these on their own screen.
+-- ============================================================
+
+ALTER TABLE `promoter_box_requests`
+    ADD COLUMN `dispatch_method` TINYINT NULL DEFAULT NULL AFTER `sent_by`,
+    ADD COLUMN `collected_date`  DATE NULL DEFAULT NULL AFTER `dispatch_method`,
+    ADD COLUMN `courier_name`    VARCHAR(120) NULL DEFAULT NULL AFTER `collected_date`,
+    ADD COLUMN `courier_number`  VARCHAR(120) NULL DEFAULT NULL AFTER `courier_name`;
+
+-- Sanity check after a few dispatches:
+-- SELECT `id`, `status`, `dispatch_method`, `collected_date`,
+--        `courier_name`, `courier_number`, `sent_at`
+-- FROM `promoter_box_requests`
+-- WHERE `dispatch_method` IS NOT NULL
+-- ORDER BY `sent_at` DESC;
+
+-- Rollback:
+-- ALTER TABLE `promoter_box_requests`
+--     DROP COLUMN `dispatch_method`, DROP COLUMN `collected_date`,
+--     DROP COLUMN `courier_name`, DROP COLUMN `courier_number`;
+
+
+-- ============================================================
+-- Plan Product "Not Received" — direct SQL. Equivalent of migration
+-- 2026_08_31_000002_add_not_received_to_promoter_box_requests.
+-- The user can report that a dispatched batch never arrived, putting it in
+-- status 4 for the admin to chase (Send Again / Mark Delivered).
+--
+-- promoter_box_requests.status: 1 Requested, 2 Sent, 3 Delivered,
+--                               4 Not Received  <-- new
+--
+-- Re-sending a batch clears not_received_at along with the status, so a
+-- re-dispatched row reads as cleanly Sent with no leftover complaint.
+-- ============================================================
+
+ALTER TABLE `promoter_box_requests`
+    ADD COLUMN `not_received_at` TIMESTAMP NULL DEFAULT NULL AFTER `delivered_at`;
+
+-- Everything currently reported as missing:
+-- SELECT b.`id`, u.`username`, b.`quantity`, b.`level`,
+--        b.`sent_at`, b.`not_received_at`, b.`courier_name`, b.`courier_number`
+-- FROM `promoter_box_requests` b
+-- JOIN `users` u ON u.`id` = b.`user_id`
+-- WHERE b.`status` = 4 AND b.`is_deleted` = 0
+-- ORDER BY b.`not_received_at` DESC;
+
+-- Note: because a re-send clears the column, not_received_at is only ever
+-- populated on rows currently sitting at status 4.
+
+-- Rollback:
+-- ALTER TABLE `promoter_box_requests` DROP COLUMN `not_received_at`;
+
+
+-- ============================================================
+-- OPERATIONAL (no schema change) — product status reminder
+-- If a user neither confirms delivery nor reports a product missing, the PWA
+-- nags them on every menu until they do. The waiting period depends on how
+-- the batch was dispatched:
+--     Direct  -> 5 days after sent_at
+--     Courier -> 10 days after sent_at
+-- A batch dispatched before dispatch_method existed uses the longer 10-day
+-- window rather than nagging early on a guess.
+--
+-- Thresholds live in PromoterBoxRequest::REMINDER_DAYS_DIRECT / _COURIER.
+-- Change them there — there is nothing to migrate.
+-- ============================================================
+
+-- Who is currently being reminded:
+-- SELECT b.`id`, u.`username`, b.`quantity`, b.`sent_at`,
+--        CASE b.`dispatch_method` WHEN 1 THEN 'Direct' WHEN 2 THEN 'Courier'
+--             ELSE 'Unknown' END AS method,
+--        DATEDIFF(NOW(), b.`sent_at`) AS days_since_sent
+-- FROM `promoter_box_requests` b
+-- JOIN `users` u ON u.`id` = b.`user_id`
+-- WHERE b.`status` = 2 AND b.`is_deleted` = 0 AND b.`sent_at` IS NOT NULL
+--   AND DATEDIFF(NOW(), b.`sent_at`) >= IF(b.`dispatch_method` = 1, 5, 10)
+-- ORDER BY b.`sent_at`;

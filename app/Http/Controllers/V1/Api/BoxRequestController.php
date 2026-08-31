@@ -21,7 +21,7 @@ class BoxRequestController extends Controller
     protected array $sortable = [
         'created_at', 'status', 'level', 'quantity', 'updated_at',
         // Lifecycle dates — each column in the list is sortable.
-        'requested_at', 'sent_at', 'delivered_at',
+        'requested_at', 'sent_at', 'delivered_at', 'not_received_at',
     ];
     protected array $filterable = [
         'status', 'level', 'user_id', 'fromdate', 'todate',
@@ -29,6 +29,7 @@ class BoxRequestController extends Controller
         'requested_from', 'requested_to',
         'sent_from', 'sent_to',
         'delivered_from', 'delivered_to',
+        'not_received_from', 'not_received_to',
     ];
 
     /** search_param key => the column its from/to pair filters on. */
@@ -36,6 +37,7 @@ class BoxRequestController extends Controller
         'requested' => 'requested_at',
         'sent'      => 'sent_at',
         'delivered' => 'delivered_at',
+        'not_received' => 'not_received_at',
     ];
 
     /* ===================== USER SIDE ===================== */
@@ -60,6 +62,22 @@ class BoxRequestController extends Controller
                 ->map(function ($b) {
                     $b->status_label = $b->statusLabel();
                     $b->created_at_formatted = $b->created_at ? $b->created_at->format('d-m-Y h:i A') : '-';
+
+                    // Dispatch details, so the user can see how it was sent
+                    // and chase a courier if it hasn't arrived.
+                    $b->dispatch_label = $b->dispatchLabel();
+                    $b->dispatch_summary = $b->dispatchSummary();
+                    $b->courier_name = $b->courier_name;
+                    $b->courier_number = $b->courier_number;
+                    $b->collected_date_formatted = $b->collected_date
+                        ? date('d-m-Y', strtotime((string) $b->collected_date))
+                        : null;
+                    $b->sent_at_formatted = $b->sent_at
+                        ? date('d-m-Y h:i A', strtotime((string) $b->sent_at))
+                        : null;
+                    $b->not_received_at_formatted = $b->not_received_at
+                        ? date('d-m-Y h:i A', strtotime((string) $b->not_received_at))
+                        : null;
                     return $b;
                 });
 
@@ -192,6 +210,96 @@ class BoxRequestController extends Controller
      * Admin listing of box requests (paginated/filterable like the other admin
      * index endpoints). Route is gated by the pin_requests permission.
      */
+    /**
+     * The user reports that a dispatched batch never arrived.
+     *
+     * Only valid from Sent: a batch still Requested hasn't gone anywhere, one
+     * already Delivered was confirmed by the user themselves, and reporting the
+     * same batch twice in a row is pointless. The admin picks it up from the
+     * Not Received tab and either re-sends it or marks it delivered.
+     */
+    public function markNotReceived(Request $request)
+    {
+        try {
+            $userId = Auth::id();
+            $box = PromoterBoxRequest::where('id', $request->id)
+                ->where('user_id', $userId)
+                ->where('is_deleted', 0)
+                ->first();
+            if (!$box) {
+                return response()->json(['success' => false, 'message' => 'Box request not found'], 400);
+            }
+            if ((int) $box->status !== PromoterBoxRequest::STATUS_SENT) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Only a dispatched product can be reported as not received',
+                ], 400);
+            }
+
+            $box->status = PromoterBoxRequest::STATUS_NOT_RECEIVED;
+            $box->not_received_at = now();
+            $box->updated_by = $userId;
+            $box->save();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Reported as not received. The team will look into it.',
+                'data'    => $box,
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('BoxRequest markNotReceived failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    /**
+     * Batches the signed-in user still hasn't confirmed, past their reminder
+     * window (5 days direct, 10 days courier).
+     *
+     * Drives the nag popup in the PWA. Deliberately tiny: the app asks for
+     * this on load, so it must stay cheap. Returns an empty list — never an
+     * error — when there is nothing to chase.
+     */
+    public function statusReminders()
+    {
+        try {
+            $userId = Auth::id();
+
+            $due = PromoterBoxRequest::where('user_id', $userId)
+                ->where('is_deleted', 0)
+                ->where('status', PromoterBoxRequest::STATUS_SENT)
+                ->whereNotNull('sent_at')
+                ->orderBy('sent_at')
+                ->get()
+                ->filter(fn ($b) => $b->isStatusReminderDue())
+                ->values()
+                ->map(function ($b) {
+                    return [
+                        'id'                => $b->id,
+                        'quantity'          => (int) $b->quantity,
+                        'level'             => (int) $b->level,
+                        'dispatch_label'    => $b->dispatchLabel(),
+                        'days_since_sent'   => $b->daysSinceSent(),
+                        'reminder_days'     => $b->reminderDays(),
+                        'sent_at_formatted' => $b->sent_at
+                            ? date('d-m-Y', strtotime((string) $b->sent_at))
+                            : null,
+                    ];
+                });
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Success',
+                'data'    => $due,
+                'meta'    => ['count' => $due->count()],
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('BoxRequest statusReminders failed', ['error' => $e->getMessage()]);
+            // A broken reminder must never break the app shell it renders in.
+            return response()->json(['success' => true, 'data' => [], 'meta' => ['count' => 0]], 200);
+        }
+    }
+
     public function adminIndex(Request $request)
     {
         $sort_column = $request->query('sort_column', 'created_at');
@@ -231,6 +339,14 @@ class BoxRequestController extends Controller
                 $b->requested_at_formatted = $this->formatDate($b->requested_at ?: $b->created_at);
                 $b->sent_at_formatted = $this->formatDate($b->sent_at);
                 $b->delivered_at_formatted = $this->formatDate($b->delivered_at);
+                $b->not_received_at_formatted = $this->formatDate($b->not_received_at);
+
+                // How it was dispatched (null until it is marked Sent).
+                $b->dispatch_label = $b->dispatchLabel();
+                $b->dispatch_summary = $b->dispatchSummary();
+                $b->collected_date_formatted = $b->collected_date
+                    ? date('d-m-Y', strtotime((string) $b->collected_date))
+                    : null;
 
                 // Quantity is adjustable only while still Requested and at a
                 // manual level (3/4). Reducing it frees cap room for the user to
@@ -279,9 +395,47 @@ class BoxRequestController extends Controller
                 return response()->json(['success' => false, 'message' => 'This box is already delivered'], 400);
             }
 
+            // How it was dispatched. Each branch's fields are required for that
+            // branch only, so picking Courier can't be saved without the
+            // tracking details and vice versa.
+            $validator = Validator::make($request->all(), [
+                'dispatch_method' => 'required|integer|in:' . PromoterBoxRequest::DISPATCH_DIRECT
+                    . ',' . PromoterBoxRequest::DISPATCH_COURIER,
+                'collected_date'  => 'required_if:dispatch_method,' . PromoterBoxRequest::DISPATCH_DIRECT . '|nullable|date',
+                'courier_name'    => 'required_if:dispatch_method,' . PromoterBoxRequest::DISPATCH_COURIER . '|nullable|string|max:120',
+                'courier_number'  => 'required_if:dispatch_method,' . PromoterBoxRequest::DISPATCH_COURIER . '|nullable|string|max:120',
+            ], [
+                'dispatch_method.required' => 'Choose Direct or Courier',
+                'dispatch_method.in'       => 'Choose Direct or Courier',
+                'collected_date.required_if' => 'Collected date is required',
+                'courier_name.required_if'   => 'Courier name is required',
+                'courier_number.required_if' => 'Courier number is required',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+            }
+
+            $method = (int) $request->input('dispatch_method');
+
             $box->status = PromoterBoxRequest::STATUS_SENT;
             $box->sent_at = now();
             $box->sent_by = Auth::id();
+            // A fresh dispatch settles any previous "not received" report —
+            // clear it so the row reads as cleanly Sent again.
+            $box->not_received_at = null;
+            $box->dispatch_method = $method;
+            // Only keep the fields belonging to the chosen method, so a
+            // re-send by the other method can't leave stale details behind.
+            $box->collected_date = $method === PromoterBoxRequest::DISPATCH_DIRECT
+                ? $request->input('collected_date')
+                : null;
+            $box->courier_name = $method === PromoterBoxRequest::DISPATCH_COURIER
+                ? trim((string) $request->input('courier_name'))
+                : null;
+            $box->courier_number = $method === PromoterBoxRequest::DISPATCH_COURIER
+                ? trim((string) $request->input('courier_number'))
+                : null;
             $box->updated_by = Auth::id();
             $box->save();
 

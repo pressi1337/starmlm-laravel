@@ -9,9 +9,26 @@ class PromoterBoxRequest extends Model
     const STATUS_REQUESTED = 1;
     const STATUS_SENT = 2;
     const STATUS_DELIVERED = 3;
+    // The user reported the dispatched batch never arrived. The admin can
+    // send it again (back to Sent) or mark it delivered.
+    const STATUS_NOT_RECEIVED = 4;
 
     const DELIVERY_TYPE_PICKUP = 1;
     const DELIVERY_TYPE_DELIVERY = 2;
+
+    // How the batch actually left us, recorded when it is marked Sent.
+    // Distinct from DELIVERY_TYPE_*, which is what the user ASKED for at
+    // request time; this is what the admin actually did.
+    const DISPATCH_DIRECT  = 1;
+    const DISPATCH_COURIER = 2;
+
+    /**
+     * How long after dispatch we start reminding the user to confirm whether
+     * the product arrived. A courier gets longer because it genuinely takes
+     * longer to turn up.
+     */
+    const REMINDER_DAYS_DIRECT  = 5;
+    const REMINDER_DAYS_COURIER = 10;
 
     /**
      * Per-level box rules:
@@ -44,7 +61,12 @@ class PromoterBoxRequest extends Model
         'requested_at',
         'sent_at',
         'sent_by',
+        'dispatch_method',
+        'collected_date',
+        'courier_name',
+        'courier_number',
         'delivered_at',
+        'not_received_at',
         'created_by',
         'updated_by',
         'is_active',
@@ -110,12 +132,79 @@ class PromoterBoxRequest extends Model
         ));
     }
 
+    /** "Direct" / "Courier", or null when the batch hasn't been sent yet. */
+    public function dispatchLabel(): ?string
+    {
+        return [
+            self::DISPATCH_DIRECT  => 'Direct',
+            self::DISPATCH_COURIER => 'Courier',
+        ][(int) $this->dispatch_method] ?? null;
+    }
+
+    /**
+     * One-line summary of how it was dispatched, for a table cell or the
+     * user's card. Null when there is nothing recorded.
+     */
+    public function dispatchSummary(): ?string
+    {
+        if ((int) $this->dispatch_method === self::DISPATCH_DIRECT) {
+            return $this->collected_date
+                ? 'Collected on ' . date('d-m-Y', strtotime((string) $this->collected_date))
+                : 'Collected directly';
+        }
+
+        if ((int) $this->dispatch_method === self::DISPATCH_COURIER) {
+            $parts = array_filter([
+                $this->courier_name,
+                $this->courier_number ? '#' . $this->courier_number : null,
+            ]);
+
+            return $parts ? implode(' ', $parts) : 'Sent by courier';
+        }
+
+        return null;
+    }
+
+    /** Days to wait before nagging, based on how the batch was dispatched. */
+    public function reminderDays(): int
+    {
+        // Anything dispatched before the method was recorded gets the longer,
+        // gentler window rather than being nagged early on a guess.
+        return (int) $this->dispatch_method === self::DISPATCH_DIRECT
+            ? self::REMINDER_DAYS_DIRECT
+            : self::REMINDER_DAYS_COURIER;
+    }
+
+    /**
+     * True when the batch has been sitting at Sent past its reminder window,
+     * i.e. the user has neither confirmed delivery nor reported it missing.
+     */
+    public function isStatusReminderDue(): bool
+    {
+        if ((int) $this->status !== self::STATUS_SENT || empty($this->sent_at)) {
+            return false;
+        }
+
+        return strtotime((string) $this->sent_at) <= strtotime('-' . $this->reminderDays() . ' days');
+    }
+
+    /** Whole days since dispatch, or null when it hasn't been sent. */
+    public function daysSinceSent(): ?int
+    {
+        if (empty($this->sent_at)) {
+            return null;
+        }
+
+        return (int) floor((time() - strtotime((string) $this->sent_at)) / 86400);
+    }
+
     public function statusLabel(): string
     {
         return [
             self::STATUS_REQUESTED => 'Requested',
             self::STATUS_SENT => 'Sent',
             self::STATUS_DELIVERED => 'Delivered',
+            self::STATUS_NOT_RECEIVED => 'Not Received',
         ][(int) $this->status] ?? 'Requested';
     }
 }

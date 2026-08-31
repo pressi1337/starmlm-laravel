@@ -52,7 +52,10 @@ class BoxRequestExport extends DefaultValueBinder implements FromCollection, Wit
             'Status',
             'Requested Date',
             'Sent Date',
+            'Dispatch Method',
+            'Dispatch Details',
             'Delivered Date',
+            'Not Received Date',
         ];
     }
 
@@ -97,7 +100,10 @@ class BoxRequestExport extends DefaultValueBinder implements FromCollection, Wit
             // created_at, matching what the listing shows.
             $this->date($row->requested_at ?: $row->created_at),
             $this->date($row->sent_at),
+            $row->dispatchLabel() ?: '-',
+            $row->dispatchSummary() ?: '-',
             $this->date($row->delivered_at),
+            $this->date($row->not_received_at),
         ];
     }
 
