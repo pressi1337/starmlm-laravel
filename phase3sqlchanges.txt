@@ -1044,3 +1044,35 @@ WHERE `file_path` IS NOT NULL AND `file_path` <> '';
 --
 -- The web server needs write access to storage/app/personal-documents; the
 -- command creates it. Nothing else references that directory.
+
+
+-- ============================================================
+-- OPERATIONAL (no schema change) — uploaded files are now deleted from disk
+-- Deleting or re-uploading a record used to leave its file on disk forever
+-- (records are soft-deleted, so nothing ever removed the file). Daily videos,
+-- promotion videos, training videos, company documents and personal documents
+-- now all clean up after themselves, on delete AND on replace.
+--
+-- A file is removed only when NO LIVE record anywhere still references it, so
+-- two records pointing at the same upload can never orphan each other.
+-- ============================================================
+
+-- Reclaim everything orphaned BEFORE this change (run from the Laravel root):
+--
+--   php artisan storage:prune-orphans --dry-run   # report only, deletes nothing
+--   php artisan storage:prune-orphans             # delete them
+--
+-- Only files older than 24h are considered, so an upload sitting in the
+-- directory while an admin is still filling in the form is never touched.
+-- Override with --hours=N. Safe to re-run.
+
+-- Zip archives from "Download all" are deleted as they are sent; any left by
+-- an aborted download are swept (older than 1h) on the next zip build.
+-- Nothing to run for that.
+
+-- To see what is still referenced before pruning:
+-- SELECT 'daily' src, video_path f FROM daily_videos WHERE is_deleted = 0 AND video_path IS NOT NULL
+-- UNION ALL SELECT 'promotion', video_path FROM promotion_videos WHERE is_deleted = 0 AND video_path IS NOT NULL
+-- UNION ALL SELECT 'training', video_path FROM training_videos WHERE is_deleted = 0 AND video_path IS NOT NULL
+-- UNION ALL SELECT 'company_doc', file_path FROM company_documents WHERE is_deleted = 0
+-- UNION ALL SELECT 'personal_doc', file_path FROM company_personal_document_files WHERE is_deleted = 0;

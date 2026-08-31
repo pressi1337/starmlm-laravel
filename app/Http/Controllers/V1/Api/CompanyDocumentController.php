@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\V1\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\UploadedFileCleaner;
 use App\Models\CompanyDocument;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -148,6 +149,7 @@ class CompanyDocumentController extends Controller
             }
 
             $doc->title = $request->title;
+            $previousFile = $doc->file_path;
             $doc->file_path = $request->file_path;
             $doc->file_type = CompanyDocument::detectFileType($request->file_path);
             if ($request->has('is_active')) {
@@ -155,6 +157,9 @@ class CompanyDocumentController extends Controller
             }
             $doc->updated_by = Auth::id();
             $doc->save();
+
+            // Drop the previous upload if this edit replaced it.
+            app(UploadedFileCleaner::class)->replaced($previousFile, $doc->file_path);
 
             return response()->json(['message' => 'Updated successfully', 'status' => 200]);
         } catch (\Throwable $e) {
@@ -170,9 +175,14 @@ class CompanyDocumentController extends Controller
             if (!$doc) {
                 return response()->json(['message' => 'Data not found', 'status' => 400], 400);
             }
+            $removedFile = $doc->file_path;
             $doc->is_deleted = 1;
             $doc->updated_by = Auth::id();
             $doc->save();
+
+            // The row is soft-deleted now, so nothing live references the
+            // file and it can come off disk.
+            app(UploadedFileCleaner::class)->forget($removedFile);
 
             return response()->json(['message' => 'Deleted successfully', 'status' => 200]);
         } catch (\Throwable $e) {

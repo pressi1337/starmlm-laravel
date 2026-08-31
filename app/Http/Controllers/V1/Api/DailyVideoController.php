@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\V1\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\UploadedFileCleaner;
 use App\Models\DailyVideo;
 use App\Models\DailyVideoWatchDetail;
 use Illuminate\Http\Request;
@@ -247,6 +248,7 @@ class DailyVideoController extends Controller
 
             $auth_user_id = Auth::id();
             $w = DailyVideo::find($id);
+            $previousFile = $w->video_path ?? null;
             if (!$w) {
                 DB::rollBack();
                 return response()->json(['message' => 'Data not found', 'status' => 400], 400);
@@ -264,6 +266,11 @@ class DailyVideoController extends Controller
             $w->save();
 
             DB::commit();
+
+            // The upload may have been swapped for a new one; the old
+            // file is now unreferenced, so drop it rather than leaving it
+            // on disk forever.
+            app(UploadedFileCleaner::class)->replaced($previousFile, $w->video_path);
 
             return response()->json(['message' => 'Updated successfully', 'status' => 200]);
         } catch (\Throwable $e) {
@@ -289,11 +296,19 @@ class DailyVideoController extends Controller
                 DB::rollBack();
                 return response()->json(['message' => 'Data not found', 'status' => 400], 400);
             }
+            $removedFile = $u->video_path;
             $u->is_deleted = 1;
             $u->updated_by = Auth::id();
             $u->save();
 
             DB::commit();
+
+            // After the commit: the row is now soft-deleted, so it no longer
+            // counts as a live reference and the file can go. Deliberately
+            // outside the transaction — a failed unlink must not roll back a
+            // delete the admin already saw succeed.
+            app(UploadedFileCleaner::class)->forget($removedFile);
+
             return response()->json(['message' => 'Deleted successfully', 'status' => 200]);
         } catch (\Throwable $e) {
             DB::rollBack();
