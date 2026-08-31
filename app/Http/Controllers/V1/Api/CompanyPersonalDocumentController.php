@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CompanyPersonalDocument;
 use App\Models\CompanyPersonalDocumentFile;
 use App\Models\User;
+use App\Services\UploadedFileCleaner;
 use App\Traits\HandlesJson;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -243,6 +244,11 @@ class CompanyPersonalDocumentController extends Controller
                 return response()->json(['message' => 'Data not found', 'status' => 400], 400);
             }
 
+            $removedFiles = CompanyPersonalDocumentFile::where('document_id', $doc->id)
+                ->pluck('file_path')
+                ->all();
+            $removedFiles[] = $doc->file_path; // legacy single-file column
+
             DB::beginTransaction();
             $doc->is_deleted = 1;
             $doc->updated_by = Auth::id();
@@ -250,6 +256,11 @@ class CompanyPersonalDocumentController extends Controller
             CompanyPersonalDocumentFile::where('document_id', $doc->id)
                 ->update(['is_deleted' => 1]);
             DB::commit();
+
+            // Every row is soft-deleted now, so none of these files are still
+            // referenced. Outside the transaction on purpose: a failed unlink
+            // must not roll back a delete the admin already saw succeed.
+            app(UploadedFileCleaner::class)->forgetMany(array_unique(array_filter($removedFiles)));
 
             return response()->json(['message' => 'Deleted successfully', 'status' => 200]);
         } catch (\Throwable $e) {
@@ -355,6 +366,11 @@ class CompanyPersonalDocumentController extends Controller
             if (!is_dir($tmpDir)) {
                 mkdir($tmpDir, 0775, true);
             }
+            // Sweep archives left behind by aborted downloads before building
+            // another. deleteFileAfterSend covers the normal path, but a
+            // cancelled or dropped download can strand the temp file, and
+            // these are the size of a whole document set.
+            $this->pruneStaleArchives($tmpDir);
             $zipPath = $tmpDir . '/cpd_' . $doc->id . '_' . Str::random(8) . '.zip';
 
             $zip = new \ZipArchive();
@@ -566,6 +582,14 @@ class CompanyPersonalDocumentController extends Controller
     /** Replace the set's files with exactly what was submitted. */
     private function syncFiles(CompanyPersonalDocument $doc, array $files): void
     {
+        // Whatever the edit drops must come off disk, or every edit of a set
+        // leaves its removed files behind forever.
+        $previous = CompanyPersonalDocumentFile::where('document_id', $doc->id)
+            ->pluck('file_path')
+            ->all();
+        $keeping = array_column($files, 'file_path');
+        $dropped = array_diff($previous, $keeping);
+
         CompanyPersonalDocumentFile::where('document_id', $doc->id)->delete();
 
         $order = 0;
@@ -581,6 +605,31 @@ class CompanyPersonalDocumentController extends Controller
 
             // Get it out of the publicly-servable upload directory.
             $this->privatise($file['file_path']);
+        }
+
+        // The old rows are gone, so anything dropped is now unreferenced.
+        if ($dropped) {
+            app(UploadedFileCleaner::class)->forgetMany($dropped);
+        }
+    }
+
+    /**
+     * Delete zips in the temp directory older than an hour. Anything that old
+     * is from a download that never completed — a live one is written and
+     * streamed within seconds.
+     */
+    private function pruneStaleArchives(string $dir): void
+    {
+        try {
+            $cutoff = time() - 3600;
+            foreach (glob($dir . '/cpd_*.zip') ?: [] as $path) {
+                if (is_file($path) && filemtime($path) < $cutoff) {
+                    @unlink($path);
+                }
+            }
+        } catch (\Throwable $e) {
+            // Housekeeping must never block a download.
+            Log::warning('Stale archive prune failed', ['error' => $e->getMessage()]);
         }
     }
 
@@ -621,11 +670,25 @@ class CompanyPersonalDocumentController extends Controller
         ]);
 
         $validator->after(function ($v) use ($request) {
-            foreach ($this->normalizeFiles($request) as $i => $file) {
+            $maxBytes = CompanyPersonalDocument::MAX_FILE_BYTES;
+            $maxLabel = round($maxBytes / 1073741824, 1) . ' GB';
+
+            foreach ($this->normalizeFiles($request) as $file) {
                 if (!CompanyPersonalDocument::isAllowedFile($file['file_path'])) {
                     $v->errors()->add(
                         'files',
-                        $file['original_name'] . ' is not an image, PDF or Excel file'
+                        $file['original_name'] . ' cannot be uploaded: that file type is not permitted'
+                    );
+                    continue;
+                }
+
+                // The file is already on disk by now (the uploader wrote it),
+                // so measure it rather than trusting anything the client sent.
+                $path = CompanyPersonalDocumentFile::resolveStoredPath($file['file_path']);
+                if ($path !== null && filesize($path) > $maxBytes) {
+                    $v->errors()->add(
+                        'files',
+                        $file['original_name'] . ' is larger than ' . $maxLabel
                     );
                 }
             }

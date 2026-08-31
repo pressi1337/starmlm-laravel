@@ -58,11 +58,8 @@ class CompanyPersonalDocumentFile extends Model
 
     public function typeLabel(): string
     {
-        return [
-            CompanyPersonalDocument::FILE_TYPE_IMAGE => 'Image',
-            CompanyPersonalDocument::FILE_TYPE_PDF   => 'PDF',
-            CompanyPersonalDocument::FILE_TYPE_EXCEL => 'Excel',
-        ][(int) $this->file_type] ?? 'File';
+        // Single source of truth on the parent — the label list grows there.
+        return CompanyPersonalDocument::labelForType($this->file_type);
     }
 
     /**
@@ -81,6 +78,30 @@ class CompanyPersonalDocumentFile extends Model
     public function safeStoredName(): string
     {
         return basename(str_replace('\\', '/', (string) $this->file_path));
+    }
+
+    /**
+     * Locate a stored file by name, private location first, then the public
+     * upload dir. Static so validation can check a file that has been
+     * uploaded but not yet attached to a document row.
+     */
+    public static function resolveStoredPath(?string $storedName): ?string
+    {
+        $name = basename(str_replace(chr(92), '/', (string) $storedName));
+        if ($name === '' || $name === '.' || $name === '..') {
+            return null;
+        }
+
+        foreach ([
+            storage_path(self::PRIVATE_DIR . '/' . $name),
+            storage_path('app/public/uploads/final/' . $name),
+        ] as $candidate) {
+            if (is_file($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     /** Path a privatised copy would occupy (whether or not it exists yet). */
