@@ -383,6 +383,11 @@ AUTHENTICATION:
                               TRAINING VIDEO ENDPOINTS
 ===============================================================================
 
+NOTE: The training program is 3 days long. The `day` field on training videos
+must be an integer between 1 and 3 inclusive, and is unique among non-deleted
+rows. Once a user completes day 3, training_status is set to COMPLETED and no
+further training videos are assigned.
+
 19. GET ALL TRAINING VIDEOS
     Method: GET
     URL: /api/v1/training-videos
@@ -423,12 +428,12 @@ AUTHENTICATION:
       "video_path": "file (required if youtube_link not provided)",
       "youtube_link": "string (required if video_path not provided)",
       "showing_date": "date (required, must be unique)",
-      "day": "string (required)",
+      "day": "integer (required, 1-3, must be unique among active rows)",
       "session_type": "string (required)",
       "is_active": "boolean (optional)",
       "quiz_applicable": "boolean (optional)"
     }
-    
+
     Response (Success - 200):
     {
       "message": "New Training Video Created successfully",

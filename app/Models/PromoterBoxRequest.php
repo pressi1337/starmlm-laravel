@@ -13,6 +13,12 @@ class PromoterBoxRequest extends Model
     const DELIVERY_TYPE_PICKUP = 1;
     const DELIVERY_TYPE_DELIVERY = 2;
 
+    // How the batch actually left us, recorded when it is marked Sent.
+    // Distinct from DELIVERY_TYPE_*, which is what the user ASKED for at
+    // request time; this is what the admin actually did.
+    const DISPATCH_DIRECT  = 1;
+    const DISPATCH_COURIER = 2;
+
     /**
      * Per-level box rules:
      *   - cap:     cumulative max boxes a user may receive at that level.
@@ -44,6 +50,10 @@ class PromoterBoxRequest extends Model
         'requested_at',
         'sent_at',
         'sent_by',
+        'dispatch_method',
+        'collected_date',
+        'courier_name',
+        'courier_number',
         'delivered_at',
         'created_by',
         'updated_by',
@@ -108,6 +118,39 @@ class PromoterBoxRequest extends Model
             $rules['options'],
             fn ($option) => $option <= $remaining
         ));
+    }
+
+    /** "Direct" / "Courier", or null when the batch hasn't been sent yet. */
+    public function dispatchLabel(): ?string
+    {
+        return [
+            self::DISPATCH_DIRECT  => 'Direct',
+            self::DISPATCH_COURIER => 'Courier',
+        ][(int) $this->dispatch_method] ?? null;
+    }
+
+    /**
+     * One-line summary of how it was dispatched, for a table cell or the
+     * user's card. Null when there is nothing recorded.
+     */
+    public function dispatchSummary(): ?string
+    {
+        if ((int) $this->dispatch_method === self::DISPATCH_DIRECT) {
+            return $this->collected_date
+                ? 'Collected on ' . date('d-m-Y', strtotime((string) $this->collected_date))
+                : 'Collected directly';
+        }
+
+        if ((int) $this->dispatch_method === self::DISPATCH_COURIER) {
+            $parts = array_filter([
+                $this->courier_name,
+                $this->courier_number ? '#' . $this->courier_number : null,
+            ]);
+
+            return $parts ? implode(' ', $parts) : 'Sent by courier';
+        }
+
+        return null;
     }
 
     public function statusLabel(): string

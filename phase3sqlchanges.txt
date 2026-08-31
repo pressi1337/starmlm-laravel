@@ -1076,3 +1076,32 @@ WHERE `file_path` IS NOT NULL AND `file_path` <> '';
 -- UNION ALL SELECT 'training', video_path FROM training_videos WHERE is_deleted = 0 AND video_path IS NOT NULL
 -- UNION ALL SELECT 'company_doc', file_path FROM company_documents WHERE is_deleted = 0
 -- UNION ALL SELECT 'personal_doc', file_path FROM company_personal_document_files WHERE is_deleted = 0;
+
+
+-- ============================================================
+-- Plan Product dispatch details — direct SQL. Equivalent of migration
+-- 2026_08_31_000001_add_dispatch_details_to_promoter_box_requests.
+-- Captured when the admin marks a batch Sent:
+--   Direct  (1) -> collected_date
+--   Courier (2) -> courier_name + courier_number
+-- All nullable: batches sent before this have none, and a batch still
+-- Requested has none yet. The user sees these on their own screen.
+-- ============================================================
+
+ALTER TABLE `promoter_box_requests`
+    ADD COLUMN `dispatch_method` TINYINT NULL DEFAULT NULL AFTER `sent_by`,
+    ADD COLUMN `collected_date`  DATE NULL DEFAULT NULL AFTER `dispatch_method`,
+    ADD COLUMN `courier_name`    VARCHAR(120) NULL DEFAULT NULL AFTER `collected_date`,
+    ADD COLUMN `courier_number`  VARCHAR(120) NULL DEFAULT NULL AFTER `courier_name`;
+
+-- Sanity check after a few dispatches:
+-- SELECT `id`, `status`, `dispatch_method`, `collected_date`,
+--        `courier_name`, `courier_number`, `sent_at`
+-- FROM `promoter_box_requests`
+-- WHERE `dispatch_method` IS NOT NULL
+-- ORDER BY `sent_at` DESC;
+
+-- Rollback:
+-- ALTER TABLE `promoter_box_requests`
+--     DROP COLUMN `dispatch_method`, DROP COLUMN `collected_date`,
+--     DROP COLUMN `courier_name`, DROP COLUMN `courier_number`;

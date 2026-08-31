@@ -60,6 +60,19 @@ class BoxRequestController extends Controller
                 ->map(function ($b) {
                     $b->status_label = $b->statusLabel();
                     $b->created_at_formatted = $b->created_at ? $b->created_at->format('d-m-Y h:i A') : '-';
+
+                    // Dispatch details, so the user can see how it was sent
+                    // and chase a courier if it hasn't arrived.
+                    $b->dispatch_label = $b->dispatchLabel();
+                    $b->dispatch_summary = $b->dispatchSummary();
+                    $b->courier_name = $b->courier_name;
+                    $b->courier_number = $b->courier_number;
+                    $b->collected_date_formatted = $b->collected_date
+                        ? date('d-m-Y', strtotime((string) $b->collected_date))
+                        : null;
+                    $b->sent_at_formatted = $b->sent_at
+                        ? date('d-m-Y h:i A', strtotime((string) $b->sent_at))
+                        : null;
                     return $b;
                 });
 
@@ -232,6 +245,13 @@ class BoxRequestController extends Controller
                 $b->sent_at_formatted = $this->formatDate($b->sent_at);
                 $b->delivered_at_formatted = $this->formatDate($b->delivered_at);
 
+                // How it was dispatched (null until it is marked Sent).
+                $b->dispatch_label = $b->dispatchLabel();
+                $b->dispatch_summary = $b->dispatchSummary();
+                $b->collected_date_formatted = $b->collected_date
+                    ? date('d-m-Y', strtotime((string) $b->collected_date))
+                    : null;
+
                 // Quantity is adjustable only while still Requested and at a
                 // manual level (3/4). Reducing it frees cap room for the user to
                 // re-request later; the offered options are bounded by the cap
@@ -279,9 +299,44 @@ class BoxRequestController extends Controller
                 return response()->json(['success' => false, 'message' => 'This box is already delivered'], 400);
             }
 
+            // How it was dispatched. Each branch's fields are required for that
+            // branch only, so picking Courier can't be saved without the
+            // tracking details and vice versa.
+            $validator = Validator::make($request->all(), [
+                'dispatch_method' => 'required|integer|in:' . PromoterBoxRequest::DISPATCH_DIRECT
+                    . ',' . PromoterBoxRequest::DISPATCH_COURIER,
+                'collected_date'  => 'required_if:dispatch_method,' . PromoterBoxRequest::DISPATCH_DIRECT . '|nullable|date',
+                'courier_name'    => 'required_if:dispatch_method,' . PromoterBoxRequest::DISPATCH_COURIER . '|nullable|string|max:120',
+                'courier_number'  => 'required_if:dispatch_method,' . PromoterBoxRequest::DISPATCH_COURIER . '|nullable|string|max:120',
+            ], [
+                'dispatch_method.required' => 'Choose Direct or Courier',
+                'dispatch_method.in'       => 'Choose Direct or Courier',
+                'collected_date.required_if' => 'Collected date is required',
+                'courier_name.required_if'   => 'Courier name is required',
+                'courier_number.required_if' => 'Courier number is required',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+            }
+
+            $method = (int) $request->input('dispatch_method');
+
             $box->status = PromoterBoxRequest::STATUS_SENT;
             $box->sent_at = now();
             $box->sent_by = Auth::id();
+            $box->dispatch_method = $method;
+            // Only keep the fields belonging to the chosen method, so a
+            // re-send by the other method can't leave stale details behind.
+            $box->collected_date = $method === PromoterBoxRequest::DISPATCH_DIRECT
+                ? $request->input('collected_date')
+                : null;
+            $box->courier_name = $method === PromoterBoxRequest::DISPATCH_COURIER
+                ? trim((string) $request->input('courier_name'))
+                : null;
+            $box->courier_number = $method === PromoterBoxRequest::DISPATCH_COURIER
+                ? trim((string) $request->input('courier_number'))
+                : null;
             $box->updated_by = Auth::id();
             $box->save();
 
