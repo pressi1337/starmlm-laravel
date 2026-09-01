@@ -18,6 +18,7 @@ use App\Http\Controllers\V1\Api\PromotionQuizController;
 use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
 use App\Http\Controllers\V1\Api\BoxRequestController;
+use App\Http\Controllers\V1\Api\BillTemplateController;
 use App\Http\Controllers\V1\Api\UserTrainingController;
 use App\Http\Controllers\V1\Api\UserBankDetailController;
 use App\Http\Controllers\V1\Api\AdminBankDetailController;
@@ -106,6 +107,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         // Export before the listing route for clarity; it mirrors the
         // list's filters, search and sort exactly.
         Route::get('admin-box-requests/export/excel', [BoxRequestController::class, 'exportExcel']);
+        Route::get('admin-box-requests/{id}/invoice', [BoxRequestController::class, 'invoice'])->where('id', '[0-9]+');
         Route::get('admin-box-requests', [BoxRequestController::class, 'adminIndex']);
     });
 
@@ -210,6 +212,11 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     // existing user-bank-detail/upsert style.
     Route::post('user-bank-detail/clear', [UserBankDetailController::class, 'clearForUser']);
 
+    // Bill template — seller details + invoice settings for the
+    // plan-product invoice. Single document, same upsert shape as T&C.
+    Route::get('bill-template', [BillTemplateController::class, 'show']);
+    Route::post('bill-template/upsert', [BillTemplateController::class, 'upsert']);
+
     // Terms & Conditions — admin saves the single document via upsert.
     Route::post('terms-and-conditions/upsert', [TermsAndConditionController::class, 'upsert']);
 
@@ -275,6 +282,8 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     Route::post('box-requests/not-received', [BoxRequestController::class, 'markNotReceived']);
     // Drives the PWA nag popup for products the user hasn't confirmed.
     Route::get('box-requests/status-reminders', [BoxRequestController::class, 'statusReminders']);
+    // Invoice for a delivered batch. Scoped to the caller's own rows.
+    Route::get('box-requests/{id}/invoice', [BoxRequestController::class, 'invoice'])->where('id', '[0-9]+');
 
     // Dashboard API
     Route::get('user-dashboard', [UserPromoterController::class, 'dashboard']);

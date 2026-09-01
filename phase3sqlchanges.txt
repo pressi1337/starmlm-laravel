@@ -1162,3 +1162,70 @@ ALTER TABLE `promoter_box_requests`
 -- WHERE b.`status` = 2 AND b.`is_deleted` = 0 AND b.`sent_at` IS NOT NULL
 --   AND DATEDIFF(NOW(), b.`sent_at`) >= IF(b.`dispatch_method` = 1, 5, 10)
 -- ORDER BY b.`sent_at`;
+
+
+-- ============================================================
+-- Plan Product invoice — direct SQL. Equivalent of migrations
+-- 2026_09_01_000001_add_invoice_fields_to_promoter_box_requests and
+-- 2026_09_01_000002_create_bill_templates.
+--
+-- The user downloads a GST invoice once their product is Delivered.
+--   rate_per_qty / mrp -> captured when the admin marks the batch Sent
+--   invoice_no         -> sequential, issued at delivery (max + 1), unique
+--   bill_templates     -> the "Billed by" block, single row, admin-maintained
+--
+-- Tax is fixed in code at 18% (9% CGST + 9% SGST) on qty x rate.
+-- MRP is printed for reference and is NOT part of the tax maths.
+-- Users have no GSTIN/PAN on file, so the "Billed to" block omits them.
+-- ============================================================
+
+ALTER TABLE `promoter_box_requests`
+    ADD COLUMN `rate_per_qty` DECIMAL(10,2) NULL DEFAULT NULL AFTER `courier_number`,
+    ADD COLUMN `mrp`          DECIMAL(10,2) NULL DEFAULT NULL AFTER `rate_per_qty`,
+    ADD COLUMN `invoice_no`   INT UNSIGNED NULL DEFAULT NULL AFTER `mrp`,
+    ADD UNIQUE KEY `pbr_invoice_no_unique` (`invoice_no`);
+
+CREATE TABLE `bill_templates` (
+    `id`                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `company_name`      VARCHAR(255) NOT NULL,
+    `address_line1`     VARCHAR(255) NULL DEFAULT NULL,
+    `address_line2`     VARCHAR(255) NULL DEFAULT NULL,
+    `city`              VARCHAR(120) NULL DEFAULT NULL,
+    `state`             VARCHAR(120) NULL DEFAULT NULL,
+    `pincode`           VARCHAR(20)  NULL DEFAULT NULL,
+    `gstin`             VARCHAR(20)  NULL DEFAULT NULL,
+    `pan`               VARCHAR(20)  NULL DEFAULT NULL,
+    `email`             VARCHAR(255) NULL DEFAULT NULL,
+    `phone`             VARCHAR(30)  NULL DEFAULT NULL,
+    `invoice_prefix`    VARCHAR(20)  NULL DEFAULT NULL,
+    `hsn_code`          VARCHAR(20)  NULL DEFAULT NULL,
+    `place_of_supply`   VARCHAR(120) NULL DEFAULT NULL,
+    `country_of_supply` VARCHAR(120) NOT NULL DEFAULT 'India',
+    `is_active`         TINYINT(1) NOT NULL DEFAULT 1,
+    `is_deleted`        TINYINT(1) NOT NULL DEFAULT 0,
+    `created_by`        BIGINT UNSIGNED NULL DEFAULT NULL,
+    `updated_by`        BIGINT UNSIGNED NULL DEFAULT NULL,
+    `created_at`        TIMESTAMP NULL DEFAULT NULL,
+    `updated_at`        TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- After deploying, fill the seller block in:
+--   Admin -> Bill Template
+-- Until it is saved, invoices render with blank company details.
+
+-- Batches delivered BEFORE this change have no pricing, so they cannot
+-- produce an invoice (the endpoint returns a clear 400). To see them:
+-- SELECT `id`, `user_id`, `quantity`, `delivered_at`
+-- FROM `promoter_box_requests`
+-- WHERE `status` = 3 AND `is_deleted` = 0 AND `rate_per_qty` IS NULL;
+--
+-- Backfilling a rate makes their invoice available:
+-- UPDATE `promoter_box_requests` SET `rate_per_qty` = 0.00, `mrp` = 0.00
+-- WHERE `status` = 3 AND `rate_per_qty` IS NULL;
+
+-- Rollback:
+-- DROP TABLE `bill_templates`;
+-- ALTER TABLE `promoter_box_requests`
+--     DROP INDEX `pbr_invoice_no_unique`,
+--     DROP COLUMN `rate_per_qty`, DROP COLUMN `mrp`, DROP COLUMN `invoice_no`;

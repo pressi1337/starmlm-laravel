@@ -8,8 +8,10 @@ use App\Traits\HandlesJson;
 use App\Models\PromoterBoxRequest;
 use App\Models\User;
 use App\Models\UserPromoter;
+use App\Services\InvoiceBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
@@ -78,6 +80,9 @@ class BoxRequestController extends Controller
                     $b->not_received_at_formatted = $b->not_received_at
                         ? date('d-m-Y h:i A', strtotime((string) $b->not_received_at))
                         : null;
+                    // Drives the "Download Invoice" button.
+                    $b->has_invoice = (int) $b->status === PromoterBoxRequest::STATUS_DELIVERED
+                        && $b->rate_per_qty !== null;
                     return $b;
                 });
 
@@ -197,6 +202,10 @@ class BoxRequestController extends Controller
             $box->updated_by = $userId;
             $box->save();
 
+            // Delivery is what makes the invoice available, so the number is
+            // issued here.
+            $this->assignInvoiceNumber($box);
+
             return response()->json(['success' => true, 'message' => 'Marked as delivered', 'data' => $box], 200);
         } catch (\Throwable $e) {
             Log::error('BoxRequest markDelivered failed', ['error' => $e->getMessage()]);
@@ -300,6 +309,83 @@ class BoxRequestController extends Controller
         }
     }
 
+    /**
+     * Allocate the next sequential invoice number, once.
+     *
+     * Locked read of the current maximum so two deliveries landing at the same
+     * moment can't be handed the same number — the column is unique, so a
+     * collision would fail the save outright.
+     */
+    private function assignInvoiceNumber(PromoterBoxRequest $box): void
+    {
+        if ($box->invoice_no !== null) {
+            return; // already issued; numbers are never reused
+        }
+
+        try {
+            DB::transaction(function () use ($box) {
+                $max = (int) PromoterBoxRequest::lockForUpdate()->max('invoice_no');
+                $box->invoice_no = $max + 1;
+                $box->save();
+            });
+        } catch (\Throwable $e) {
+            // The delivery itself already succeeded; a missing number is
+            // recoverable (the invoice route allocates on demand).
+            Log::error('Invoice number allocation failed', [
+                'box_id' => $box->id, 'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Everything the invoice template renders for one delivered batch.
+     *
+     * Only available once delivered — that is the point at which the sale is
+     * complete. A user may only fetch their own; an admin may fetch any.
+     */
+    public function invoice(Request $request, $id)
+    {
+        try {
+            $actor = Auth::user();
+            $isAdmin = $actor && in_array((int) $actor->role, [User::ROLE_SUPER_ADMIN, User::ROLE_SUB_ADMIN], true);
+
+            $query = PromoterBoxRequest::with('user')->where('id', $id)->where('is_deleted', 0);
+            if (!$isAdmin) {
+                $query->where('user_id', Auth::id());
+            }
+            $box = $query->first();
+
+            if (!$box) {
+                return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            }
+            if ((int) $box->status !== PromoterBoxRequest::STATUS_DELIVERED) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The invoice is available once the product is delivered',
+                ], 400);
+            }
+            if ($box->rate_per_qty === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This product was dispatched before pricing was recorded, so no invoice can be generated',
+                ], 400);
+            }
+
+            // Batches delivered before numbering existed get one on first view,
+            // so an older delivery still produces a valid invoice.
+            $this->assignInvoiceNumber($box);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Success',
+                'data'    => app(InvoiceBuilder::class)->build($box),
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('BoxRequest invoice failed', ['id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
     public function adminIndex(Request $request)
     {
         $sort_column = $request->query('sort_column', 'created_at');
@@ -347,6 +433,8 @@ class BoxRequestController extends Controller
                 $b->collected_date_formatted = $b->collected_date
                     ? date('d-m-Y', strtotime((string) $b->collected_date))
                     : null;
+                $b->has_invoice = (int) $b->status === PromoterBoxRequest::STATUS_DELIVERED
+                    && $b->rate_per_qty !== null;
 
                 // Quantity is adjustable only while still Requested and at a
                 // manual level (3/4). Reducing it frees cap room for the user to
@@ -404,12 +492,19 @@ class BoxRequestController extends Controller
                 'collected_date'  => 'required_if:dispatch_method,' . PromoterBoxRequest::DISPATCH_DIRECT . '|nullable|date',
                 'courier_name'    => 'required_if:dispatch_method,' . PromoterBoxRequest::DISPATCH_COURIER . '|nullable|string|max:120',
                 'courier_number'  => 'required_if:dispatch_method,' . PromoterBoxRequest::DISPATCH_COURIER . '|nullable|string|max:120',
+                // Pricing for the invoice the user downloads once delivered.
+                // Captured here because this is the moment the admin knows
+                // what actually went out.
+                'rate_per_qty'    => 'required|numeric|min:0',
+                'mrp'             => 'required|numeric|min:0',
             ], [
                 'dispatch_method.required' => 'Choose Direct or Courier',
                 'dispatch_method.in'       => 'Choose Direct or Courier',
                 'collected_date.required_if' => 'Collected date is required',
                 'courier_name.required_if'   => 'Courier name is required',
                 'courier_number.required_if' => 'Courier number is required',
+                'rate_per_qty.required' => 'Rate per quantity is required',
+                'mrp.required'          => 'MRP is required',
             ]);
 
             if ($validator->fails()) {
@@ -436,6 +531,8 @@ class BoxRequestController extends Controller
             $box->courier_number = $method === PromoterBoxRequest::DISPATCH_COURIER
                 ? trim((string) $request->input('courier_number'))
                 : null;
+            $box->rate_per_qty = round((float) $request->input('rate_per_qty'), 2);
+            $box->mrp = round((float) $request->input('mrp'), 2);
             $box->updated_by = Auth::id();
             $box->save();
 
@@ -471,6 +568,8 @@ class BoxRequestController extends Controller
             $box->delivered_at = now();
             $box->updated_by = Auth::id();
             $box->save();
+
+            $this->assignInvoiceNumber($box);
 
             return response()->json(['success' => true, 'message' => 'Marked as delivered', 'data' => $box], 200);
         } catch (\Throwable $e) {
