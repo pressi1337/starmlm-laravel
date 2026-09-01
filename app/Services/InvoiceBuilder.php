@@ -23,9 +23,6 @@ class InvoiceBuilder
     public const CGST_PERCENT = 9.0;
     public const SGST_PERCENT = 9.0;
 
-    /** Fallback when the admin hasn't set an HSN on the bill template. */
-    public const HSN_CODE = '2106';
-
     public function build(PromoterBoxRequest $box): array
     {
         $template = BillTemplate::current();
@@ -50,10 +47,9 @@ class InvoiceBuilder
             'country_of_supply' => $template?->country_of_supply ?: 'India',
             'items'        => [[
                 'description' => $this->productName($box->level),
-                'hsn'         => $template?->hsn_code ?: self::HSN_CODE,
                 'qty'         => $qty,
                 'mrp'         => round((float) $box->mrp, 2),
-                'unit_price'  => $rate,
+                'sales_price' => $rate,
                 'gst_percent' => self::GST_PERCENT,
                 'taxable'     => $taxable,
                 'cgst'        => $cgst,

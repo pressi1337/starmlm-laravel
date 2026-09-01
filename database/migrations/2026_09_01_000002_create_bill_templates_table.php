@@ -38,7 +38,6 @@ return new class extends Migration
             // Invoice settings. Tax is fixed at 18% (9 CGST + 9 SGST) in the
             // builder; only the presentation bits are configurable here.
             $table->string('invoice_prefix', 20)->nullable();
-            $table->string('hsn_code', 20)->nullable();
             $table->string('place_of_supply', 120)->nullable();
             $table->string('country_of_supply', 120)->default('India');
 

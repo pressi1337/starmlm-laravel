@@ -1198,7 +1198,6 @@ CREATE TABLE `bill_templates` (
     `email`             VARCHAR(255) NULL DEFAULT NULL,
     `phone`             VARCHAR(30)  NULL DEFAULT NULL,
     `invoice_prefix`    VARCHAR(20)  NULL DEFAULT NULL,
-    `hsn_code`          VARCHAR(20)  NULL DEFAULT NULL,
     `place_of_supply`   VARCHAR(120) NULL DEFAULT NULL,
     `country_of_supply` VARCHAR(120) NOT NULL DEFAULT 'India',
     `is_active`         TINYINT(1) NOT NULL DEFAULT 1,
