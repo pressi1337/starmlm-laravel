@@ -1228,3 +1228,57 @@ CREATE TABLE `bill_templates` (
 -- ALTER TABLE `promoter_box_requests`
 --     DROP INDEX `pbr_invoice_no_unique`,
 --     DROP COLUMN `rate_per_qty`, DROP COLUMN `mrp`, DROP COLUMN `invoice_no`;
+
+
+-- ============================================================
+-- Product price master + financial-year invoice numbers.
+-- Equivalent of migration 2026_09_02_000001_create_product_prices, plus the
+-- invoice_fy change folded into 2026_09_01_000001 (not yet deployed).
+--
+-- The admin sets ONE sales price + MRP per promoter level. Every dispatch
+-- bills at that level's price, and the value is COPIED onto the batch at
+-- dispatch — an invoice is a tax document, so editing a price later must
+-- never change what an already-issued invoice says.
+--
+-- Invoice numbers now run prefix/financial-year/sequence, e.g.
+--   startup/26-27/001
+-- The Indian FY starts 1 April, and the sequence RESTARTS each year — which
+-- is why the unique key is (invoice_fy, invoice_no), not the number alone.
+-- ============================================================
+
+CREATE TABLE `product_prices` (
+    `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `level`        TINYINT NOT NULL,
+    `product_name` VARCHAR(120) NOT NULL,
+    `price`        DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    `mrp`          DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    `is_active`    TINYINT(1) NOT NULL DEFAULT 1,
+    `is_deleted`   TINYINT(1) NOT NULL DEFAULT 0,
+    `created_by`   BIGINT UNSIGNED NULL DEFAULT NULL,
+    `updated_by`   BIGINT UNSIGNED NULL DEFAULT NULL,
+    `created_at`   TIMESTAMP NULL DEFAULT NULL,
+    `updated_at`   TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `product_prices_level_unique` (`level`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- If you already ran the earlier invoice migration with the OLD single-column
+-- unique key, correct it with:
+-- ALTER TABLE `promoter_box_requests`
+--     ADD COLUMN `invoice_fy` VARCHAR(7) NULL DEFAULT NULL AFTER `mrp`,
+--     DROP INDEX `pbr_invoice_no_unique`,
+--     ADD UNIQUE KEY `pbr_invoice_no_unique` (`invoice_fy`, `invoice_no`);
+
+-- Seed the five levels (edit the amounts, then run):
+-- INSERT INTO `product_prices` (`level`,`product_name`,`price`,`mrp`,`is_active`,`is_deleted`,`created_at`,`updated_at`) VALUES
+--   (0,'Energy Plus',0.00,0.00,1,0,NOW(),NOW()),
+--   (1,'Health Plus',0.00,0.00,1,0,NOW(),NOW()),
+--   (2,'Health Plus',0.00,0.00,1,0,NOW(),NOW()),
+--   (3,'Health Plus',0.00,0.00,1,0,NOW(),NOW()),
+--   (4,'Health Plus',0.00,0.00,1,0,NOW(),NOW());
+-- Or just fill them in under Admin -> Product Price.
+
+-- Invoice numbers issued so far, per financial year:
+-- SELECT `invoice_fy`, COUNT(*) AS issued, MAX(`invoice_no`) AS latest
+-- FROM `promoter_box_requests`
+-- WHERE `invoice_no` IS NOT NULL GROUP BY `invoice_fy` ORDER BY `invoice_fy`;

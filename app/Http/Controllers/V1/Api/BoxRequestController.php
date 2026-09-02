@@ -5,6 +5,7 @@ namespace App\Http\Controllers\V1\Api;
 use App\Exports\BoxRequestExport;
 use App\Http\Controllers\Controller;
 use App\Traits\HandlesJson;
+use App\Models\ProductPrice;
 use App\Models\PromoterBoxRequest;
 use App\Models\User;
 use App\Models\UserPromoter;
@@ -310,11 +311,13 @@ class BoxRequestController extends Controller
     }
 
     /**
-     * Allocate the next sequential invoice number, once.
+     * Allocate the next invoice number, once, WITHIN the financial year the
+     * delivery falls in — so each April the sequence restarts at 1.
      *
-     * Locked read of the current maximum so two deliveries landing at the same
-     * moment can't be handed the same number — the column is unique, so a
-     * collision would fail the save outright.
+     * Locked read of that year's current maximum, so two deliveries landing at
+     * the same moment can't be handed the same number. The unique key is
+     * (invoice_fy, invoice_no), so a collision would fail the save outright
+     * rather than quietly duplicating a number.
      */
     private function assignInvoiceNumber(PromoterBoxRequest $box): void
     {
@@ -324,7 +327,11 @@ class BoxRequestController extends Controller
 
         try {
             DB::transaction(function () use ($box) {
-                $max = (int) PromoterBoxRequest::lockForUpdate()->max('invoice_no');
+                $fy = InvoiceBuilder::financialYear($box->delivered_at);
+                $max = (int) PromoterBoxRequest::where('invoice_fy', $fy)
+                    ->lockForUpdate()
+                    ->max('invoice_no');
+                $box->invoice_fy = $fy;
                 $box->invoice_no = $max + 1;
                 $box->save();
             });
@@ -436,6 +443,13 @@ class BoxRequestController extends Controller
                 $b->has_invoice = (int) $b->status === PromoterBoxRequest::STATUS_DELIVERED
                     && $b->rate_per_qty !== null;
 
+                // What this batch will bill at, so the dispatch form can show
+                // it before the admin commits.
+                $master = ProductPrice::forLevel($b->level);
+                $b->master_price = $master ? (float) $master->price : null;
+                $b->master_mrp = $master ? (float) $master->mrp : null;
+                $b->master_product = $master->product_name ?? null;
+
                 // Quantity is adjustable only while still Requested and at a
                 // manual level (3/4). Reducing it frees cap room for the user to
                 // re-request later; the offered options are bounded by the cap
@@ -492,23 +506,26 @@ class BoxRequestController extends Controller
                 'collected_date'  => 'required_if:dispatch_method,' . PromoterBoxRequest::DISPATCH_DIRECT . '|nullable|date',
                 'courier_name'    => 'required_if:dispatch_method,' . PromoterBoxRequest::DISPATCH_COURIER . '|nullable|string|max:120',
                 'courier_number'  => 'required_if:dispatch_method,' . PromoterBoxRequest::DISPATCH_COURIER . '|nullable|string|max:120',
-                // Pricing for the invoice the user downloads once delivered.
-                // Captured here because this is the moment the admin knows
-                // what actually went out.
-                'rate_per_qty'    => 'required|numeric|min:0',
-                'mrp'             => 'required|numeric|min:0',
             ], [
                 'dispatch_method.required' => 'Choose Direct or Courier',
                 'dispatch_method.in'       => 'Choose Direct or Courier',
                 'collected_date.required_if' => 'Collected date is required',
                 'courier_name.required_if'   => 'Courier name is required',
                 'courier_number.required_if' => 'Courier number is required',
-                'rate_per_qty.required' => 'Rate per quantity is required',
-                'mrp.required'          => 'MRP is required',
             ]);
 
             if ($validator->fails()) {
                 return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+            }
+
+            // Bill at the master price for this promoter level.
+            $price = ProductPrice::forLevel($box->level);
+            if (!$price) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No price is set for ' . ProductPrice::levelLabel($box->level)
+                        . '. Add it under Product Price before dispatching this batch.',
+                ], 400);
             }
 
             $method = (int) $request->input('dispatch_method');
@@ -531,8 +548,11 @@ class BoxRequestController extends Controller
             $box->courier_number = $method === PromoterBoxRequest::DISPATCH_COURIER
                 ? trim((string) $request->input('courier_number'))
                 : null;
-            $box->rate_per_qty = round((float) $request->input('rate_per_qty'), 2);
-            $box->mrp = round((float) $request->input('mrp'), 2);
+            // SNAPSHOT, not a reference: an invoice is a tax document, so a
+            // later edit to the master must never change what an already
+            // issued invoice says.
+            $box->rate_per_qty = round((float) $price->price, 2);
+            $box->mrp = round((float) $price->mrp, 2);
             $box->updated_by = Auth::id();
             $box->save();
 

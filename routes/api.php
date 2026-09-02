@@ -19,6 +19,7 @@ use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
 use App\Http\Controllers\V1\Api\BoxRequestController;
 use App\Http\Controllers\V1\Api\BillTemplateController;
+use App\Http\Controllers\V1\Api\ProductPriceController;
 use App\Http\Controllers\V1\Api\UserTrainingController;
 use App\Http\Controllers\V1\Api\UserBankDetailController;
 use App\Http\Controllers\V1\Api\AdminBankDetailController;
@@ -211,6 +212,11 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     // can re-enter them. Body carries `user_id`; POST verb matches the
     // existing user-bank-detail/upsert style.
     Route::post('user-bank-detail/clear', [UserBankDetailController::class, 'clearForUser']);
+
+    // Product price master — one sales price + MRP per promoter level.
+    // Every dispatch bills at the price set here.
+    Route::get('product-prices', [ProductPriceController::class, 'index']);
+    Route::post('product-prices/upsert', [ProductPriceController::class, 'upsert']);
 
     // Bill template — seller details + invoice settings for the
     // plan-product invoice. Single document, same upsert shape as T&C.

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\BillTemplate;
+use App\Models\ProductPrice;
 use App\Models\PromoterBoxRequest;
 use App\Models\User;
 
@@ -23,6 +24,28 @@ class InvoiceBuilder
     public const CGST_PERCENT = 9.0;
     public const SGST_PERCENT = 9.0;
 
+    /**
+     * Indian financial year label for a date — "26-27" for anything from
+     * 1 April 2026 to 31 March 2027.
+     *
+     * April is the boundary: a January invoice still belongs to the year that
+     * started the previous April, which is exactly the mistake a plain
+     * calendar year would make.
+     */
+    public static function financialYear($date = null): string
+    {
+        $ts = $date ? strtotime((string) $date) : time();
+        if ($ts === false) {
+            $ts = time();
+        }
+
+        $year = (int) date('Y', $ts);
+        $month = (int) date('n', $ts);
+        $start = $month >= 4 ? $year : $year - 1;
+
+        return substr((string) $start, 2) . '-' . substr((string) ($start + 1), 2);
+    }
+
     public function build(PromoterBoxRequest $box): array
     {
         $template = BillTemplate::current();
@@ -37,7 +60,8 @@ class InvoiceBuilder
         $total = round($taxable + $cgst + $sgst, 2);
 
         return [
-            'invoice_no'   => $this->formatInvoiceNo($box->invoice_no, $template),
+            'invoice_no'   => $this->formatInvoiceNo($box, $template),
+            'invoice_fy'   => $box->invoice_fy ?: self::financialYear($box->delivered_at),
             'invoice_date' => $box->delivered_at
                 ? date('d-m-Y', strtotime((string) $box->delivered_at))
                 : date('d-m-Y'),
@@ -69,22 +93,44 @@ class InvoiceBuilder
         ];
     }
 
-    /** Zero-padded, with the admin's prefix if they set one. */
-    private function formatInvoiceNo($number, ?BillTemplate $template = null): string
+    /**
+     * "startup/26-27/001" — prefix, financial year, then the sequence within
+     * that year. Any of the parts may be absent: with no prefix configured it
+     * reads "26-27/001".
+     */
+    private function formatInvoiceNo(PromoterBoxRequest $box, ?BillTemplate $template = null): string
     {
-        if (!$number) {
+        if (!$box->invoice_no) {
             return '-';
         }
 
-        $padded = str_pad((string) $number, 4, '0', STR_PAD_LEFT);
-        $prefix = trim((string) ($template?->invoice_prefix ?? ''));
+        // Fall back to deriving the year for rows numbered before invoice_fy
+        // existed, so an older invoice still prints a sensible number.
+        $fy = $box->invoice_fy ?: self::financialYear($box->delivered_at);
+        $sequence = str_pad((string) $box->invoice_no, 3, '0', STR_PAD_LEFT);
 
-        return $prefix !== '' ? $prefix . $padded : $padded;
+        // Trim any separator the admin typed so we never emit "startup//26-27".
+        $prefix = trim((string) ($template?->invoice_prefix ?? ''));
+        $prefix = rtrim($prefix, '/-');
+
+        $parts = array_filter([$prefix, $fy, $sequence], fn ($p) => $p !== '');
+
+        return implode('/', $parts);
     }
 
-    /** Base Promoter (level 0) ships Energy Plus; every other level Health Plus. */
+    /**
+     * Product name from the price master, falling back to the original rule
+     * (level 0 ships Energy Plus, everything else Health Plus) when no master
+     * row exists. The name is cosmetic, unlike the price, so a live lookup is
+     * fine here.
+     */
     private function productName($level): string
     {
+        $master = ProductPrice::forLevel($level);
+        if ($master && trim((string) $master->product_name) !== '') {
+            return $master->product_name;
+        }
+
         return (int) $level === 0 ? 'Energy Plus' : 'Health Plus';
     }
 

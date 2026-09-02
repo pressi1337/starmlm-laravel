@@ -67,6 +67,7 @@ class PromoterBoxRequest extends Model
         'courier_number',
         'rate_per_qty',
         'mrp',
+        'invoice_fy',
         'invoice_no',
         'delivered_at',
         'not_received_at',
