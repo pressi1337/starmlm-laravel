@@ -1282,3 +1282,51 @@ CREATE TABLE `product_prices` (
 -- SELECT `invoice_fy`, COUNT(*) AS issued, MAX(`invoice_no`) AS latest
 -- FROM `promoter_box_requests`
 -- WHERE `invoice_no` IS NOT NULL GROUP BY `invoice_fy` ORDER BY `invoice_fy`;
+
+
+-- ============================================================
+-- OPERATIONAL (no schema change) — invoice download on/off
+-- Admin -> App Settings now carries an "Invoice Download (Plan Product)"
+-- toggle. Off hides the Download Invoice button AND refuses the endpoint for
+-- users, so it cannot be bypassed by holding the URL. Admins keep access
+-- either way, so a bill can still be checked while it is switched off.
+--
+-- Stored in the existing app_settings key/value table under
+-- `menu_visible_invoice_download`. Defaults to ON when the row is absent.
+-- ============================================================
+
+-- Current state (no row means ON):
+-- SELECT * FROM `app_settings` WHERE `setting_key` = 'menu_visible_invoice_download';
+
+-- Turn it off / on without using the admin screen:
+-- INSERT INTO `app_settings` (`setting_key`,`setting_value`,`created_at`,`updated_at`)
+-- VALUES ('menu_visible_invoice_download','0',NOW(),NOW())
+-- ON DUPLICATE KEY UPDATE `setting_value` = '0', `updated_at` = NOW();
+--   ('1' to turn it back on)
+
+
+-- ============================================================
+-- OPERATIONAL (no schema change) — invoice round-off
+-- Sales prices are back-calculations of round selling figures
+-- (750 / 1.18 = 635.5932..., stored as 635.59), so multiplying back up lands
+-- a few paise short, and the gap grows with quantity:
+--
+--   qty  rate      parts sum   round off   total    price list
+--    1   635.59      749.99      +0.01      750.00      750
+--    1  3016.94     3559.98      +0.02     3560.00     3560
+--   10  3352.54    39559.98      +0.02    39560.00    39560
+--   20  2820.33    66559.78      +0.22    66560.00    66560
+--   30  2813.27    99589.76      +0.24    99590.00    99590
+--
+-- CGST and SGST stay at a true 9% each; the difference is shown on its own
+-- "Round Off" line and the invoice total is the round figure the price list
+-- quotes. Nothing to migrate — this is arithmetic in InvoiceBuilder.
+-- ============================================================
+
+-- Rates for the price list above, if you want to seed them directly
+-- (product_prices.price is the PRE-TAX rate per unit):
+-- UPDATE `product_prices` SET `product_name`='Energy Plus', `price`=635.59,  `mrp`=970  WHERE `level`=0;
+-- UPDATE `product_prices` SET `product_name`='Health Plus', `price`=3016.94, `mrp`=3999 WHERE `level`=1;
+-- UPDATE `product_prices` SET `product_name`='Health Plus', `price`=3352.54, `mrp`=3999 WHERE `level`=2;
+-- UPDATE `product_prices` SET `product_name`='Health Plus', `price`=2820.33, `mrp`=3999 WHERE `level`=3;
+-- UPDATE `product_prices` SET `product_name`='Health Plus', `price`=2813.27, `mrp`=3999 WHERE `level`=4;

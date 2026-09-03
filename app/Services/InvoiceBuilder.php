@@ -59,6 +59,17 @@ class InvoiceBuilder
         $sgst = round($taxable * self::SGST_PERCENT / 100, 2);
         $total = round($taxable + $cgst + $sgst, 2);
 
+        // Round off to the nearest rupee.
+        //
+        // The rate is itself a back-calculation of a round selling price
+        // (750 / 1.18 = 635.5932..., stored as 635.59), so multiplying back up
+        // lands a few paise short — and the gap grows with quantity. CGST and
+        // SGST stay at a true 9% each, and the difference is shown on its own
+        // "Round Off" line, which is how a GST invoice is expected to handle
+        // this. The customer sees the round figure the price list quotes.
+        $grandTotal = round($total, 0);
+        $roundOff = round($grandTotal - $total, 2);
+
         return [
             'invoice_no'   => $this->formatInvoiceNo($box, $template),
             'invoice_fy'   => $box->invoice_fy ?: self::financialYear($box->delivered_at),
@@ -78,7 +89,7 @@ class InvoiceBuilder
                 'taxable'     => $taxable,
                 'cgst'        => $cgst,
                 'sgst'        => $sgst,
-                'amount'      => $total,
+                'amount'      => $grandTotal,
             ]],
             'totals'       => [
                 'sub_total'    => $taxable,
@@ -87,8 +98,12 @@ class InvoiceBuilder
                 'sgst_percent' => self::SGST_PERCENT,
                 'cgst'         => $cgst,
                 'sgst'         => $sgst,
+                // Sum of the parts, before rounding to the nearest rupee.
                 'total'        => $total,
-                'in_words'     => self::amountInWords($total),
+                'round_off'    => $roundOff,
+                'grand_total'  => $grandTotal,
+                // Words follow the amount actually payable.
+                'in_words'     => self::amountInWords($grandTotal),
             ],
         ];
     }

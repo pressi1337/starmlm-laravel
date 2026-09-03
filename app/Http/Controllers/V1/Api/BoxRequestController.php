@@ -5,6 +5,7 @@ namespace App\Http\Controllers\V1\Api;
 use App\Exports\BoxRequestExport;
 use App\Http\Controllers\Controller;
 use App\Traits\HandlesJson;
+use App\Models\AppSetting;
 use App\Models\ProductPrice;
 use App\Models\PromoterBoxRequest;
 use App\Models\User;
@@ -58,11 +59,13 @@ class BoxRequestController extends Controller
                 ? (int) $user->current_promoter_level
                 : null;
 
+            $invoicesOn = $this->invoiceEnabled();
+
             $list = PromoterBoxRequest::where('user_id', $userId)
                 ->where('is_deleted', 0)
                 ->orderBy('id', 'desc')
                 ->get()
-                ->map(function ($b) {
+                ->map(function ($b) use ($invoicesOn) {
                     $b->status_label = $b->statusLabel();
                     $b->created_at_formatted = $b->created_at ? $b->created_at->format('d-m-Y h:i A') : '-';
 
@@ -81,8 +84,10 @@ class BoxRequestController extends Controller
                     $b->not_received_at_formatted = $b->not_received_at
                         ? date('d-m-Y h:i A', strtotime((string) $b->not_received_at))
                         : null;
-                    // Drives the "Download Invoice" button.
-                    $b->has_invoice = (int) $b->status === PromoterBoxRequest::STATUS_DELIVERED
+                    // Drives the "Download Invoice" button. The admin can
+                    // switch invoices off entirely from App Settings.
+                    $b->has_invoice = $invoicesOn
+                        && (int) $b->status === PromoterBoxRequest::STATUS_DELIVERED
                         && $b->rate_per_qty !== null;
                     return $b;
                 });
@@ -365,6 +370,14 @@ class BoxRequestController extends Controller
             if (!$box) {
                 return response()->json(['success' => false, 'message' => 'Not found'], 404);
             }
+            // Admins keep access when the toggle is off, so they can still
+            // check a bill; it only closes the door for users.
+            if (!$isAdmin && !$this->invoiceEnabled()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invoice download is currently unavailable.',
+                ], 403);
+            }
             if ((int) $box->status !== PromoterBoxRequest::STATUS_DELIVERED) {
                 return response()->json([
                     'success' => false,
@@ -410,6 +423,7 @@ class BoxRequestController extends Controller
         $query = $this->buildAdminQuery($search_param, $search_term);
 
         $total_records = $query->count();
+        $invoicesOn = $this->invoiceEnabled();
 
         $list = $query->orderBy($sort_column, $sort_direction)
             // Deterministic tiebreak. sent_at/delivered_at are NULL for most
@@ -421,7 +435,7 @@ class BoxRequestController extends Controller
             })
             ->with('user')
             ->get()
-            ->map(function ($b) {
+            ->map(function ($b) use ($invoicesOn) {
                 $b->status_label = $b->statusLabel();
                 $b->created_at_formatted = $b->created_at ? $b->created_at->format('d-m-Y h:i A') : '-';
 
@@ -440,7 +454,8 @@ class BoxRequestController extends Controller
                 $b->collected_date_formatted = $b->collected_date
                     ? date('d-m-Y', strtotime((string) $b->collected_date))
                     : null;
-                $b->has_invoice = (int) $b->status === PromoterBoxRequest::STATUS_DELIVERED
+                $b->has_invoice = $invoicesOn
+                    && (int) $b->status === PromoterBoxRequest::STATUS_DELIVERED
                     && $b->rate_per_qty !== null;
 
                 // What this batch will bill at, so the dispatch form can show
@@ -719,6 +734,25 @@ class BoxRequestController extends Controller
         }
 
         return $query;
+    }
+
+    /**
+     * Whether users may download plan-product invoices at all.
+     *
+     * Admin toggle under App Settings. Read here rather than only in the UI so
+     * turning it off also refuses the endpoint — hiding a button is not the
+     * same as closing the door.
+     */
+    private function invoiceEnabled(): bool
+    {
+        try {
+            return AppSetting::getBool(AppSetting::menuKey('invoice_download'), true);
+        } catch (\Throwable $e) {
+            // A settings read that fails must not take the whole plan-product
+            // list down with it. Fall back to the default (on).
+            Log::warning('Invoice toggle lookup failed', ['error' => $e->getMessage()]);
+            return true;
+        }
     }
 
     /** Display helper: a formatted date, or "-" when it hasn't happened yet. */
