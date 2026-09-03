@@ -1525,3 +1525,38 @@ ALTER TABLE `bill_templates` DROP COLUMN `place_of_supply`;
 -- users while admins keep access. Both super-admin and sub-admin can use
 -- them (they are on the shared admin box-requests route group).
 -- ============================================================
+
+
+-- ============================================================
+-- OPERATIONAL (no schema change) — invoice download inside the APK
+-- The PWA also ships wrapped as an APK. An Android WebView cannot hand a
+-- blob: URL to the system download manager, so the old blob + <a download>
+-- approach did nothing at all on the phone (no file, no error).
+--
+-- The app now asks for a SHORT-LIVED SIGNED LINK and navigates to it, which
+-- is an ordinary HTTP GET the wrapper/browser saves natively.
+--
+--   GET box-requests/{id}/invoice/link         (auth) -> { url, filename }
+--   GET admin-box-requests/{id}/invoice/link   (auth) -> { url, filename }
+--   GET invoice-file/{id}?expires=..&u=..&signature=..   (NO auth, signed)
+--
+-- The signature is the credential. It is minted only after the normal auth
+-- checks pass, expires in 10 minutes, and encodes WHO it was issued to, so
+-- the link cannot be edited to reach another user's invoice — verified:
+-- swapping the user id, the invoice id, or the signature all return 403.
+--
+-- NOTE ON APP_URL: this deployment has APP_URL=http://startup.co.in, which
+-- is neither the API host nor https. Links are therefore signed RELATIVELY
+-- and the app prepends its own API origin. The route uses
+-- 'signed:relative' middleware to match — plain 'signed' validates
+-- absolutely and would reject every valid link.
+--
+-- Fixing APP_URL to https://api.starupworld.com would be worthwhile anyway
+-- (password-reset and any other signed/absolute URL generation depend on
+-- it), but this feature does not require it.
+--
+-- If the APK is a bare WebView rather than a Trusted Web Activity, the
+-- native side must implement a DownloadListener (or allow the URL to open
+-- in the external browser) for the save to complete. A TWA/Chrome-backed
+-- wrapper handles it with no native change.
+-- ============================================================

@@ -110,6 +110,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         Route::get('admin-box-requests/export/excel', [BoxRequestController::class, 'exportExcel']);
         Route::get('admin-box-requests/{id}/invoice', [BoxRequestController::class, 'invoice'])->where('id', '[0-9]+');
         Route::get('admin-box-requests/{id}/invoice/download', [BoxRequestController::class, 'invoicePdf'])->where('id', '[0-9]+');
+        Route::get('admin-box-requests/{id}/invoice/link', [BoxRequestController::class, 'invoicePdfLink'])->where('id', '[0-9]+');
         Route::get('admin-box-requests', [BoxRequestController::class, 'adminIndex']);
     });
 
@@ -255,6 +256,23 @@ Route::prefix('v1')->group(function () {
     Route::get('terms-and-conditions', [TermsAndConditionController::class, 'show']);
 });
 
+// Invoice PDF via a short-lived SIGNED link. Deliberately outside the JWT
+// groups: the browser (or the Android WebView's download manager) fetches
+// this as a plain URL with no Authorization header, which is the only way a
+// download reliably works inside the wrapped APK. The signature is the
+// credential — it is minted only for someone who already passed the normal
+// auth checks, expires in 10 minutes, and encodes who it was issued to, so
+// it cannot be edited to reach another user's invoice.
+// 'signed:relative' — NOT plain 'signed'. The link is signed relatively
+// because APP_URL on this deployment points at the wrong host, and the
+// middleware must validate the same way it was signed or every valid link
+// is rejected.
+Route::middleware('signed:relative')->prefix('v1')->group(function () {
+    Route::get('invoice-file/{id}', [BoxRequestController::class, 'invoicePdfFile'])
+        ->name('box.invoice.file')
+        ->where('id', '[0-9]+');
+});
+
 Route::middleware('userjwt')->prefix('v1')->group(function () {
     // role based middleware pending
     Route::get('daily-videos-today', [DailyVideoController::class, 'todayVideo']);
@@ -293,6 +311,9 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     Route::get('box-requests/{id}/invoice', [BoxRequestController::class, 'invoice'])->where('id', '[0-9]+');
     // Same invoice, as an actual PDF attachment — a real one-click download.
     Route::get('box-requests/{id}/invoice/download', [BoxRequestController::class, 'invoicePdf'])->where('id', '[0-9]+');
+    // Returns a short-lived signed link instead of the bytes. The PWA uses
+    // this because a wrapped WebView cannot save a blob download.
+    Route::get('box-requests/{id}/invoice/link', [BoxRequestController::class, 'invoicePdfLink'])->where('id', '[0-9]+');
 
     // Dashboard API
     Route::get('user-dashboard', [UserPromoterController::class, 'dashboard']);
