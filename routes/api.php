@@ -109,6 +109,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         // list's filters, search and sort exactly.
         Route::get('admin-box-requests/export/excel', [BoxRequestController::class, 'exportExcel']);
         Route::get('admin-box-requests/{id}/invoice', [BoxRequestController::class, 'invoice'])->where('id', '[0-9]+');
+        Route::get('admin-box-requests/{id}/invoice/download', [BoxRequestController::class, 'invoicePdf'])->where('id', '[0-9]+');
         Route::get('admin-box-requests', [BoxRequestController::class, 'adminIndex']);
     });
 
@@ -290,6 +291,8 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     Route::get('box-requests/status-reminders', [BoxRequestController::class, 'statusReminders']);
     // Invoice for a delivered batch. Scoped to the caller's own rows.
     Route::get('box-requests/{id}/invoice', [BoxRequestController::class, 'invoice'])->where('id', '[0-9]+');
+    // Same invoice, as an actual PDF attachment — a real one-click download.
+    Route::get('box-requests/{id}/invoice/download', [BoxRequestController::class, 'invoicePdf'])->where('id', '[0-9]+');
 
     // Dashboard API
     Route::get('user-dashboard', [UserPromoterController::class, 'dashboard']);

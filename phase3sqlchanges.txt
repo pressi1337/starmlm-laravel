@@ -1490,3 +1490,38 @@ ALTER TABLE `bill_templates` DROP COLUMN `place_of_supply`;
 -- Safe to run even if the column is already gone or was never added —
 -- MySQL errors "check that column/key exists" rather than doing damage;
 -- just skip it in that case. No data loss: nothing else reads this column.
+
+
+-- ============================================================
+-- OPERATIONAL (no schema change) — PWA invoice is now a real PDF download
+-- The invoice page's Download button used to trigger the browser's print
+-- dialog (Ctrl+P / "Save as PDF"). It now fetches a server-rendered PDF and
+-- saves it directly — one click, no dialog.
+--
+-- New composer dependency: dompdf/dompdf (already in composer.json /
+-- composer.lock in this deploy). On the server, after pulling the code:
+--
+--   composer install --no-dev --optimize-autoloader
+--
+-- No PHP extensions beyond what's already enabled are needed (dompdf uses
+-- ext-mbstring, ext-dom, ext-gd — already present; it does NOT need
+-- ext-intl, which this server doesn't have).
+--
+-- New file to deploy: resources/images/invoice-logo.png — the PWA logo
+-- DOWNSCALED to 350x400 (34 KB). Do not swap in the original 2800x3200
+-- version: embedding it made every invoice 405 KB and took 14 SECONDS to
+-- render, versus 59 KB and 0.5s now. It displays at ~60px tall.
+-- Dompdf reads it off disk via resource_path(), so the file must exist on
+-- the server; no public URL and no HTTP serving involved.
+--
+-- New routes (both mirror the existing JSON invoice endpoint's access rules
+-- exactly — same delivered/priced/toggle checks, just a different response):
+--   GET box-requests/{id}/invoice/download        (user, own rows only)
+--   GET admin-box-requests/{id}/invoice/download   (admin, any row)
+--
+-- Admin UI: Plan Product now shows "Invoice" (view) and "PDF" (download)
+-- actions on delivered rows, driven by the same has_invoice flag as the
+-- user's button — so switching the App Settings toggle off hides them for
+-- users while admins keep access. Both super-admin and sub-admin can use
+-- them (they are on the shared admin box-requests route group).
+-- ============================================================
