@@ -51,6 +51,8 @@ class User extends Authenticatable implements JWTSubject
         'can_suggestions',
         'can_personal_documents',
         'can_promotion_logs',
+        'can_plan_product',
+        'can_support_help',
     ];
 
     // Permission keys map to the boolean columns added for sub-admins.
@@ -61,6 +63,8 @@ class User extends Authenticatable implements JWTSubject
         'suggestions'        => 'can_suggestions',
         'personal_documents' => 'can_personal_documents',
         'promotion_logs'     => 'can_promotion_logs',
+        'plan_product'       => 'can_plan_product',
+        'support_help'       => 'can_support_help',
     ];
 
     // Promoter daily earning model (single source of truth).
@@ -197,6 +201,8 @@ class User extends Authenticatable implements JWTSubject
             'suggestions'        => (int) ($this->can_suggestions ?? 0) === 1,
             'personal_documents' => (int) ($this->can_personal_documents ?? 0) === 1,
             'promotion_logs'     => (int) ($this->can_promotion_logs ?? 0) === 1,
+            'plan_product'       => (int) ($this->can_plan_product ?? 0) === 1,
+            'support_help'       => (int) ($this->can_support_help ?? 0) === 1,
         ];
     }
 
