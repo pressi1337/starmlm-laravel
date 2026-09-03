@@ -15,6 +15,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -364,14 +365,18 @@ class BoxRequestController extends Controller
      * as-is on failure — callers just need `if (!$box instanceof
      * PromoterBoxRequest) return $box;`.
      */
-    private function resolveInvoiceBox($id)
+    private function resolveInvoiceBox($id, ?User $actor = null)
     {
-        $actor = Auth::user();
+        // $actor is passed explicitly by the signed-link route, which has no
+        // session to read. Everywhere else it falls back to the logged-in user.
+        $actor = $actor ?: Auth::user();
         $isAdmin = $actor && in_array((int) $actor->role, [User::ROLE_SUPER_ADMIN, User::ROLE_SUB_ADMIN], true);
 
         $query = PromoterBoxRequest::with('user')->where('id', $id)->where('is_deleted', 0);
         if (!$isAdmin) {
-            $query->where('user_id', Auth::id());
+            // No actor at all => matches nothing => 404, which is the safe
+            // outcome rather than leaking someone else's invoice.
+            $query->where('user_id', $actor?->id);
         }
         $box = $query->first();
 
@@ -431,7 +436,72 @@ class BoxRequestController extends Controller
      * dialog. Built with Dompdf from the same InvoiceBuilder data as the
      * JSON view, so the two can never show different numbers.
      */
+    /** Render one resolved batch to a PDF attachment response. */
+    private function renderInvoicePdf(PromoterBoxRequest $box)
+    {
+        $invoice = app(InvoiceBuilder::class)->build($box);
+
+        // Embedded as a data URI rather than a file path: dompdf resolves
+        // relative asset paths unreliably depending on how it is invoked,
+        // while a data URI always works regardless of working directory.
+        $logoPath = resource_path('images/invoice-logo.png');
+        $logoDataUri = is_file($logoPath)
+            ? 'data:image/png;base64,' . base64_encode(file_get_contents($logoPath))
+            : null;
+
+        $html = view('invoices.pdf', [
+            'inv'  => $invoice,
+            'logo' => $logoDataUri,
+        ])->render();
+
+        $pdf = new \Dompdf\Dompdf([
+            'defaultPaperSize' => 'a4',
+            // The logo is a local file read straight off disk (see the
+            // view); no remote fetch is needed, so this stays off.
+            'isRemoteEnabled'  => false,
+            'isHtml5ParserEnabled' => true,
+        ]);
+        $pdf->loadHtml($html);
+        $pdf->setPaper('a4', 'portrait');
+        $pdf->render();
+
+        $filename = 'invoice-' . str_replace('/', '-', (string) $invoice['invoice_no']) . '.pdf';
+
+        return response($pdf->output(), 200, [
+            'Content-Type'        => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
+    }
+
     public function invoicePdf(Request $request, $id)
+    {
+        try {
+            $box = $this->resolveInvoiceBox($id);
+            if (!$box instanceof PromoterBoxRequest) {
+                return $box;
+            }
+
+            return $this->renderInvoicePdf($box);
+        } catch (\Throwable $e) {
+            Log::error('BoxRequest invoicePdf failed', ['id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    /**
+     * Hand back a short-lived signed link to the PDF.
+     *
+     * Mobile browsers — and installed PWAs especially — do not reliably honour
+     * `<a download>` on a blob URL: nothing is saved and no error is raised.
+     * A plain URL the browser can navigate to sidesteps that entirely, because
+     * the download is then an ordinary HTTP GET the OS handles natively.
+     *
+     * The link is RELATIVE on purpose. Laravel builds absolute signed URLs
+     * from APP_URL, which on this deployment points at the wrong host, so an
+     * absolute link would be signed for a domain that doesn't serve the API.
+     * The caller prepends its own API origin instead.
+     */
+    public function invoicePdfLink(Request $request, $id)
     {
         try {
             $box = $this->resolveInvoiceBox($id);
@@ -441,38 +511,47 @@ class BoxRequestController extends Controller
 
             $invoice = app(InvoiceBuilder::class)->build($box);
 
-            // Embedded as a data URI rather than a file path: dompdf resolves
-            // relative asset paths unreliably depending on how it is invoked,
-            // while a data URI always works regardless of working directory.
-            $logoPath = resource_path('images/invoice-logo.png');
-            $logoDataUri = is_file($logoPath)
-                ? 'data:image/png;base64,' . base64_encode(file_get_contents($logoPath))
-                : null;
+            // Ten minutes is plenty to start a download and short enough that
+            // a leaked link is not a lasting exposure.
+            $url = URL::temporarySignedRoute(
+                'box.invoice.file',
+                now()->addMinutes(10),
+                ['id' => $box->id, 'u' => Auth::id()],
+                false // relative
+            );
 
-            $html = view('invoices.pdf', [
-                'inv'  => $invoice,
-                'logo' => $logoDataUri,
-            ])->render();
-
-            $pdf = new \Dompdf\Dompdf([
-                'defaultPaperSize' => 'a4',
-                // The logo is a local file read straight off disk (see the
-                // view); no remote fetch is needed, so this stays off.
-                'isRemoteEnabled'  => false,
-                'isHtml5ParserEnabled' => true,
-            ]);
-            $pdf->loadHtml($html);
-            $pdf->setPaper('a4', 'portrait');
-            $pdf->render();
-
-            $filename = 'invoice-' . str_replace('/', '-', (string) $invoice['invoice_no']) . '.pdf';
-
-            return response($pdf->output(), 200, [
-                'Content-Type'        => 'application/pdf',
-                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
-            ]);
+            return response()->json([
+                'success' => true,
+                'data'    => [
+                    'url'      => $url,
+                    'filename' => 'invoice-' . str_replace('/', '-', (string) $invoice['invoice_no']) . '.pdf',
+                ],
+            ], 200);
         } catch (\Throwable $e) {
-            Log::error('BoxRequest invoicePdf failed', ['id' => $id, 'error' => $e->getMessage()]);
+            Log::error('BoxRequest invoicePdfLink failed', ['id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    /**
+     * Serve the PDF for a valid signed link. No session involved — the
+     * signature is the credential, and it encodes WHO the link was issued to,
+     * so the same ownership rules still apply and the link cannot be edited to
+     * point at somebody else's invoice without breaking the signature.
+     */
+    public function invoicePdfFile(Request $request, $id)
+    {
+        try {
+            $actor = User::find($request->query('u'));
+
+            $box = $this->resolveInvoiceBox($id, $actor);
+            if (!$box instanceof PromoterBoxRequest) {
+                return $box;
+            }
+
+            return $this->renderInvoicePdf($box);
+        } catch (\Throwable $e) {
+            Log::error('BoxRequest invoicePdfFile failed', ['id' => $id, 'error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
         }
     }
