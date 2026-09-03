@@ -99,19 +99,33 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
         Route::post('term-raised', [UserPromoterController::class, 'termRaised']);
         Route::post('pin-rejected', [UserPromoterController::class, 'pinRejected']);
+    });
 
-        // Promoter box (product) fulfilment — admin lists requests and marks
-        // them Sent. mark-sent declared before the listing for clarity.
+    // Plan Product (promoter box fulfilment) — its own permission, so product
+    // dispatch can be granted without granting the pin lifecycle. Full access:
+    // list, dispatch, deliver, quantity, export and the invoice endpoints.
+    // mark-sent is declared before the listing for clarity, and the export
+    // before it too since it mirrors the list's filters exactly.
+    Route::middleware('subadmin.permission:plan_product')->group(function () {
         Route::patch('admin-box-requests/mark-sent', [BoxRequestController::class, 'markSent']);
         Route::patch('admin-box-requests/mark-delivered', [BoxRequestController::class, 'adminMarkDelivered']);
         Route::patch('admin-box-requests/update-quantity', [BoxRequestController::class, 'adminUpdateQuantity']);
-        // Export before the listing route for clarity; it mirrors the
-        // list's filters, search and sort exactly.
         Route::get('admin-box-requests/export/excel', [BoxRequestController::class, 'exportExcel']);
         Route::get('admin-box-requests/{id}/invoice', [BoxRequestController::class, 'invoice'])->where('id', '[0-9]+');
         Route::get('admin-box-requests/{id}/invoice/download', [BoxRequestController::class, 'invoicePdf'])->where('id', '[0-9]+');
         Route::get('admin-box-requests/{id}/invoice/link', [BoxRequestController::class, 'invoicePdfLink'])->where('id', '[0-9]+');
         Route::get('admin-box-requests', [BoxRequestController::class, 'adminIndex']);
+    });
+
+    // Support & Help Q&A — admin CRUD, now grantable to a sub-admin rather
+    // than super-admin only. status-update is declared before the resource so
+    // it isn't swallowed by the {id} catch-all, and the numeric where() keeps
+    // the show/update/destroy slot clear of the user-side
+    // `support-helps/list` route in the userjwt group below.
+    Route::middleware('subadmin.permission:support_help')->group(function () {
+        Route::patch('support-helps/status-update', [SupportHelpController::class, 'statusUpdate']);
+        Route::resource('support-helps', SupportHelpController::class)
+            ->where(['support_help' => '[0-9]+']);
     });
 
     // Company Personal Documents — internal docs (image / PDF / Excel).
@@ -186,14 +200,8 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     // Multi-level referral tree drill-down for the admin User Management page.
     Route::get('referral-tree/{userId}', [ReferralController::class, 'referralTree']);
 
-    // Support & Help Q&A — admin CRUD. status-update is declared before the
-    // resource so it doesn't get swallowed by the {id} catch-all. The
-    // numeric where() on the {support_help} param stops the show/update/
-    // destroy slot from shadowing the user-side `support-helps/list` route
-    // declared in the userjwt group below.
-    Route::patch('support-helps/status-update', [SupportHelpController::class, 'statusUpdate']);
-    Route::resource('support-helps', SupportHelpController::class)
-        ->where(['support_help' => '[0-9]+']);
+    // Support & Help moved to its own subadmin.permission group above, so a
+    // sub-admin can be granted it. It is no longer super-admin only.
 
     // Company Documents — admin CRUD + show/hide. status-update is declared
     // before the resource so the {id} slot doesn't swallow it, and the numeric

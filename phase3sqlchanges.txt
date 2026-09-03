@@ -1555,8 +1555,68 @@ ALTER TABLE `bill_templates` DROP COLUMN `place_of_supply`;
 -- (password-reset and any other signed/absolute URL generation depend on
 -- it), but this feature does not require it.
 --
--- If the APK is a bare WebView rather than a Trusted Web Activity, the
--- native side must implement a DownloadListener (or allow the URL to open
--- in the external browser) for the save to complete. A TWA/Chrome-backed
--- wrapper handles it with no native change.
+-- The app triggers the link through a HIDDEN IFRAME, not window.open or
+-- location.href. Android WebView has no PDF renderer, so navigating it to a
+-- PDF paints a blank white screen and drops the user out of the app; an
+-- iframe hands the transfer to the download manager without ever navigating
+-- the page.
+--
+-- REQUIRED ON THE APK SIDE: a bare WebView discards downloads unless a
+-- DownloadListener is registered. This is a NATIVE change, not a web one,
+-- and is the piece that makes the Download button actually save a file.
+-- In the Activity that owns the WebView:
+--
+--   webView.setDownloadListener((url, userAgent, contentDisposition,
+--                                mimeType, contentLength) -> {
+--       DownloadManager.Request r = new DownloadManager.Request(Uri.parse(url));
+--       r.setMimeType(mimeType);
+--       r.addRequestHeader("User-Agent", userAgent);
+--       r.setNotificationVisibility(
+--           DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+--       r.setDestinationInExternalPublicDir(
+--           Environment.DIRECTORY_DOWNLOADS,
+--           URLUtil.guessFileName(url, contentDisposition, mimeType));
+--       ((DownloadManager) getSystemService(DOWNLOAD_SERVICE)).enqueue(r);
+--   });
+--
+-- The signed link needs no auth header, so DownloadManager can fetch it
+-- directly — that is precisely why the link is signed rather than
+-- bearer-authenticated. A TWA/Chrome-backed wrapper needs no native change.
 -- ============================================================
+
+
+-- ============================================================
+-- Sub-admin permissions 7 & 8: Plan Product and Support & Help.
+-- Equivalent of migration
+-- 2026_09_03_000001_add_plan_product_and_support_help_permissions_to_users.
+--
+-- Plan Product used to ride along with can_pin_requests; Support & Help was
+-- super-admin only. Both now have their own flag and can be granted
+-- independently — full access to that menu, nothing else.
+--
+-- Defaults to 0, like every other can_* flag.
+-- ============================================================
+
+ALTER TABLE `users`
+    ADD COLUMN `can_plan_product` TINYINT(1) NOT NULL DEFAULT 0 AFTER `can_promotion_logs`,
+    ADD COLUMN `can_support_help` TINYINT(1) NOT NULL DEFAULT 0 AFTER `can_plan_product`;
+
+-- IMPORTANT — existing sub-admins LOSE Plan Product on deploy, because it
+-- used to come free with Pin Requests and now needs its own flag. Run this
+-- to preserve what they can reach today; skip it to start everyone at none:
+-- UPDATE `users` SET `can_plan_product` = 1
+--  WHERE `role` = 1 AND `is_deleted` = 0 AND `can_pin_requests` = 1;
+--
+-- Support & Help was super-admin only, so no sub-admin loses anything there
+-- and no backfill is needed.
+
+-- Permissions live in the JWT, so anyone whose flags you change by hand must
+-- get a fresh token. Editing them through the admin screen does this
+-- automatically; raw SQL does not:
+-- UPDATE `users` SET `remember_token` = NULL WHERE `role` = 1;
+
+-- Who has what (sanity check):
+-- SELECT `id`, `username`, `can_daily_videos`, `can_promotion_videos`,
+--        `can_promotion_logs`, `can_pin_requests`, `can_plan_product`,
+--        `can_support_help`, `can_suggestions`, `can_personal_documents`
+-- FROM `users` WHERE `role` = 1 AND `is_deleted` = 0;
