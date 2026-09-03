@@ -1162,3 +1162,315 @@ ALTER TABLE `promoter_box_requests`
 -- WHERE b.`status` = 2 AND b.`is_deleted` = 0 AND b.`sent_at` IS NOT NULL
 --   AND DATEDIFF(NOW(), b.`sent_at`) >= IF(b.`dispatch_method` = 1, 5, 10)
 -- ORDER BY b.`sent_at`;
+
+
+-- ============================================================
+-- Plan Product invoice — direct SQL. Equivalent of migrations
+-- 2026_09_01_000001_add_invoice_fields_to_promoter_box_requests and
+-- 2026_09_01_000002_create_bill_templates.
+--
+-- The user downloads a GST invoice once their product is Delivered.
+--   rate_per_qty / mrp -> captured when the admin marks the batch Sent
+--   invoice_no         -> sequential, issued at delivery (max + 1), unique
+--   bill_templates     -> the "Billed by" block, single row, admin-maintained
+--
+-- Tax is fixed in code at 18% (9% CGST + 9% SGST) on qty x rate.
+-- MRP is printed for reference and is NOT part of the tax maths.
+-- Users have no GSTIN/PAN on file, so the "Billed to" block omits them.
+-- ============================================================
+
+ALTER TABLE `promoter_box_requests`
+    ADD COLUMN `rate_per_qty` DECIMAL(10,2) NULL DEFAULT NULL AFTER `courier_number`,
+    ADD COLUMN `mrp`          DECIMAL(10,2) NULL DEFAULT NULL AFTER `rate_per_qty`,
+    ADD COLUMN `invoice_no`   INT UNSIGNED NULL DEFAULT NULL AFTER `mrp`,
+    ADD UNIQUE KEY `pbr_invoice_no_unique` (`invoice_no`);
+
+CREATE TABLE `bill_templates` (
+    `id`                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `company_name`      VARCHAR(255) NOT NULL,
+    `address_line1`     VARCHAR(255) NULL DEFAULT NULL,
+    `address_line2`     VARCHAR(255) NULL DEFAULT NULL,
+    `city`              VARCHAR(120) NULL DEFAULT NULL,
+    `state`             VARCHAR(120) NULL DEFAULT NULL,
+    `pincode`           VARCHAR(20)  NULL DEFAULT NULL,
+    `gstin`             VARCHAR(20)  NULL DEFAULT NULL,
+    `pan`               VARCHAR(20)  NULL DEFAULT NULL,
+    `email`             VARCHAR(255) NULL DEFAULT NULL,
+    `phone`             VARCHAR(30)  NULL DEFAULT NULL,
+    `invoice_prefix`    VARCHAR(20)  NULL DEFAULT NULL,
+    `place_of_supply`   VARCHAR(120) NULL DEFAULT NULL,
+    `country_of_supply` VARCHAR(120) NOT NULL DEFAULT 'India',
+    `is_active`         TINYINT(1) NOT NULL DEFAULT 1,
+    `is_deleted`        TINYINT(1) NOT NULL DEFAULT 0,
+    `created_by`        BIGINT UNSIGNED NULL DEFAULT NULL,
+    `updated_by`        BIGINT UNSIGNED NULL DEFAULT NULL,
+    `created_at`        TIMESTAMP NULL DEFAULT NULL,
+    `updated_at`        TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- After deploying, fill the seller block in:
+--   Admin -> Bill Template
+-- Until it is saved, invoices render with blank company details.
+
+-- Batches delivered BEFORE this change have no pricing, so they cannot
+-- produce an invoice (the endpoint returns a clear 400). To see them:
+-- SELECT `id`, `user_id`, `quantity`, `delivered_at`
+-- FROM `promoter_box_requests`
+-- WHERE `status` = 3 AND `is_deleted` = 0 AND `rate_per_qty` IS NULL;
+--
+-- Backfilling a rate makes their invoice available:
+-- UPDATE `promoter_box_requests` SET `rate_per_qty` = 0.00, `mrp` = 0.00
+-- WHERE `status` = 3 AND `rate_per_qty` IS NULL;
+
+-- Rollback:
+-- DROP TABLE `bill_templates`;
+-- ALTER TABLE `promoter_box_requests`
+--     DROP INDEX `pbr_invoice_no_unique`,
+--     DROP COLUMN `rate_per_qty`, DROP COLUMN `mrp`, DROP COLUMN `invoice_no`;
+
+
+-- ============================================================
+-- Product price master + financial-year invoice numbers.
+-- Equivalent of migration 2026_09_02_000001_create_product_prices, plus the
+-- invoice_fy change folded into 2026_09_01_000001 (not yet deployed).
+--
+-- The admin sets ONE sales price + MRP per promoter level. Every dispatch
+-- bills at that level's price, and the value is COPIED onto the batch at
+-- dispatch — an invoice is a tax document, so editing a price later must
+-- never change what an already-issued invoice says.
+--
+-- Invoice numbers now run prefix/financial-year/sequence, e.g.
+--   startup/26-27/001
+-- The Indian FY starts 1 April, and the sequence RESTARTS each year — which
+-- is why the unique key is (invoice_fy, invoice_no), not the number alone.
+-- ============================================================
+
+CREATE TABLE `product_prices` (
+    `id`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `level`        TINYINT NOT NULL,
+    `product_name` VARCHAR(120) NOT NULL,
+    `price`        DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    `mrp`          DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    `is_active`    TINYINT(1) NOT NULL DEFAULT 1,
+    `is_deleted`   TINYINT(1) NOT NULL DEFAULT 0,
+    `created_by`   BIGINT UNSIGNED NULL DEFAULT NULL,
+    `updated_by`   BIGINT UNSIGNED NULL DEFAULT NULL,
+    `created_at`   TIMESTAMP NULL DEFAULT NULL,
+    `updated_at`   TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `product_prices_level_unique` (`level`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- If you already ran the earlier invoice migration with the OLD single-column
+-- unique key, correct it with:
+-- ALTER TABLE `promoter_box_requests`
+--     ADD COLUMN `invoice_fy` VARCHAR(7) NULL DEFAULT NULL AFTER `mrp`,
+--     DROP INDEX `pbr_invoice_no_unique`,
+--     ADD UNIQUE KEY `pbr_invoice_no_unique` (`invoice_fy`, `invoice_no`);
+
+-- Seed the five levels (edit the amounts, then run):
+-- INSERT INTO `product_prices` (`level`,`product_name`,`price`,`mrp`,`is_active`,`is_deleted`,`created_at`,`updated_at`) VALUES
+--   (0,'Energy Plus',0.00,0.00,1,0,NOW(),NOW()),
+--   (1,'Health Plus',0.00,0.00,1,0,NOW(),NOW()),
+--   (2,'Health Plus',0.00,0.00,1,0,NOW(),NOW()),
+--   (3,'Health Plus',0.00,0.00,1,0,NOW(),NOW()),
+--   (4,'Health Plus',0.00,0.00,1,0,NOW(),NOW());
+-- Or just fill them in under Admin -> Product Price.
+
+-- Invoice numbers issued so far, per financial year:
+-- SELECT `invoice_fy`, COUNT(*) AS issued, MAX(`invoice_no`) AS latest
+-- FROM `promoter_box_requests`
+-- WHERE `invoice_no` IS NOT NULL GROUP BY `invoice_fy` ORDER BY `invoice_fy`;
+
+
+-- ============================================================
+-- OPERATIONAL (no schema change) — invoice download on/off
+-- Admin -> App Settings now carries an "Invoice Download (Plan Product)"
+-- toggle. Off hides the Download Invoice button AND refuses the endpoint for
+-- users, so it cannot be bypassed by holding the URL. Admins keep access
+-- either way, so a bill can still be checked while it is switched off.
+--
+-- Stored in the existing app_settings key/value table under
+-- `menu_visible_invoice_download`. Defaults to ON when the row is absent.
+-- ============================================================
+
+-- Current state (no row means ON):
+-- SELECT * FROM `app_settings` WHERE `setting_key` = 'menu_visible_invoice_download';
+
+-- Turn it off / on without using the admin screen:
+-- INSERT INTO `app_settings` (`setting_key`,`setting_value`,`created_at`,`updated_at`)
+-- VALUES ('menu_visible_invoice_download','0',NOW(),NOW())
+-- ON DUPLICATE KEY UPDATE `setting_value` = '0', `updated_at` = NOW();
+--   ('1' to turn it back on)
+
+
+-- ============================================================
+-- OPERATIONAL (no schema change) — invoice round-off
+-- Sales prices are back-calculations of round selling figures
+-- (750 / 1.18 = 635.5932..., stored as 635.59), so multiplying back up lands
+-- a few paise short, and the gap grows with quantity:
+--
+--   qty  rate      parts sum   round off   total    price list
+--    1   635.59      749.99      +0.01      750.00      750
+--    1  3016.94     3559.98      +0.02     3560.00     3560
+--   10  3352.54    39559.98      +0.02    39560.00    39560
+--   20  2820.33    66559.78      +0.22    66560.00    66560
+--   30  2813.27    99589.76      +0.24    99590.00    99590
+--
+-- CGST and SGST stay at a true 9% each; the difference is shown on its own
+-- "Round Off" line and the invoice total is the round figure the price list
+-- quotes. Nothing to migrate — this is arithmetic in InvoiceBuilder.
+-- ============================================================
+
+-- Rates for the price list above, if you want to seed them directly
+-- (product_prices.price is the PRE-TAX rate per unit):
+-- UPDATE `product_prices` SET `product_name`='Energy Plus', `price`=635.59,  `mrp`=970  WHERE `level`=0;
+-- UPDATE `product_prices` SET `product_name`='Health Plus', `price`=3016.94, `mrp`=3999 WHERE `level`=1;
+-- UPDATE `product_prices` SET `product_name`='Health Plus', `price`=3352.54, `mrp`=3999 WHERE `level`=2;
+-- UPDATE `product_prices` SET `product_name`='Health Plus', `price`=2820.33, `mrp`=3999 WHERE `level`=3;
+-- UPDATE `product_prices` SET `product_name`='Health Plus', `price`=2813.27, `mrp`=3999 WHERE `level`=4;
+
+
+-- ============================================================
+-- BACKFILL — invoices for batches already delivered
+--
+-- Delivered before the invoice feature existed, these rows have no price,
+-- no financial year and no invoice number, so they show no Download button.
+-- This fills all three.
+--
+-- BEFORE RUNNING:
+--   1. Run the three migrations (bill_templates, invoice fields,
+--      product_prices) — these columns must exist.
+--   2. Fill in Admin -> Product Price. Step 1 copies FROM that master; with
+--      no prices saved it fills nothing.
+--   3. Take a backup. Every statement below is an UPDATE on live rows.
+--
+-- Run the steps IN ORDER. Each is safe to re-run: they only touch rows that
+-- are still NULL, so a half-finished run can simply be repeated.
+-- ============================================================
+
+-- ---------- STEP 0: preview. Changes nothing. ----------
+-- How many rows are waiting, and do they all have a price to copy?
+SELECT b.`level`,
+       COUNT(*)                                   AS delivered_without_invoice,
+       MAX(p.`price`)                             AS price_that_will_apply,
+       IF(MAX(p.`id`) IS NULL, 'NO PRICE SET', 'ok') AS status
+FROM `promoter_box_requests` b
+LEFT JOIN `product_prices` p
+       ON p.`level` = b.`level` AND p.`is_deleted` = 0 AND p.`is_active` = 1
+WHERE b.`status` = 3 AND b.`is_deleted` = 0 AND b.`invoice_no` IS NULL
+GROUP BY b.`level`
+ORDER BY b.`level`;
+-- Any row reading "NO PRICE SET" will be SKIPPED. Set that level's price
+-- first if you want those invoices raised.
+
+
+-- ---------- STEP 1: copy the price from the master ----------
+-- Snapshot, exactly as a live dispatch does: later edits to Product Price
+-- will not change these rows.
+UPDATE `promoter_box_requests` b
+JOIN `product_prices` p
+  ON p.`level` = b.`level` AND p.`is_deleted` = 0 AND p.`is_active` = 1
+SET b.`rate_per_qty` = p.`price`,
+    b.`mrp`          = p.`mrp`
+WHERE b.`status` = 3
+  AND b.`is_deleted` = 0
+  AND b.`rate_per_qty` IS NULL;
+
+
+-- ---------- STEP 2: financial year from the delivery date ----------
+-- Indian FY starts 1 April, so a January delivery belongs to the year that
+-- began the previous April. Matches InvoiceBuilder::financialYear() exactly.
+UPDATE `promoter_box_requests`
+SET `invoice_fy` = CONCAT(
+        RIGHT(YEAR(`delivered_at`) - IF(MONTH(`delivered_at`) >= 4, 0, 1), 2),
+        '-',
+        RIGHT(YEAR(`delivered_at`) - IF(MONTH(`delivered_at`) >= 4, 0, 1) + 1, 2)
+    )
+WHERE `status` = 3
+  AND `is_deleted` = 0
+  AND `delivered_at` IS NOT NULL
+  AND `rate_per_qty` IS NOT NULL
+  AND `invoice_fy` IS NULL;
+
+
+-- ---------- STEP 3: sequential number within each year ----------
+-- Numbered in delivery order, continuing after any number already issued in
+-- that year, so nothing is duplicated or renumbered.
+-- (MySQL 8+. A temp table is used rather than a derived table in the UPDATE,
+--  because MySQL refuses to read the same table it is updating inline.)
+CREATE TEMPORARY TABLE `tmp_invoice_seq` AS
+SELECT b.`id`,
+       COALESCE(m.`maxno`, 0)
+         + ROW_NUMBER() OVER (PARTITION BY b.`invoice_fy`
+                              ORDER BY b.`delivered_at`, b.`id`) AS `new_no`
+FROM `promoter_box_requests` b
+LEFT JOIN (
+    SELECT `invoice_fy` AS `fy`, MAX(`invoice_no`) AS `maxno`
+    FROM `promoter_box_requests`
+    WHERE `invoice_no` IS NOT NULL
+    GROUP BY `invoice_fy`
+) m ON m.`fy` = b.`invoice_fy`
+WHERE b.`status` = 3
+  AND b.`is_deleted` = 0
+  AND b.`invoice_fy` IS NOT NULL
+  AND b.`rate_per_qty` IS NOT NULL
+  AND b.`invoice_no` IS NULL;
+
+UPDATE `promoter_box_requests` b
+JOIN `tmp_invoice_seq` t ON t.`id` = b.`id`
+SET b.`invoice_no` = t.`new_no`;
+
+DROP TEMPORARY TABLE `tmp_invoice_seq`;
+
+
+-- ---------- STEP 4: verify ----------
+-- Numbers per year: `issued` and `latest` should match, with no gaps.
+SELECT `invoice_fy`, COUNT(*) AS issued,
+       MIN(`invoice_no`) AS first_no, MAX(`invoice_no`) AS latest
+FROM `promoter_box_requests`
+WHERE `invoice_no` IS NOT NULL
+GROUP BY `invoice_fy`
+ORDER BY `invoice_fy`;
+
+-- No duplicates within a year (must return zero rows):
+SELECT `invoice_fy`, `invoice_no`, COUNT(*) AS c
+FROM `promoter_box_requests`
+WHERE `invoice_no` IS NOT NULL
+GROUP BY `invoice_fy`, `invoice_no`
+HAVING c > 1;
+
+-- Anything still left without an invoice (expected: only levels with no
+-- price set, and any row with no delivered_at):
+SELECT `id`, `user_id`, `level`, `quantity`, `delivered_at`,
+       `rate_per_qty`, `invoice_fy`, `invoice_no`
+FROM `promoter_box_requests`
+WHERE `status` = 3 AND `is_deleted` = 0 AND `invoice_no` IS NULL;
+
+
+-- ---------- If you are on MySQL 5.7 (no ROW_NUMBER) ----------
+-- Replace STEP 3 with this variable-based version:
+-- SET @fy := '', @seq := 0;
+-- CREATE TEMPORARY TABLE `tmp_invoice_seq` AS
+-- SELECT x.`id`, x.`new_no` FROM (
+--     SELECT b.`id`,
+--            @seq := IF(@fy = b.`invoice_fy`, @seq + 1,
+--                       IFNULL((SELECT MAX(`invoice_no`) FROM `promoter_box_requests`
+--                               WHERE `invoice_fy` = b.`invoice_fy`), 0) + 1) AS `new_no`,
+--            @fy := b.`invoice_fy` AS `dummy`
+--     FROM `promoter_box_requests` b
+--     WHERE b.`status` = 3 AND b.`is_deleted` = 0
+--       AND b.`invoice_fy` IS NOT NULL AND b.`rate_per_qty` IS NOT NULL
+--       AND b.`invoice_no` IS NULL
+--     ORDER BY b.`invoice_fy`, b.`delivered_at`, b.`id`
+-- ) x;
+-- (then the same UPDATE ... JOIN and DROP as above)
+
+
+-- ---------- Undo, if you need to start over ----------
+-- Only clears rows this backfill would have touched; leaves invoices issued
+-- by the live app alone is NOT guaranteed, so use with care:
+-- UPDATE `promoter_box_requests`
+-- SET `rate_per_qty` = NULL, `mrp` = NULL, `invoice_fy` = NULL, `invoice_no` = NULL
+-- WHERE `status` = 3 AND `is_deleted` = 0;

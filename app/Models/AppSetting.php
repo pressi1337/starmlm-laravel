@@ -22,6 +22,9 @@ class AppSetting extends Model
      */
     const MENU_KEYS = [
         'company_docs' => ['label' => 'Company Docs', 'default' => true],
+        // Whether a user may download the invoice for a delivered plan
+        // product. Off hides the button AND refuses the endpoint.
+        'invoice_download' => ['label' => 'Invoice Download (Plan Product)', 'default' => true],
     ];
 
     /** Raw value for a key, or $default when unset. */

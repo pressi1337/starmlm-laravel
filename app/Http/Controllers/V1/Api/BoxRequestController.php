@@ -5,11 +5,15 @@ namespace App\Http\Controllers\V1\Api;
 use App\Exports\BoxRequestExport;
 use App\Http\Controllers\Controller;
 use App\Traits\HandlesJson;
+use App\Models\AppSetting;
+use App\Models\ProductPrice;
 use App\Models\PromoterBoxRequest;
 use App\Models\User;
 use App\Models\UserPromoter;
+use App\Services\InvoiceBuilder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
@@ -55,11 +59,13 @@ class BoxRequestController extends Controller
                 ? (int) $user->current_promoter_level
                 : null;
 
+            $invoicesOn = $this->invoiceEnabled();
+
             $list = PromoterBoxRequest::where('user_id', $userId)
                 ->where('is_deleted', 0)
                 ->orderBy('id', 'desc')
                 ->get()
-                ->map(function ($b) {
+                ->map(function ($b) use ($invoicesOn) {
                     $b->status_label = $b->statusLabel();
                     $b->created_at_formatted = $b->created_at ? $b->created_at->format('d-m-Y h:i A') : '-';
 
@@ -78,6 +84,11 @@ class BoxRequestController extends Controller
                     $b->not_received_at_formatted = $b->not_received_at
                         ? date('d-m-Y h:i A', strtotime((string) $b->not_received_at))
                         : null;
+                    // Drives the "Download Invoice" button. The admin can
+                    // switch invoices off entirely from App Settings.
+                    $b->has_invoice = $invoicesOn
+                        && (int) $b->status === PromoterBoxRequest::STATUS_DELIVERED
+                        && $b->rate_per_qty !== null;
                     return $b;
                 });
 
@@ -197,6 +208,10 @@ class BoxRequestController extends Controller
             $box->updated_by = $userId;
             $box->save();
 
+            // Delivery is what makes the invoice available, so the number is
+            // issued here.
+            $this->assignInvoiceNumber($box);
+
             return response()->json(['success' => true, 'message' => 'Marked as delivered', 'data' => $box], 200);
         } catch (\Throwable $e) {
             Log::error('BoxRequest markDelivered failed', ['error' => $e->getMessage()]);
@@ -300,6 +315,97 @@ class BoxRequestController extends Controller
         }
     }
 
+    /**
+     * Allocate the next invoice number, once, WITHIN the financial year the
+     * delivery falls in — so each April the sequence restarts at 1.
+     *
+     * Locked read of that year's current maximum, so two deliveries landing at
+     * the same moment can't be handed the same number. The unique key is
+     * (invoice_fy, invoice_no), so a collision would fail the save outright
+     * rather than quietly duplicating a number.
+     */
+    private function assignInvoiceNumber(PromoterBoxRequest $box): void
+    {
+        if ($box->invoice_no !== null) {
+            return; // already issued; numbers are never reused
+        }
+
+        try {
+            DB::transaction(function () use ($box) {
+                $fy = InvoiceBuilder::financialYear($box->delivered_at);
+                $max = (int) PromoterBoxRequest::where('invoice_fy', $fy)
+                    ->lockForUpdate()
+                    ->max('invoice_no');
+                $box->invoice_fy = $fy;
+                $box->invoice_no = $max + 1;
+                $box->save();
+            });
+        } catch (\Throwable $e) {
+            // The delivery itself already succeeded; a missing number is
+            // recoverable (the invoice route allocates on demand).
+            Log::error('Invoice number allocation failed', [
+                'box_id' => $box->id, 'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Everything the invoice template renders for one delivered batch.
+     *
+     * Only available once delivered — that is the point at which the sale is
+     * complete. A user may only fetch their own; an admin may fetch any.
+     */
+    public function invoice(Request $request, $id)
+    {
+        try {
+            $actor = Auth::user();
+            $isAdmin = $actor && in_array((int) $actor->role, [User::ROLE_SUPER_ADMIN, User::ROLE_SUB_ADMIN], true);
+
+            $query = PromoterBoxRequest::with('user')->where('id', $id)->where('is_deleted', 0);
+            if (!$isAdmin) {
+                $query->where('user_id', Auth::id());
+            }
+            $box = $query->first();
+
+            if (!$box) {
+                return response()->json(['success' => false, 'message' => 'Not found'], 404);
+            }
+            // Admins keep access when the toggle is off, so they can still
+            // check a bill; it only closes the door for users.
+            if (!$isAdmin && !$this->invoiceEnabled()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invoice download is currently unavailable.',
+                ], 403);
+            }
+            if ((int) $box->status !== PromoterBoxRequest::STATUS_DELIVERED) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The invoice is available once the product is delivered',
+                ], 400);
+            }
+            if ($box->rate_per_qty === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This product was dispatched before pricing was recorded, so no invoice can be generated',
+                ], 400);
+            }
+
+            // Batches delivered before numbering existed get one on first view,
+            // so an older delivery still produces a valid invoice.
+            $this->assignInvoiceNumber($box);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Success',
+                'data'    => app(InvoiceBuilder::class)->build($box),
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('BoxRequest invoice failed', ['id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
     public function adminIndex(Request $request)
     {
         $sort_column = $request->query('sort_column', 'created_at');
@@ -317,6 +423,7 @@ class BoxRequestController extends Controller
         $query = $this->buildAdminQuery($search_param, $search_term);
 
         $total_records = $query->count();
+        $invoicesOn = $this->invoiceEnabled();
 
         $list = $query->orderBy($sort_column, $sort_direction)
             // Deterministic tiebreak. sent_at/delivered_at are NULL for most
@@ -328,7 +435,7 @@ class BoxRequestController extends Controller
             })
             ->with('user')
             ->get()
-            ->map(function ($b) {
+            ->map(function ($b) use ($invoicesOn) {
                 $b->status_label = $b->statusLabel();
                 $b->created_at_formatted = $b->created_at ? $b->created_at->format('d-m-Y h:i A') : '-';
 
@@ -347,6 +454,16 @@ class BoxRequestController extends Controller
                 $b->collected_date_formatted = $b->collected_date
                     ? date('d-m-Y', strtotime((string) $b->collected_date))
                     : null;
+                $b->has_invoice = $invoicesOn
+                    && (int) $b->status === PromoterBoxRequest::STATUS_DELIVERED
+                    && $b->rate_per_qty !== null;
+
+                // What this batch will bill at, so the dispatch form can show
+                // it before the admin commits.
+                $master = ProductPrice::forLevel($b->level);
+                $b->master_price = $master ? (float) $master->price : null;
+                $b->master_mrp = $master ? (float) $master->mrp : null;
+                $b->master_product = $master->product_name ?? null;
 
                 // Quantity is adjustable only while still Requested and at a
                 // manual level (3/4). Reducing it frees cap room for the user to
@@ -416,6 +533,16 @@ class BoxRequestController extends Controller
                 return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
             }
 
+            // Bill at the master price for this promoter level.
+            $price = ProductPrice::forLevel($box->level);
+            if (!$price) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No price is set for ' . ProductPrice::levelLabel($box->level)
+                        . '. Add it under Product Price before dispatching this batch.',
+                ], 400);
+            }
+
             $method = (int) $request->input('dispatch_method');
 
             $box->status = PromoterBoxRequest::STATUS_SENT;
@@ -436,6 +563,11 @@ class BoxRequestController extends Controller
             $box->courier_number = $method === PromoterBoxRequest::DISPATCH_COURIER
                 ? trim((string) $request->input('courier_number'))
                 : null;
+            // SNAPSHOT, not a reference: an invoice is a tax document, so a
+            // later edit to the master must never change what an already
+            // issued invoice says.
+            $box->rate_per_qty = round((float) $price->price, 2);
+            $box->mrp = round((float) $price->mrp, 2);
             $box->updated_by = Auth::id();
             $box->save();
 
@@ -471,6 +603,8 @@ class BoxRequestController extends Controller
             $box->delivered_at = now();
             $box->updated_by = Auth::id();
             $box->save();
+
+            $this->assignInvoiceNumber($box);
 
             return response()->json(['success' => true, 'message' => 'Marked as delivered', 'data' => $box], 200);
         } catch (\Throwable $e) {
@@ -600,6 +734,25 @@ class BoxRequestController extends Controller
         }
 
         return $query;
+    }
+
+    /**
+     * Whether users may download plan-product invoices at all.
+     *
+     * Admin toggle under App Settings. Read here rather than only in the UI so
+     * turning it off also refuses the endpoint — hiding a button is not the
+     * same as closing the door.
+     */
+    private function invoiceEnabled(): bool
+    {
+        try {
+            return AppSetting::getBool(AppSetting::menuKey('invoice_download'), true);
+        } catch (\Throwable $e) {
+            // A settings read that fails must not take the whole plan-product
+            // list down with it. Fall back to the default (on).
+            Log::warning('Invoice toggle lookup failed', ['error' => $e->getMessage()]);
+            return true;
+        }
     }
 
     /** Display helper: a formatted date, or "-" when it hasn't happened yet. */
