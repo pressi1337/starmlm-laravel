@@ -78,7 +78,6 @@ class InvoiceBuilder
                 : date('d-m-Y'),
             'billed_by'    => $this->company($template),
             'billed_to'    => $this->customer($box->user),
-            'place_of_supply' => $template?->place_of_supply ?: ($template?->state ?: null),
             'country_of_supply' => $template?->country_of_supply ?: 'India',
             'items'        => [[
                 'description' => $this->productName($box->level),
@@ -212,6 +211,28 @@ class InvoiceBuilder
             fn ($p) => trim((string) $p),
             $parts
         ), fn ($p) => $p !== ''));
+    }
+
+    /**
+     * "1,23,45,678.90" — Indian digit grouping (lakh/crore: pairs of two once
+     * past the first three digits), always two decimals. Used by the PDF
+     * view, which has no JS Intl to lean on the way the web pages do.
+     */
+    public static function formatMoney(float $amount): string
+    {
+        $amount = round($amount, 2);
+        $negative = $amount < 0;
+        $amount = abs($amount);
+
+        [$whole, $decimal] = explode('.', number_format($amount, 2, '.', ''));
+
+        if (strlen($whole) > 3) {
+            $lastThree = substr($whole, -3);
+            $rest = preg_replace('/\B(?=(\d{2})+(?!\d))/', ',', substr($whole, 0, -3));
+            $whole = $rest . ',' . $lastThree;
+        }
+
+        return ($negative ? '-' : '') . $whole . '.' . $decimal;
     }
 
     // ───────────────────────── amount in words ─────────────────────────

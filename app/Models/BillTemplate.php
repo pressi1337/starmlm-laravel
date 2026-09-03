@@ -24,7 +24,6 @@ class BillTemplate extends Model
         'email',
         'phone',
         'invoice_prefix',
-        'place_of_supply',
         'country_of_supply',
         'is_active',
         'is_deleted',

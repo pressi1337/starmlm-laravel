@@ -355,45 +355,64 @@ class BoxRequestController extends Controller
      * Only available once delivered — that is the point at which the sale is
      * complete. A user may only fetch their own; an admin may fetch any.
      */
+    /**
+     * Load a delivered batch and run every eligibility check an invoice
+     * needs, shared by the JSON view and the PDF download so the two can
+     * never disagree about who may see what.
+     *
+     * Returns the box on success, or the JSON error response to return
+     * as-is on failure — callers just need `if (!$box instanceof
+     * PromoterBoxRequest) return $box;`.
+     */
+    private function resolveInvoiceBox($id)
+    {
+        $actor = Auth::user();
+        $isAdmin = $actor && in_array((int) $actor->role, [User::ROLE_SUPER_ADMIN, User::ROLE_SUB_ADMIN], true);
+
+        $query = PromoterBoxRequest::with('user')->where('id', $id)->where('is_deleted', 0);
+        if (!$isAdmin) {
+            $query->where('user_id', Auth::id());
+        }
+        $box = $query->first();
+
+        if (!$box) {
+            return response()->json(['success' => false, 'message' => 'Not found'], 404);
+        }
+        // Admins keep access when the toggle is off, so they can still
+        // check a bill; it only closes the door for users.
+        if (!$isAdmin && !$this->invoiceEnabled()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invoice download is currently unavailable.',
+            ], 403);
+        }
+        if ((int) $box->status !== PromoterBoxRequest::STATUS_DELIVERED) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The invoice is available once the product is delivered',
+            ], 400);
+        }
+        if ($box->rate_per_qty === null) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This product was dispatched before pricing was recorded, so no invoice can be generated',
+            ], 400);
+        }
+
+        // Batches delivered before numbering existed get one on first view,
+        // so an older delivery still produces a valid invoice.
+        $this->assignInvoiceNumber($box);
+
+        return $box;
+    }
+
     public function invoice(Request $request, $id)
     {
         try {
-            $actor = Auth::user();
-            $isAdmin = $actor && in_array((int) $actor->role, [User::ROLE_SUPER_ADMIN, User::ROLE_SUB_ADMIN], true);
-
-            $query = PromoterBoxRequest::with('user')->where('id', $id)->where('is_deleted', 0);
-            if (!$isAdmin) {
-                $query->where('user_id', Auth::id());
+            $box = $this->resolveInvoiceBox($id);
+            if (!$box instanceof PromoterBoxRequest) {
+                return $box;
             }
-            $box = $query->first();
-
-            if (!$box) {
-                return response()->json(['success' => false, 'message' => 'Not found'], 404);
-            }
-            // Admins keep access when the toggle is off, so they can still
-            // check a bill; it only closes the door for users.
-            if (!$isAdmin && !$this->invoiceEnabled()) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Invoice download is currently unavailable.',
-                ], 403);
-            }
-            if ((int) $box->status !== PromoterBoxRequest::STATUS_DELIVERED) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'The invoice is available once the product is delivered',
-                ], 400);
-            }
-            if ($box->rate_per_qty === null) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'This product was dispatched before pricing was recorded, so no invoice can be generated',
-                ], 400);
-            }
-
-            // Batches delivered before numbering existed get one on first view,
-            // so an older delivery still produces a valid invoice.
-            $this->assignInvoiceNumber($box);
 
             return response()->json([
                 'success' => true,
@@ -402,6 +421,58 @@ class BoxRequestController extends Controller
             ], 200);
         } catch (\Throwable $e) {
             Log::error('BoxRequest invoice failed', ['id' => $id, 'error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    /**
+     * The same invoice, rendered to an actual PDF file and sent as an
+     * attachment — a real one-click download, not the browser's print
+     * dialog. Built with Dompdf from the same InvoiceBuilder data as the
+     * JSON view, so the two can never show different numbers.
+     */
+    public function invoicePdf(Request $request, $id)
+    {
+        try {
+            $box = $this->resolveInvoiceBox($id);
+            if (!$box instanceof PromoterBoxRequest) {
+                return $box;
+            }
+
+            $invoice = app(InvoiceBuilder::class)->build($box);
+
+            // Embedded as a data URI rather than a file path: dompdf resolves
+            // relative asset paths unreliably depending on how it is invoked,
+            // while a data URI always works regardless of working directory.
+            $logoPath = resource_path('images/invoice-logo.png');
+            $logoDataUri = is_file($logoPath)
+                ? 'data:image/png;base64,' . base64_encode(file_get_contents($logoPath))
+                : null;
+
+            $html = view('invoices.pdf', [
+                'inv'  => $invoice,
+                'logo' => $logoDataUri,
+            ])->render();
+
+            $pdf = new \Dompdf\Dompdf([
+                'defaultPaperSize' => 'a4',
+                // The logo is a local file read straight off disk (see the
+                // view); no remote fetch is needed, so this stays off.
+                'isRemoteEnabled'  => false,
+                'isHtml5ParserEnabled' => true,
+            ]);
+            $pdf->loadHtml($html);
+            $pdf->setPaper('a4', 'portrait');
+            $pdf->render();
+
+            $filename = 'invoice-' . str_replace('/', '-', (string) $invoice['invoice_no']) . '.pdf';
+
+            return response($pdf->output(), 200, [
+                'Content-Type'        => 'application/pdf',
+                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('BoxRequest invoicePdf failed', ['id' => $id, 'error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
         }
     }
