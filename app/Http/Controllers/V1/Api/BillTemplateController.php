@@ -46,7 +46,6 @@ class BillTemplateController extends Controller
             'email'             => 'nullable|email|max:190',
             'phone'             => 'nullable|string|max:30',
             'invoice_prefix'    => 'nullable|string|max:20',
-            'place_of_supply'   => 'nullable|string|max:120',
             'country_of_supply' => 'nullable|string|max:120',
         ], [
             'company_name.required' => 'Company name is required',
@@ -68,7 +67,6 @@ class BillTemplateController extends Controller
             foreach ([
                 'company_name', 'address_line1', 'address_line2', 'city', 'state',
                 'pincode', 'gstin', 'pan', 'email', 'phone', 'invoice_prefix',
-                'place_of_supply',
             ] as $field) {
                 $record->{$field} = $request->input($field);
             }

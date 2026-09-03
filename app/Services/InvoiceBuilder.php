@@ -78,7 +78,6 @@ class InvoiceBuilder
                 : date('d-m-Y'),
             'billed_by'    => $this->company($template),
             'billed_to'    => $this->customer($box->user),
-            'place_of_supply' => $template?->place_of_supply ?: ($template?->state ?: null),
             'country_of_supply' => $template?->country_of_supply ?: 'India',
             'items'        => [[
                 'description' => $this->productName($box->level),

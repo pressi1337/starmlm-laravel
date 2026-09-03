@@ -1198,7 +1198,6 @@ CREATE TABLE `bill_templates` (
     `email`             VARCHAR(255) NULL DEFAULT NULL,
     `phone`             VARCHAR(30)  NULL DEFAULT NULL,
     `invoice_prefix`    VARCHAR(20)  NULL DEFAULT NULL,
-    `place_of_supply`   VARCHAR(120) NULL DEFAULT NULL,
     `country_of_supply` VARCHAR(120) NOT NULL DEFAULT 'India',
     `is_active`         TINYINT(1) NOT NULL DEFAULT 1,
     `is_deleted`        TINYINT(1) NOT NULL DEFAULT 0,
@@ -1474,3 +1473,20 @@ WHERE `status` = 3 AND `is_deleted` = 0 AND `invoice_no` IS NULL;
 -- UPDATE `promoter_box_requests`
 -- SET `rate_per_qty` = NULL, `mrp` = NULL, `invoice_fy` = NULL, `invoice_no` = NULL
 -- WHERE `status` = 3 AND `is_deleted` = 0;
+
+
+-- ============================================================
+-- OPERATIONAL — remove Place of Supply
+-- Dropped: not needed on the invoice. Country of Supply stays.
+--
+-- Code updated in InvoiceBuilder, BillTemplate, BillTemplateController and
+-- both frontends. If your live `bill_templates` table was created with the
+-- `place_of_supply` column (from the CREATE TABLE above, or the matching
+-- migration), drop it with:
+-- ============================================================
+
+ALTER TABLE `bill_templates` DROP COLUMN `place_of_supply`;
+
+-- Safe to run even if the column is already gone or was never added —
+-- MySQL errors "check that column/key exists" rather than doing damage;
+-- just skip it in that case. No data loss: nothing else reads this column.
