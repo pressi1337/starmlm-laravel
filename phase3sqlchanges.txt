@@ -1620,3 +1620,188 @@ ALTER TABLE `users`
 --        `can_promotion_logs`, `can_pin_requests`, `can_plan_product`,
 --        `can_support_help`, `can_suggestions`, `can_personal_documents`
 -- FROM `users` WHERE `role` = 1 AND `is_deleted` = 0;
+
+
+-- ============================================================
+-- Scratch cards: MULTIPLE cashback amounts per (promoter level, referral
+-- level), one drawn at random per card.
+-- Equivalent of migration
+-- 2026_09_04_000001_create_referral_scratch_level_amounts_table.
+--
+-- Until now `referral_scratch_levels.amount` held ONE fixed amount, so every
+-- card for a combination paid exactly the same — which defeats the point of a
+-- scratch card. This table is the pool of amounts the admin configures; the
+-- payout code draws one uniformly at random each time a card is created
+-- (independently per card, so two uplines at the same depth can win
+-- different amounts).
+--
+-- `referral_scratch_levels.amount` / `.msg` are NOT dropped:
+--   * `amount` mirrors the first pool entry, so anything still reading the
+--     single column sees a real configured value;
+--   * both remain a FALLBACK for a combination with no pool rows. After the
+--     backfill below, nothing should ever be relying on that fallback — it
+--     exists only so an environment where the backfill has not run yet keeps
+--     paying instead of silently issuing nothing.
+--
+-- THE POOL IS THE SOURCE OF TRUTH. Run the backfill in the next section so
+-- existing configuration lives in the pool table too, and note that every
+-- save now writes a pool entry — a request carrying only a single `amount`
+-- is stored as a one-entry pool, so a pool-less pair can no longer be
+-- created through the API.
+-- ============================================================
+
+CREATE TABLE `referral_scratch_level_amounts` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `referral_scratch_level_id` BIGINT UNSIGNED NOT NULL,
+    `amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    `msg` VARCHAR(255) NULL DEFAULT NULL,
+    `order_no` INT NOT NULL DEFAULT 0,
+    `created_by` BIGINT UNSIGNED NULL DEFAULT NULL,
+    `updated_by` BIGINT UNSIGNED NULL DEFAULT NULL,
+    `is_active` TINYINT NOT NULL DEFAULT 1,
+    `is_deleted` TINYINT NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP NULL DEFAULT NULL,
+    `updated_at` TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    KEY `rsla_level_live_idx` (`referral_scratch_level_id`, `is_active`, `is_deleted`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ROLLBACK:
+-- DROP TABLE IF EXISTS `referral_scratch_level_amounts`;
+-- Dropping the table is safe at any time: every combination falls straight
+-- back to its single `referral_scratch_levels.amount`. Already-issued
+-- scratch_cards are unaffected — they snapshot the amount when created.
+
+-- ============================================================
+-- BACKFILL — REQUIRED. Move the existing single amounts into the pool.
+-- Equivalent of migration
+-- 2026_09_04_000003_backfill_referral_scratch_level_amounts.
+--
+-- Run this immediately after the CREATE TABLE above. It copies each live
+-- pair's current amount + message into the pool as its first entry, so
+-- payouts read from one place instead of two.
+--
+-- Idempotent: the NOT EXISTS clause skips any pair that already has live
+-- pool rows, so re-running it cannot duplicate an amount.
+--
+-- Skipped on purpose:
+--   * pairs with `amount` = 0  — they pay nothing, so a pool entry would be
+--     meaningless (a 0 in the pool would hand out an empty scratch card);
+--   * soft-deleted pairs (`is_deleted` = 1).
+-- Inactive-but-live pairs ARE backfilled, so switching one back on works.
+-- ============================================================
+
+INSERT INTO `referral_scratch_level_amounts`
+    (`referral_scratch_level_id`, `amount`, `msg`, `order_no`,
+     `created_by`, `updated_by`, `is_active`, `is_deleted`,
+     `created_at`, `updated_at`)
+SELECT l.`id`, l.`amount`, l.`msg`, 0,
+       l.`created_by`, l.`updated_by`, 1, 0, NOW(), NOW()
+  FROM `referral_scratch_levels` l
+ WHERE l.`is_deleted` = 0
+   AND l.`amount` > 0
+   AND NOT EXISTS (
+       SELECT 1 FROM `referral_scratch_level_amounts` a
+        WHERE a.`referral_scratch_level_id` = l.`id`
+          AND a.`is_deleted` = 0
+   );
+
+-- Verify every paying pair now owns a pool entry (expect 0 rows):
+-- SELECT l.`id`, l.`promotor_level`, l.`level`, l.`amount`
+--   FROM `referral_scratch_levels` l
+--  WHERE l.`is_deleted` = 0 AND l.`amount` > 0
+--    AND NOT EXISTS (SELECT 1 FROM `referral_scratch_level_amounts` a
+--                     WHERE a.`referral_scratch_level_id` = l.`id`
+--                       AND a.`is_deleted` = 0);
+
+-- ROLLBACK the backfill (removes ONLY the single entry it created, leaving
+-- any pool an admin has since edited or extended intact):
+-- DELETE a FROM `referral_scratch_level_amounts` a
+--   JOIN `referral_scratch_levels` l ON l.`id` = a.`referral_scratch_level_id`
+--  WHERE a.`is_deleted` = 0
+--    AND a.`amount` = l.`amount`
+--    AND (SELECT COUNT(*) FROM (SELECT * FROM `referral_scratch_level_amounts`) x
+--          WHERE x.`referral_scratch_level_id` = a.`referral_scratch_level_id`
+--            AND x.`is_deleted` = 0) = 1;
+
+-- What each combination pays after configuring pools (sanity check):
+-- SELECT l.`promotor_level`, l.`level`, l.`amount` AS `fixed_amount`,
+--        COUNT(a.`id`) AS `pool_size`,
+--        GROUP_CONCAT(a.`amount` ORDER BY a.`order_no` SEPARATOR ' / ') AS `pool`
+--   FROM `referral_scratch_levels` l
+--   LEFT JOIN `referral_scratch_level_amounts` a
+--          ON a.`referral_scratch_level_id` = l.`id`
+--         AND a.`is_active` = 1 AND a.`is_deleted` = 0
+--  WHERE l.`is_deleted` = 0 AND l.`is_active` = 1
+--  GROUP BY l.`id`, l.`promotor_level`, l.`level`, l.`amount`
+--  ORDER BY l.`promotor_level`, l.`level`;
+
+
+-- ============================================================
+-- Drop the dead `referral_scratch_ranges` table.
+-- Equivalent of migration
+-- 2026_09_04_000002_drop_referral_scratch_ranges_table.
+--
+-- The range concept ("1-5 referrals pay X, 6-10 pay Y") was retired back in
+-- 2026_06_22_000000_add_amount_msg_to_referral_scratch_levels, which copied
+-- each level's first range onto `referral_scratch_levels`.`amount` and left
+-- the table behind. Since then:
+--   * no payout code reads it — UserPromoterController only ever imported the
+--     model, never used it;
+--   * nothing writes to it — there is no create/update path anywhere;
+--   * the only reference left was a soft-delete cascade in
+--     ScratchSetupController::destroy, marking rows nobody reads.
+-- The admin list endpoint was also still eager-loading it, shipping an empty
+-- `ranges: []` on every row.
+--
+-- Payout amounts now live entirely on `referral_scratch_levels`.`amount`
+-- (single) and `referral_scratch_level_amounts` (the random pool), so
+-- dropping this loses no live configuration.
+--
+-- Code removed alongside it: app/Models/ReferralScratchRange.php, the
+-- ReferralScratchLevel::ranges() relation, both controller imports, the
+-- destroy cascade, the index eager-load, and the unused start_range /
+-- end_range validation messages.
+-- ============================================================
+
+-- STEP 1 — keep a copy of the pre-June-2026 range config. Do this first;
+-- the DROP is not reversible.
+CREATE TABLE `referral_scratch_ranges_archive_20260904`
+    AS SELECT * FROM `referral_scratch_ranges`;
+
+-- Check what you archived (0 rows = the table was already empty):
+-- SELECT COUNT(*) FROM `referral_scratch_ranges_archive_20260904`;
+
+-- STEP 2 — drop it.
+DROP TABLE IF EXISTS `referral_scratch_ranges`;
+
+-- ROLLBACK (schema only — nothing reads this table, so an empty one behaves
+-- identically to the populated one):
+-- CREATE TABLE `referral_scratch_ranges` (
+--     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+--     `referral_scratch_level_id` INT NULL DEFAULT NULL,
+--     `start_range` INT NOT NULL DEFAULT 0,
+--     `end_range` INT NOT NULL DEFAULT 0,
+--     `amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+--     `msg` VARCHAR(255) NULL DEFAULT NULL,
+--     `created_by` INT NULL DEFAULT NULL,
+--     `updated_by` INT NULL DEFAULT NULL,
+--     `order_no` INT NOT NULL DEFAULT 1,
+--     `is_active` TINYINT NOT NULL DEFAULT 1,
+--     `is_deleted` TINYINT NOT NULL DEFAULT 0,
+--     `created_at` TIMESTAMP NULL DEFAULT NULL,
+--     `updated_at` TIMESTAMP NULL DEFAULT NULL,
+--     PRIMARY KEY (`id`)
+-- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- To restore the rows as well:
+-- INSERT INTO `referral_scratch_ranges`
+--     SELECT * FROM `referral_scratch_ranges_archive_20260904`;
+
+-- Once you are satisfied nothing missed it, the archive can go too:
+-- DROP TABLE IF EXISTS `referral_scratch_ranges_archive_20260904`;
+
+-- NOTE: mlm_app_PWA still ships an old admin "Referral Settings" screen that
+-- posts start_range/end_range (src/app/Panel/ADMIN/ReferralSettings). It is
+-- dead — admins use starmlm-web — and it has been broken against this API
+-- since June 2026 regardless of this table. Left in place; delete it
+-- separately if you want the PWA bundle smaller.
