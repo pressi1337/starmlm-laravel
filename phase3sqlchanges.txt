@@ -1805,3 +1805,41 @@ DROP TABLE IF EXISTS `referral_scratch_ranges`;
 -- dead — admins use starmlm-web — and it has been broken against this API
 -- since June 2026 regardless of this table. Left in place; delete it
 -- separately if you want the PWA bundle smaller.
+
+
+-- ============================================================
+-- Sub-admin permission 9: Promotion Settings.
+-- Equivalent of migration
+-- 2026_09_05_000001_add_promotion_settings_permission_to_users.
+--
+-- The Promotion Settings screen (scratch cashback amounts per promoter and
+-- referral level) was super-admin only. It now has its own flag and can be
+-- granted independently, with FULL access to the menu: list, read, create,
+-- edit the amount pools, toggle a pair active/inactive, and delete one.
+--
+-- Server-side this moved `scratch-setup` out of the ['jwt','role:0'] group
+-- into the all-admin group behind subadmin.permission:promotion_settings, so
+-- all 8 routes (index/store/show/edit/update/destroy/create/status-update)
+-- are gated on the flag rather than on the role.
+--
+-- Defaults to 0, like every other can_* flag. NO SUB-ADMIN LOSES ANYTHING —
+-- none could reach this screen before, so no backfill is needed.
+-- ============================================================
+
+ALTER TABLE `users`
+    ADD COLUMN `can_promotion_settings` TINYINT(1) NOT NULL DEFAULT 0 AFTER `can_support_help`;
+
+-- ROLLBACK:
+-- ALTER TABLE `users` DROP COLUMN `can_promotion_settings`;
+
+-- Permissions live in the JWT, so anyone whose flags you change by hand must
+-- get a fresh token. Editing them through the admin screen does this
+-- automatically; raw SQL does not:
+-- UPDATE `users` SET `remember_token` = NULL WHERE `role` = 1;
+
+-- Who has what (sanity check):
+-- SELECT `id`, `username`, `can_daily_videos`, `can_promotion_videos`,
+--        `can_promotion_logs`, `can_promotion_settings`, `can_pin_requests`,
+--        `can_plan_product`, `can_support_help`, `can_suggestions`,
+--        `can_personal_documents`
+-- FROM `users` WHERE `role` = 1 AND `is_deleted` = 0;
