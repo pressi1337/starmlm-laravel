@@ -1,9 +1,9 @@
 <?php
 
 use App\Models\ReferralScratchLevel;
-use App\Models\ReferralScratchRange;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -22,8 +22,16 @@ return new class extends Migration
             $table->string('msg')->nullable()->after('amount');
         });
 
+        // Query builder, not a model: referral_scratch_ranges is dropped by a
+        // later migration and its model no longer exists. hasTable() keeps a
+        // fresh install working if that drop is ever reordered.
+        if (!Schema::hasTable('referral_scratch_ranges')) {
+            return;
+        }
+
         foreach (ReferralScratchLevel::where('is_deleted', 0)->get() as $lvl) {
-            $firstRange = ReferralScratchRange::where('referral_scratch_level_id', $lvl->id)
+            $firstRange = DB::table('referral_scratch_ranges')
+                ->where('referral_scratch_level_id', $lvl->id)
                 ->where('is_deleted', 0)
                 ->orderBy('id')
                 ->first();

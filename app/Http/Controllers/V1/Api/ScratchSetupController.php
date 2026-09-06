@@ -5,7 +5,7 @@ namespace App\Http\Controllers\V1\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\ReferralScratchLevel;
-use App\Models\ReferralScratchRange;
+use App\Models\ReferralScratchLevelAmount;
 use Illuminate\Support\Facades\Validator;
 use App\Rules\UniqueActive;
 use Illuminate\Support\Facades\Auth;
@@ -24,8 +24,6 @@ class ScratchSetupController extends Controller
     {
         $this->messages = [
             "promotor_level.required" => "Promotor Level Required",
-            "start_range.required" => "Start Range Required",
-            "end_range.required" => "End Range Required",
             "amount.required" => "Amount Required",
             "msg.required" => "Message Required",
 
@@ -45,6 +43,109 @@ class ScratchSetupController extends Controller
         $promotorLevel = (int) ($parts[0] ?? 0);
         $level = isset($parts[1]) ? (int) $parts[1] : 1;
         return [$promotorLevel, $level < 1 ? 1 : $level];
+    }
+
+    /**
+     * Validation rules for the pool of amounts a combination pays out.
+     *
+     * `amounts` is optional: a request that omits it keeps the legacy single
+     * `amount` behaviour untouched, which is what old clients still send.
+     */
+    private function amountPoolRules(): array
+    {
+        return [
+            'amounts' => 'nullable|array|max:50',
+            'amounts.*.id' => 'nullable|integer',
+            'amounts.*.amount' => 'required|numeric|min:0',
+            'amounts.*.msg' => 'nullable|string|max:255',
+        ];
+    }
+
+    /**
+     * Normalise a save request into the list of pool rows it means.
+     *
+     * The pool is the single source of truth for payouts, so EVERY save writes
+     * one — including a legacy request that carries only a single `amount`,
+     * which is stored as a one-entry pool. That keeps it impossible to create
+     * a pair that has no pool and silently falls back to the flat column.
+     *
+     * `amounts: []` (or a single amount of 0) means "this pair pays nothing"
+     * and correctly resolves to an empty pool.
+     */
+    private function resolveAmountPool(Request $request): array
+    {
+        $pool = $request->input('amounts');
+        if (is_array($pool)) {
+            return $pool;
+        }
+
+        $single = (float) $request->input('amount', 0);
+        if ($single <= 0) {
+            return [];
+        }
+
+        return [['amount' => $single, 'msg' => $request->input('msg')]];
+    }
+
+    /**
+     * Replace a combination's pool of amounts with the list the admin just
+     * saved.
+     *
+     * Rows carrying an `id` are updated in place, new rows are inserted, and
+     * rows that are no longer in the list are soft-deleted (house convention —
+     * nothing is physically removed). Returns the amounts that are live after
+     * the sync, in order.
+     *
+     * Entries whose amount is <= 0 are dropped: a zero would sit in the pool
+     * and hand out empty scratch cards.
+     */
+    private function syncAmountPool(ReferralScratchLevel $level, array $rows, $authUserId): array
+    {
+        $keptIds = [];
+        $live = [];
+        $order = 0;
+
+        foreach ($rows as $row) {
+            $amount = (float) ($row['amount'] ?? 0);
+            if ($amount <= 0) {
+                continue;
+            }
+
+            $msg = isset($row['msg']) && $row['msg'] !== '' ? (string) $row['msg'] : null;
+            $existing = null;
+            if (!empty($row['id'])) {
+                $existing = ReferralScratchLevelAmount::where('id', (int) $row['id'])
+                    ->where('referral_scratch_level_id', $level->id)
+                    ->first();
+            }
+
+            if (!$existing) {
+                $existing = new ReferralScratchLevelAmount();
+                $existing->referral_scratch_level_id = $level->id;
+                $existing->created_by = $authUserId;
+            }
+
+            $existing->amount = $amount;
+            $existing->msg = $msg;
+            $existing->order_no = $order++;
+            $existing->is_active = 1;
+            $existing->is_deleted = 0;
+            $existing->updated_by = $authUserId;
+            $existing->save();
+
+            $keptIds[] = $existing->id;
+            $live[] = $existing;
+        }
+
+        // Anything the admin removed from the list.
+        ReferralScratchLevelAmount::where('referral_scratch_level_id', $level->id)
+            ->where('is_deleted', 0)
+            ->when(!empty($keptIds), function ($q) use ($keptIds) {
+                return $q->whereNotIn('id', $keptIds);
+            })
+            ->update(['is_deleted' => 1, 'updated_by' => $authUserId]);
+
+        return $live;
     }
 
     public function index(Request $request)
@@ -80,9 +181,8 @@ class ScratchSetupController extends Controller
 
             $query = ReferralScratchLevel::query()
                 ->where(['is_active' => 1, 'is_deleted' => 0])
-                ->with(['ranges' => function ($q) {
-                    $q->where(['is_active' => 1, 'is_deleted' => 0])
-                        ->orderBy('order_no', 'asc');
+                ->with(['amounts' => function ($q) {
+                    $q->where('is_active', 1)->where('is_deleted', 0);
                 }]);
 
             // Whitelisted filters
@@ -170,17 +270,25 @@ class ScratchSetupController extends Controller
         try {
             $auth_user_id = Auth::id();
 
-            $validator = Validator::make($request->all(), [
+            $pool = $request->input('amounts');
+            // Present at all (even as an empty list) means the client is
+            // stating the pool outright, so the mirrored single amount is
+            // derived rather than supplied.
+            $poolProvided = is_array($pool);
+
+            $validator = Validator::make($request->all(), array_merge([
                 'promotor_level' => 'required|integer',
                 'level' => 'nullable|integer',
                 'is_active' => 'nullable|boolean',
-                'amount' => 'required|numeric|min:0',
+                'amount' => ($poolProvided ? 'nullable' : 'required') . '|numeric|min:0',
                 'msg' => 'nullable|string|max:255',
-            ]);
+            ], $this->amountPoolRules()));
 
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
             }
+
+            DB::beginTransaction();
 
             $w = new ReferralScratchLevel();
             $w->promotor_level = $request->promotor_level;
@@ -194,8 +302,19 @@ class ScratchSetupController extends Controller
             $w->updated_by = $auth_user_id;
             $w->save();
 
+            // Always write the pool, even for a single-amount request.
+            $live = $this->syncAmountPool($w, $this->resolveAmountPool($request), $auth_user_id);
+            // Mirror the first pool entry onto the parent so anything that
+            // still reads the single column sees a real configured value.
+            $w->amount = !empty($live) ? (float) $live[0]->amount : 0;
+            $w->msg = !empty($live) ? $live[0]->msg : $w->msg;
+            $w->save();
+
+            DB::commit();
+
             return response()->json(['message' => 'Referral Scratch Level created successfully', 'status' => 200], 200);
         } catch (\Throwable $e) {
+            DB::rollBack();
             Log::error('ScratchSetup store failed', ['error' => $e->getMessage()]);
             return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
@@ -211,7 +330,10 @@ class ScratchSetupController extends Controller
     {
         try {
             [$promotorLevel, $level] = $this->parseScratchKey($id);
-            $item = ReferralScratchLevel::where('promotor_level', $promotorLevel)
+            $item = ReferralScratchLevel::with(['amounts' => function ($q) {
+                    $q->where('is_active', 1)->where('is_deleted', 0);
+                }])
+                ->where('promotor_level', $promotorLevel)
                 ->where('level', $level)
                 ->where('is_deleted', 0)
                 ->first();
@@ -245,7 +367,10 @@ class ScratchSetupController extends Controller
     public function edit($id) {
         try {
             [$promotorLevel, $level] = $this->parseScratchKey($id);
-            $item = ReferralScratchLevel::where('promotor_level', $promotorLevel)
+            $item = ReferralScratchLevel::with(['amounts' => function ($q) {
+                    $q->where('is_active', 1)->where('is_deleted', 0);
+                }])
+                ->where('promotor_level', $promotorLevel)
                 ->where('level', $level)
                 ->where('is_deleted', 0)
                 ->first();
@@ -282,15 +407,23 @@ class ScratchSetupController extends Controller
         try {
             $auth_user_id = Auth::id();
 
-            $validator = Validator::make($request->all(), [
+            $pool = $request->input('amounts');
+            // Present at all (even as an empty list) means the client is
+            // stating the pool outright, so the mirrored single amount is
+            // derived rather than supplied.
+            $poolProvided = is_array($pool);
+
+            $validator = Validator::make($request->all(), array_merge([
                 'is_active' => 'nullable|boolean',
-                'amount' => 'required|numeric|min:0',
+                'amount' => ($poolProvided ? 'nullable' : 'required') . '|numeric|min:0',
                 'msg' => 'nullable|string|max:255',
-            ]);
+            ], $this->amountPoolRules()));
 
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
             }
+
+            DB::beginTransaction();
 
             [$promotorLevel, $level] = $this->parseScratchKey($id);
             $w = ReferralScratchLevel::where('promotor_level', $promotorLevel)->where('level', $level)->where('is_deleted', 0)->first();
@@ -308,8 +441,19 @@ class ScratchSetupController extends Controller
             $w->updated_by = $auth_user_id;
             $w->save();
 
+            // Always write the pool, even for a single-amount request.
+            $live = $this->syncAmountPool($w, $this->resolveAmountPool($request), $auth_user_id);
+            // Mirror the first pool entry onto the parent so anything that
+            // still reads the single column sees a real configured value.
+            $w->amount = !empty($live) ? (float) $live[0]->amount : 0;
+            $w->msg = !empty($live) ? $live[0]->msg : $w->msg;
+            $w->save();
+
+            DB::commit();
+
             return response()->json(['message' => 'Referral Scratch Level updated successfully', 'status' => 200], 200);
         } catch (\Throwable $e) {
+            DB::rollBack();
             Log::error('ScratchSetup update failed', ['error' => $e->getMessage()]);
             return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
         }
@@ -335,7 +479,7 @@ class ScratchSetupController extends Controller
             $u->updated_by = Auth::id();
             $u->save();
 
-            ReferralScratchRange::where('referral_scratch_level_id', $u->id)->update(['is_deleted' => 1]);
+            ReferralScratchLevelAmount::where('referral_scratch_level_id', $u->id)->update(['is_deleted' => 1]);
             DB::commit();
             return response()->json(['message' => 'Deleted successfully', 'status' => 200]);
         } catch (\Throwable $e) {

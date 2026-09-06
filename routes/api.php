@@ -117,6 +117,17 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         Route::get('admin-box-requests', [BoxRequestController::class, 'adminIndex']);
     });
 
+    // Promotion Settings — the scratch cashback amounts per promoter and
+    // referral level. Was super-admin only; now grantable to a sub-admin with
+    // full access to the menu (read, edit the amount pools, toggle a pair
+    // active, delete one). status-update is declared before the resource so
+    // it isn't swallowed by the {id} catch-all. NOTE the {id} here is the
+    // composite "{promotor_level}_{level}" key, so no numeric where().
+    Route::middleware('subadmin.permission:promotion_settings')->group(function () {
+        Route::patch('scratch-setup/status-update', [ScratchSetupController::class, 'StatusUpdate']);
+        Route::resource('scratch-setup', ScratchSetupController::class);
+    });
+
     // Support & Help Q&A — admin CRUD, now grantable to a sub-admin rather
     // than super-admin only. status-update is declared before the resource so
     // it isn't swallowed by the {id} catch-all, and the numeric where() keeps
@@ -177,11 +188,11 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     Route::resource('training-videos', TrainingVideoController::class);
     Route::resource('training-video-quizzes', TrainingQuizController::class);
 
-    // YouTube channels (admin manage), Scratch setup, Withdraws, Dashboard, Bank details
+    // YouTube channels (admin manage), Withdraws, Dashboard, Bank details.
+    // Scratch setup moved to the all-admin group below — it is now grantable
+    // to a sub-admin via can_promotion_settings.
     Route::patch('youtube-channels/status-update', [YoutubeController::class, 'StatusUpdate']);
-    Route::patch('scratch-setup/status-update', [ScratchSetupController::class, 'StatusUpdate']);
     Route::patch('delete-account', [JwtAuthController::class, 'DeleteAccount']);
-    Route::resource('scratch-setup', ScratchSetupController::class);
 
     // Additional Scratch Referral (admin)
     Route::post('additional-scratch-referrals/upsert', [AdditionalScratchReferralController::class, 'upsert']);

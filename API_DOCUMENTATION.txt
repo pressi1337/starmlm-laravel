@@ -315,67 +315,181 @@ AUTHENTICATION:
                               SCRATCH SETUP ENDPOINTS
 ===============================================================================
 
+Scratch cashback is configured per (promoter level, referral level) PAIR:
+
+  promotor_level  the level the activating user just upgraded to (0-4).
+  level           referral depth of the recipient, 1-7. Depth 1 is the direct
+                  referrer. Level 7 is the admin commission, paid to every
+                  additional-scratch-referral (is_all_user) user.
+
+The {id} in every route below is the composite key "{promotor_level}_{level}"
+(e.g. "2_1"). A bare "{promotor_level}" is accepted and means level 1.
+
+THE AMOUNT POOL
+Each pair holds a POOL of cashback amounts (`amounts`). When a scratch card is
+created, ONE entry is drawn from that pool uniformly at random and its value is
+copied onto the card. The payout is therefore not fixed: two recipients at the
+same depth can win different amounts, and every card draws independently.
+
+THE POOL IS THE SOURCE OF TRUTH. A backfill moved every pre-existing single
+amount into it, and every save writes to it — a request carrying only a single
+`amount` is stored as a ONE-ENTRY pool, so a pool-less pair can no longer be
+created through this API.
+
+The pair's own `amount` / `msg` columns still exist and are still returned:
+  * `amount` mirrors the first pool entry (and is 0 when the pool is empty);
+  * they are a FALLBACK only, for an environment where the backfill has not
+    run yet. In a migrated database this never fires.
+A pool entry saved without its own `msg` inherits the pair's `msg`.
+A pair with an empty pool pays nothing — no scratch card is created.
+
+RETIRED: the old From/To `ranges` model was replaced by the single amount in
+June 2026, and the referral_scratch_ranges table has since been dropped.
+`ranges` is no longer accepted in a request or returned in a response.
+
 16. GET ALL SCRATCH SETUPS
     Method: GET
     URL: /api/v1/scratch-setup
     Authentication: Required (Bearer token)
-    
+
     Query Parameters: (Same as daily videos)
-    
+    Filterable: id, promotor_level, level, is_active
+    Sortable:   created_at, id, promotor_level, level
+
     Response (Success - 200):
     {
-      "referral_scratch_levels": [
+      "success": true,
+      "message": "Success",
+      "data": [
         {
           "id": "integer",
-          "promotor_level": "string",
+          "promotor_level": "integer",
+          "level": "integer",
+          "amount": "decimal (mirrors the first pool entry; fallback when the
+                     pool is empty)",
+          "msg": "string|null",
           "is_active": "integer",
           "created_at_formatted": "string",
           "updated_at_formatted": "string",
-          "ranges": [
+          "amounts": [
             {
               "id": "integer",
-              "start_range": "integer",
-              "end_range": "integer",
-              "amount": "integer",
-              "msg": "string",
-              "order_no": "integer"
+              "referral_scratch_level_id": "integer",
+              "amount": "decimal",
+              "msg": "string|null",
+              "order_no": "integer",
+              "is_active": "integer"
             }
           ]
         }
-      ]
+      ],
+      "pageInfo": {
+        "page_size": "integer",
+        "page_number": "integer",
+        "total_pages": "integer",
+        "total_records": "integer"
+      }
     }
 
-17. UPDATE SCRATCH SETUP
-    Method: PUT/PATCH
-    URL: /api/v1/scratch-setup/{id}
+    Rows and pool entries also carry the usual audit columns (created_by,
+    updated_by, is_deleted, created_at, updated_at); only the fields a client
+    needs are listed above.
+
+    TYPE NOTE: a pool entry's `amount` is cast and serialises as a JSON NUMBER
+    (150), while the pair's own `amount` is an uncast DECIMAL column and comes
+    back from MySQL as a STRING ("150.00"). Coerce before comparing.
+
+    Legacy shape: passing is_pagination=1 returns
+    { "referral_scratch_levels": [...], "count": integer, "next": integer|null }
+    with the same row structure.
+
+16b. GET ONE SCRATCH SETUP
+    Method: GET
+    URL: /api/v1/scratch-setup/{id}          ({id} = "{promotor_level}_{level}")
     Authentication: Required (Bearer token)
-    
+
+    Response (Success - 200):
+    {
+      "success": true,
+      "data": {
+        "id": "integer",
+        "promotor_level": "integer",
+        "level": "integer",
+        "amount": "decimal",
+        "msg": "string|null",
+        "is_active": "integer",
+        "created_at_formatted": "string",
+        "updated_at_formatted": "string",
+        "amounts": [ { "id", "amount", "msg", "order_no", "is_active" } ]
+      }
+    }
+
+    A pair that has never been configured returns "data": null (still 200), not
+    a 404 — the admin screen treats that as an empty form.
+
+17. UPDATE SCRATCH SETUP  (creates the pair if it does not exist yet)
+    Method: PUT/PATCH
+    URL: /api/v1/scratch-setup/{id}          ({id} = "{promotor_level}_{level}")
+    Authentication: Required (Bearer token)
+
     Request Body:
     {
-      "is_active": "boolean (optional)",
-      "ranges": [
+      "is_active": "boolean (optional, defaults to 1)",
+      "amounts": [
         {
-          "start_range": "integer (required)",
-          "end_range": "integer (required)",
-          "amount": "integer (required)",
-          "msg": "string (optional)"
+          "id": "integer (optional — send it to edit that entry in place)",
+          "amount": "numeric (required, min 0)",
+          "msg": "string (optional, max 255)"
         }
-      ]
+      ],
+      "amount": "numeric (required ONLY when `amounts` is absent)",
+      "msg": "string (optional, max 255)"
     }
-    
+
+    Every save rewrites the pair's pool. How the request is resolved:
+      * `amounts` present (even as []) IS the pool, and `amount` is ignored.
+      * `amounts` absent — `amount` is required and is stored as a ONE-ENTRY
+        pool, replacing whatever pool the pair had. This is the pre-pool
+        request shape, still accepted; it now means "this pair pays exactly
+        this", not "leave the pool alone".
+      * "amounts": [] (or a lone `amount` of 0) empties the pool: the pair
+        stops paying and its mirrored `amount` is set to 0. Use this to turn
+        a pair off.
+
+    How the pool list itself is applied:
+      * Max 50 entries. Array order becomes the display order (order_no).
+      * An entry WITH an `id` is updated in place; without one it is inserted;
+        a live entry NOT present in the array is soft-deleted. Ids are reused
+        on edit, so repeated saves do not accumulate orphan rows.
+      * Entries whose amount is <= 0 are dropped — a zero in the pool would
+        hand out an empty scratch card.
+      * The first surviving entry is mirrored onto the pair's `amount`/`msg`.
+
     Response (Success - 200):
     {
       "message": "Referral Scratch Level updated successfully",
       "status": 200
     }
 
+    Response (Validation error - 422):
+    { "errors": { "amounts.0.amount": ["The amounts.0.amount field is required."] } }
+
+    STORE (POST /api/v1/scratch-setup) takes the same body plus a required
+    "promotor_level" and an optional "level" (default 1), and always creates a
+    new pair. Prefer PUT — it upserts.
+
 18. DELETE SCRATCH SETUP
     Method: DELETE
-    URL: /api/v1/scratch-setup/{id}
+    URL: /api/v1/scratch-setup/{id}          ({id} = "{promotor_level}_{level}")
     Authentication: Required (Bearer token)
-    
+
+    Soft delete: sets is_deleted = 1 on the pair and on every entry in its
+    amount pool. Scratch cards already issued are untouched — they snapshot
+    their amount at the moment they are created.
+
     Response (Success - 200):
     {
+      "message": "Deleted successfully",
       "status": 200
     }
 
@@ -836,13 +950,13 @@ further training videos are assigned.
 Note: The following endpoints are available but may not have full CRUD operations:
 
 STATUS UPDATE ENDPOINTS:
-- POST /api/v1/daily-videos/status-update
-- POST /api/v1/youtube-channels/status-update  
-- POST /api/v1/scratch-setup/status-update
-- POST /api/v1/training-videos/status-update
-- POST /api/v1/training-video-quizzes/status-update
-- POST /api/v1/promotion-videos/status-update
-- POST /api/v1/promotion-video-quizzes/status-update
+- PATCH /api/v1/daily-videos/status-update
+- PATCH /api/v1/youtube-channels/status-update
+- PATCH /api/v1/scratch-setup/status-update
+- PATCH /api/v1/training-videos/status-update
+- PATCH /api/v1/training-video-quizzes/status-update
+- PATCH /api/v1/promotion-videos/status-update
+- PATCH /api/v1/promotion-video-quizzes/status-update
 
 All status update endpoints require:
 Request Body: { "id": "integer", "is_active": "boolean" }

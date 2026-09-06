@@ -7,7 +7,6 @@ use App\Traits\HandlesJson;
 use App\Models\AdditionalScratchReferral;
 use App\Models\EarningHistory;
 use App\Models\ReferralScratchLevel;
-use App\Models\ReferralScratchRange;
 use App\Models\ScratchCard;
 use App\Models\User;
 use App\Models\UserPromoter;
@@ -670,17 +669,21 @@ class UserPromoterController extends Controller
 
         // ── Scratch card distribution: 7-level referral chain + admin (L7) ──
         // Walk up the referral chain up to 7 levels. Each ancestor at depth D
-        // gets the flat cashback amount configured for (promotor_level =
-        // activating level, level = D) — only if that ancestor is at a promoter
-        // level >= the activating user's level (the existing ">=" rule). A
-        // non-qualifying ancestor is skipped while the walk continues upward.
+        // gets a cashback amount drawn at random from the pool configured for
+        // (promotor_level = activating level, level = D) — only if that
+        // ancestor is at a promoter level >= the activating user's level (the
+        // existing ">=" rule). A non-qualifying ancestor is skipped while the
+        // walk continues upward.
         //
         // Level 7 also drives the admin commission: every additional-scratch-
-        // referral (is_all_user) user gets the flat Level 7 amount.
+        // referral (is_all_user) user gets a Level 7 draw of their own.
         //
         // Wrapped so a scratch failure never breaks the already-saved activation.
         try {
             $activatingLevel = (int) $user->current_promoter_level;
+            // depth => ReferralScratchLevel|null, so the config is read once
+            // per depth even though the amount is drawn once per card.
+            $scratchLevelCache = [];
 
             $uplineUser = $user;
             for ($depth = 1; $depth <= 7; $depth++) {
@@ -698,13 +701,23 @@ class UserPromoterController extends Controller
                     continue;
                 }
 
-                // Flat cashback for (promotor_level, level = depth). No ranges.
-                $scratch_level = ReferralScratchLevel::where('promotor_level', $activatingLevel)
-                    ->where('level', $depth)
-                    ->where('is_active', 1)
-                    ->where('is_deleted', 0)
-                    ->first();
-                if (!$scratch_level || (float) $scratch_level->amount <= 0) {
+                // Cashback for (promotor_level, level = depth). No ranges.
+                // The combination holds a POOL of amounts; each card draws one
+                // at random, so two ancestors at the same depth can win
+                // different amounts. Falls back to the single legacy amount
+                // when no pool is configured. Cached per depth so the same
+                // combination is not re-queried on every activation loop.
+                if (!array_key_exists($depth, $scratchLevelCache)) {
+                    $scratchLevelCache[$depth] = ReferralScratchLevel::with('amounts')
+                        ->where('promotor_level', $activatingLevel)
+                        ->where('level', $depth)
+                        ->where('is_active', 1)
+                        ->where('is_deleted', 0)
+                        ->first();
+                }
+                $scratch_level = $scratchLevelCache[$depth];
+                $reward = $scratch_level ? $scratch_level->pickAmount() : null;
+                if (!$reward) {
                     continue;
                 }
 
@@ -713,35 +726,47 @@ class UserPromoterController extends Controller
                 $scratchCard->child_id = $user->id;
                 $scratchCard->is_copy = 0;
                 $scratchCard->is_scratched = 0;
-                $scratchCard->amount = (float) $scratch_level->amount;
+                $scratchCard->amount = $reward['amount'];
                 $scratchCard->notification_msg = 'from ' . $user->username . ' upgraded to ' . $user->current_promoter_level;
-                $scratchCard->msg = $scratch_level->msg;
+                $scratchCard->msg = $reward['msg'];
                 $scratchCard->created_by = $auth_user_id;
                 $scratchCard->updated_by = $auth_user_id;
                 $scratchCard->save();
             }
 
-            // Admin commission — the flat Level 7 amount, given to every
-            // additional-scratch-referral (is_all_user) recipient.
-            $admin_scratch_level = ReferralScratchLevel::where('promotor_level', $activatingLevel)
-                ->where('level', 7)
-                ->where('is_active', 1)
-                ->where('is_deleted', 0)
-                ->first();
-            if ($admin_scratch_level && (float) $admin_scratch_level->amount > 0) {
+            // Admin commission — a Level 7 draw for every additional-scratch-
+            // referral (is_all_user) recipient. array_key_exists, not ??, so a
+            // cached "no config at depth 7" is not re-queried.
+            if (!array_key_exists(7, $scratchLevelCache)) {
+                $scratchLevelCache[7] = ReferralScratchLevel::with('amounts')
+                    ->where('promotor_level', $activatingLevel)
+                    ->where('level', 7)
+                    ->where('is_active', 1)
+                    ->where('is_deleted', 0)
+                    ->first();
+            }
+            $admin_scratch_level = $scratchLevelCache[7];
+            if ($admin_scratch_level) {
                 $admin_recipients = AdditionalScratchReferral::where('is_active', 1)
                     ->where('is_all_user', 1)
                     ->where('is_deleted', 0)
                     ->get();
                 foreach ($admin_recipients as $recipient) {
+                    // Drawn per recipient, not once for the batch — each
+                    // admin card is its own scratch card.
+                    $admin_reward = $admin_scratch_level->pickAmount();
+                    if (!$admin_reward) {
+                        continue;
+                    }
+
                     $scratchCard = new ScratchCard();
                     $scratchCard->user_id = $recipient->userid;
                     $scratchCard->child_id = $user->id;
                     $scratchCard->is_copy = 1;
                     $scratchCard->is_scratched = 0;
-                    $scratchCard->amount = (float) $admin_scratch_level->amount;
+                    $scratchCard->amount = $admin_reward['amount'];
                     $scratchCard->notification_msg = 'admin commission from ' . $user->username . ' upgraded to ' . $user->current_promoter_level;
-                    $scratchCard->msg = $admin_scratch_level->msg;
+                    $scratchCard->msg = $admin_reward['msg'];
                     $scratchCard->created_by = $auth_user_id;
                     $scratchCard->updated_by = $auth_user_id;
                     $scratchCard->save();
