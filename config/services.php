@@ -72,4 +72,29 @@ return [
         'timeout'  => env('IP_LOCATION_TIMEOUT', 5),
     ],
 
+    /*
+     * Omniware (Federal Bank) payment gateway. Used today by the admin
+     * console's Payment Gateway page (test payments).
+     *
+     * The SALT signs every request and response; it must only ever live here
+     * on the server. Never send it to a frontend or bake it into the APK.
+     *
+     * mode: TEST while the merchant account is in demo, LIVE once approved.
+     * callback_base_url: public origin of THIS API that the gateway posts the
+     *   result back to (e.g. https://api.starupworld.com). Left empty, it falls
+     *   back to the host the payment was started from — APP_URL on this
+     *   deployment is not reliable, so it is deliberately not used.
+     */
+    'omniware' => [
+        'api_url'           => env('OMNIWARE_API_URL', 'https://pgbiz.omniware.in'),
+        'api_key'           => env('OMNIWARE_API_KEY'),
+        'salt'              => env('OMNIWARE_SALT'),
+        'mode'              => env('OMNIWARE_MODE', 'TEST'),
+        'callback_base_url' => env('OMNIWARE_CALLBACK_BASE_URL'),
+        // Hosts the admin test-payment page may be served from; the gateway
+        // return sends the browser back there. Comma-separated host suffixes.
+        'admin_hosts'       => env('OMNIWARE_ADMIN_HOSTS', 'starupworld.com,starup.in,startup.co.in,localhost,127.0.0.1'),
+        'timeout'           => (int) env('OMNIWARE_TIMEOUT', 20),
+    ],
+
 ];
