@@ -365,6 +365,9 @@ class PromotionVideoController extends Controller
             }
             $removedFile = $u->video_path;
             $u->is_deleted = 1;
+            // Release the featured date, or a deleted video would hold that
+            // day forever and block another video from being featured on it.
+            $u->featured_date = null;
             $u->updated_by = Auth::id();
             $u->save();
 
@@ -442,9 +445,98 @@ class PromotionVideoController extends Controller
     }
 
     /**
+     * Mark a video as THE featured video for a date, or clear it.
+     *
+     * Send featured_date to set it, or omit/null it to clear. Only one video
+     * may hold a date, so setting it clears the same date off any other video
+     * — the admin never has to go and unset the previous one, and the
+     * "only one" rule cannot be broken by using the screen normally.
+     */
+    public function featuredUpdate(Request $request)
+    {
+        try {
+            $auth_user_id = Auth::id();
+
+            $validator = Validator::make($request->all(), [
+                'id' => 'required|integer',
+                'featured_date' => 'nullable|date',
+            ]);
+            if ($validator->fails()) {
+                return response()->json(['errors' => $validator->errors()], 422);
+            }
+
+            $w = PromotionVideo::find($request->id);
+            if (!$w) {
+                return response()->json(['message' => 'Data not found', 'status' => 400], 400);
+            }
+            if ($error = $this->denyIfOutsideSubAdminWindow($w)) {
+                return $error;
+            }
+
+            $date = $request->filled('featured_date')
+                ? Carbon::parse($request->input('featured_date'))->toDateString()
+                : null;
+
+            if ($date === null) {
+                $w->featured_date = null;
+                $w->updated_by = $auth_user_id;
+                $w->save();
+
+                return response()->json([
+                    'message' => 'Featured video cleared',
+                    'status' => 200,
+                ]);
+            }
+
+            // A video with no usable quiz would dead-end the user's session,
+            // so refuse it here rather than silently ignoring it at serve time.
+            // Same expression featuredVideoIdFor uses at serve time, so what
+            // the screen accepts and what the user is actually served agree.
+            $hasQuiz = PromotionVideo::where('id', $w->id)
+                ->whereHas('quiz', function ($q) {
+                    $q->where('is_deleted', 0)
+                        ->whereHas('questions', function ($qq) {
+                            $qq->where('is_deleted', 0);
+                        });
+                })
+                ->exists();
+            if (!$hasQuiz) {
+                return response()->json([
+                    'message' => 'Add a quiz with at least one question to this video before featuring it.',
+                    'status' => 400,
+                ], 400);
+            }
+
+            DB::transaction(function () use ($w, $date, $auth_user_id) {
+                // Only one video per date.
+                PromotionVideo::whereDate('featured_date', $date)
+                    ->where('id', '!=', $w->id)
+                    ->update(['featured_date' => null, 'updated_by' => $auth_user_id]);
+
+                $w->featured_date = $date;
+                $w->updated_by = $auth_user_id;
+                $w->save();
+            });
+
+            return response()->json([
+                'message' => 'Video featured for ' . Carbon::parse($date)->format('d-m-Y')
+                    . ' — every user sees it first that day',
+                'status' => 200,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('PromotionVideo featuredUpdate failed', ['id' => $request->id, 'error' => $e->getMessage()]);
+            return response()->json(['message' => 'Something went wrong', 'status' => 500], 500);
+        }
+    }
+
+    /**
      * Pick which promotion video THIS user sees for the current slot.
      *
      * Selection is random (date/session/order no longer drive it), with:
+     *   - featured video: if a video is marked featured for today, it is served
+     *     FIRST — ahead of the random pool — to every user, once. After that
+     *     it counts as seen and the day proceeds as usual. Opt-in and rare;
+     *     when nothing is featured this costs one indexed lookup.
      *   - per-level pool: Promoter L0/L1/L2 only get is_basic_level = 1 videos;
      *     L3/L4 get every active video. A usable video must have a quiz with at
      *     least one question (otherwise the quiz/earning step would be empty).
@@ -482,6 +574,16 @@ class PromotionVideoController extends Controller
             if ($stillUsable) {
                 return (int) $existing->promotion_video_id;
             }
+        }
+
+        // Featured video for today, if the admin set one. It goes first, ahead
+        // of the random pool, and only until this user has actually been shown
+        // it — after that they fall through to the normal selection, so nobody
+        // is served it twice and a retry moves them on.
+        $featuredId = $this->featuredVideoIdFor($userId, $today);
+        if ($featuredId !== null) {
+            $this->recordVideoView($session, $userId, $setNo, $videoOrder, $featuredId, $today);
+            return $featuredId;
         }
 
         // Eligible pool for this promoter level. A usable video needs a quiz
@@ -523,19 +625,63 @@ class PromotionVideoController extends Controller
             $pick = (int) $eligibleIds[array_rand($eligibleIds)];
         }
 
+        $this->recordVideoView($session, $userId, $setNo, $videoOrder, (int) $pick, $today);
+
+        return (int) $pick;
+    }
+
+    /**
+     * The video featured for $date, if this user has not already been shown it.
+     *
+     * Returns null in every ordinary case — nothing featured, the featured
+     * video is no longer usable, or this user has already seen it today — so
+     * the caller simply falls through to the normal random selection. A
+     * featured video that has lost its quiz is deliberately ignored rather
+     * than served: the session would dead-end with nothing to answer.
+     */
+    private function featuredVideoIdFor(int $userId, string $date): ?int
+    {
+        $featured = PromotionVideo::whereDate('featured_date', $date)
+            ->where('is_active', 1)
+            ->where('is_deleted', 0)
+            ->whereHas('quiz', function ($q) {
+                $q->where('is_deleted', 0)
+                    ->whereHas('questions', function ($qq) {
+                        $qq->where('is_deleted', 0);
+                    });
+            })
+            ->orderBy('id')
+            ->first();
+
+        if (!$featured) {
+            return null;
+        }
+
+        // Shown once. Any later slot that day — including a retry — goes back
+        // to the random pool.
+        $alreadySeen = DB::table('user_promotion_video_views')
+            ->where('user_id', $userId)
+            ->where('viewed_date', $date)
+            ->where('promotion_video_id', $featured->id)
+            ->exists();
+
+        return $alreadySeen ? null : (int) $featured->id;
+    }
+
+    /** Record which video filled a slot, so a refresh returns the same one. */
+    private function recordVideoView($session, int $userId, int $setNo, int $videoOrder, int $videoId, string $date): void
+    {
         DB::table('user_promotion_video_views')->insert([
             'user_id' => $userId,
             'user_promoter_id' => $session->user_promoter_id,
             'user_promoter_session_id' => $session->id,
             'set_no' => $setNo,
             'video_order' => $videoOrder,
-            'promotion_video_id' => $pick,
-            'viewed_date' => $today,
+            'promotion_video_id' => $videoId,
+            'viewed_date' => $date,
             'created_at' => now(),
             'updated_at' => now(),
         ]);
-
-        return (int) $pick;
     }
 
     /**
@@ -660,8 +806,16 @@ class PromotionVideoController extends Controller
                         "showing_date",
                         "video_order",
                         "session_type",
+                        "featured_date",
                     )
                     ->first();
+            }
+
+            if ($promotion_video) {
+                // Lets the app badge today's featured video ("watch this
+                // first") instead of it looking like any other video.
+                $promotion_video->is_featured = $promotion_video->featured_date !== null
+                    && Carbon::parse($promotion_video->featured_date)->isSameDay(today());
             }
 
             if ($promotion_video && $promotion_video->quiz) {

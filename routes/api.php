@@ -72,6 +72,8 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         // On/off toggle for "Basic (L0-L2)" eligibility. Any number of videos
         // can be flagged. Declared before the resource to avoid collision.
         Route::patch('promotion-videos/basic-level-update', [PromotionVideoController::class, 'basicLevelUpdate']);
+        // Optional: make one video THE first video everyone sees on a date.
+        Route::patch('promotion-videos/featured-update', [PromotionVideoController::class, 'featuredUpdate']);
         Route::patch('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
         Route::resource('promotion-videos', PromotionVideoController::class)->except(['destroy']);
         Route::resource('promotion-video-quizzes', PromotionQuizController::class)->except(['destroy']);

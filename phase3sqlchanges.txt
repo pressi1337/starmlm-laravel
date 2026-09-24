@@ -1920,3 +1920,53 @@ CREATE TABLE `promoter_payments` (
 -- SELECT `id`, `purpose`, `order_id`, `amount`, `mode`, `status`, `transaction_id`,
 --        `response_code`, `response_message`, `hash_verified`, `settled_via`, `created_at`
 -- FROM `promoter_payments` ORDER BY `id` DESC LIMIT 20;
+
+
+-- ============================================================
+-- One optional "featured" promotion video per date.
+-- Equivalent of migration
+-- 2026_09_24_000001_add_featured_date_to_promotion_videos.
+--
+-- Promotion videos are served at random from the eligible pool. Occasionally
+-- the client wants one specific video seen by everyone on a given day. A
+-- video with featured_date = that day is served FIRST to every user, once;
+-- after they have been shown it the rest of their day is the usual random
+-- selection (a retry moves them on to a normal video).
+--
+-- Entirely opt-in: NULL on every row is the normal state and nothing changes
+-- in behaviour until a date is set. No backfill.
+--
+-- At most one video may hold a date. That is enforced in
+-- PromotionVideoController::featuredUpdate — setting a date clears it off any
+-- other video — rather than by a UNIQUE index, because this table keeps
+-- soft-deleted rows and a unique index would let a deleted video hold a date
+-- forever.
+-- ============================================================
+
+ALTER TABLE `promotion_videos`
+    ADD COLUMN `featured_date` DATE NULL DEFAULT NULL AFTER `is_basic_level`,
+    ADD INDEX `pv_featured_idx` (`featured_date`, `is_active`, `is_deleted`);
+
+-- ROLLBACK:
+-- ALTER TABLE `promotion_videos`
+--     DROP INDEX `pv_featured_idx`,
+--     DROP COLUMN `featured_date`;
+-- Safe at any time: selection falls straight back to the random pool.
+
+-- What is featured, and is it actually servable? A featured video with no
+-- live quiz is ignored at serve time (the session would dead-end with nothing
+-- to answer), so this should return 0 rows:
+-- SELECT v.`id`, v.`title`, v.`featured_date`
+--   FROM `promotion_videos` v
+--  WHERE v.`featured_date` IS NOT NULL
+--    AND v.`is_deleted` = 0
+--    AND NOT EXISTS (
+--        SELECT 1 FROM `promotion_video_quizzes` q
+--          JOIN `promotion_quiz_questions` qq
+--            ON qq.`promotion_video_quiz_id` = q.`id` AND qq.`is_deleted` = 0
+--         WHERE q.`promotion_video_id` = v.`id` AND q.`is_deleted` = 0);
+
+-- Two videos claiming the same date should be impossible via the screen:
+-- SELECT `featured_date`, COUNT(*) FROM `promotion_videos`
+--  WHERE `featured_date` IS NOT NULL AND `is_deleted` = 0
+--  GROUP BY `featured_date` HAVING COUNT(*) > 1;
