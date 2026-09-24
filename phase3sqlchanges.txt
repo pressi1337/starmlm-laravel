@@ -1843,3 +1843,130 @@ ALTER TABLE `users`
 --        `can_plan_product`, `can_support_help`, `can_suggestions`,
 --        `can_personal_documents`
 -- FROM `users` WHERE `role` = 1 AND `is_deleted` = 0;
+
+
+-- ============================================================
+-- Online payments — Omniware (Federal Bank) payment gateway.
+-- Equivalent of migration
+-- 2026_09_21_000001_create_promoter_payments_table.
+--
+-- promoter_payments: one row per payment ATTEMPT. The gateway rejects a
+-- reused order_id, so a retry after a failure is a new row.
+--   purpose = 'test'     -> admin console "Payment Gateway" test payment
+--   purpose = 'promoter' -> reserved for promoter plan payments (later phase;
+--                           user_promoter_id / level are for that and stay NULL now)
+--   status  = 0 initiated, 1 success, 2 failed, 3 cancelled
+-- Only the server writes these rows, after verifying the gateway's hash.
+--
+-- Also required in the server .env (then `php artisan config:cache`):
+--   OMNIWARE_API_URL=https://pgbiz.omniware.in
+--   OMNIWARE_API_KEY=...            OMNIWARE_SALT=...
+--   OMNIWARE_MODE=TEST              (LIVE once the merchant is approved)
+--   OMNIWARE_CALLBACK_BASE_URL=https://api.starupworld.com
+--   OMNIWARE_ADMIN_HOSTS=starupworld.com,starup.in,localhost,127.0.0.1
+-- ============================================================
+
+CREATE TABLE `promoter_payments` (
+    `id`               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `purpose`          VARCHAR(20) NOT NULL DEFAULT 'promoter',
+    `user_id`          BIGINT UNSIGNED NOT NULL,
+    `user_promoter_id` BIGINT UNSIGNED NULL DEFAULT NULL,
+    `level`            TINYINT NULL DEFAULT NULL,
+    `order_id`         VARCHAR(30) NOT NULL,
+    `amount`           DECIMAL(12,2) NOT NULL,
+    `currency`         VARCHAR(3) NOT NULL DEFAULT 'INR',
+    `mode`             VARCHAR(4) NOT NULL DEFAULT 'TEST',
+    `status`           TINYINT NOT NULL DEFAULT 0,
+    `gateway_uuid`     VARCHAR(64) NULL DEFAULT NULL,
+    `payment_url`      VARCHAR(500) NULL DEFAULT NULL,
+    `url_expires_at`   DATETIME NULL DEFAULT NULL,
+    `redirect_to`      VARCHAR(255) NULL DEFAULT NULL,
+    `request_payload`  JSON NULL DEFAULT NULL,
+    `transaction_id`   VARCHAR(64) NULL DEFAULT NULL,
+    `response_code`    INT NULL DEFAULT NULL,
+    `response_message` VARCHAR(255) NULL DEFAULT NULL,
+    `error_desc`       VARCHAR(500) NULL DEFAULT NULL,
+    `payment_mode`     VARCHAR(100) NULL DEFAULT NULL,
+    `payment_channel`  VARCHAR(100) NULL DEFAULT NULL,
+    `payment_datetime` VARCHAR(30) NULL DEFAULT NULL,
+    `settled_via`      VARCHAR(20) NULL DEFAULT NULL,
+    `hash_verified`    TINYINT NULL DEFAULT NULL,
+    `paid_at`          DATETIME NULL DEFAULT NULL,
+    `gateway_response` JSON NULL DEFAULT NULL,
+    `is_active`        TINYINT NOT NULL DEFAULT 1,
+    `is_deleted`       TINYINT NOT NULL DEFAULT 0,
+    `created_by`       BIGINT UNSIGNED NULL DEFAULT NULL,
+    `updated_by`       BIGINT UNSIGNED NULL DEFAULT NULL,
+    `created_at`       TIMESTAMP NULL DEFAULT NULL,
+    `updated_at`       TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `promoter_payments_order_id_unique` (`order_id`),
+    KEY `promoter_payments_user_promoter_id_status_index` (`user_promoter_id`, `status`),
+    KEY `promoter_payments_user_id_created_at_index` (`user_id`, `created_at`),
+    KEY `promoter_payments_purpose_created_at_index` (`purpose`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- If this server ALSO runs `php artisan migrate`, record the migration as done
+-- so artisan doesn't try to create the table a second time:
+-- INSERT INTO `migrations` (`migration`, `batch`)
+-- SELECT '2026_09_21_000001_create_promoter_payments_table', IFNULL(MAX(`batch`), 0) + 1
+-- FROM `migrations`;
+
+-- ----- Rollback (only if you need to revert) -----
+-- DROP TABLE `promoter_payments`;
+-- DELETE FROM `migrations` WHERE `migration` = '2026_09_21_000001_create_promoter_payments_table';
+
+-- Sanity check — latest payments:
+-- SELECT `id`, `purpose`, `order_id`, `amount`, `mode`, `status`, `transaction_id`,
+--        `response_code`, `response_message`, `hash_verified`, `settled_via`, `created_at`
+-- FROM `promoter_payments` ORDER BY `id` DESC LIMIT 20;
+
+
+-- ============================================================
+-- One optional "featured" promotion video per date.
+-- Equivalent of migration
+-- 2026_09_24_000001_add_featured_date_to_promotion_videos.
+--
+-- Promotion videos are served at random from the eligible pool. Occasionally
+-- the client wants one specific video seen by everyone on a given day. A
+-- video with featured_date = that day is served FIRST to every user, once;
+-- after they have been shown it the rest of their day is the usual random
+-- selection (a retry moves them on to a normal video).
+--
+-- Entirely opt-in: NULL on every row is the normal state and nothing changes
+-- in behaviour until a date is set. No backfill.
+--
+-- At most one video may hold a date. That is enforced in
+-- PromotionVideoController::featuredUpdate — setting a date clears it off any
+-- other video — rather than by a UNIQUE index, because this table keeps
+-- soft-deleted rows and a unique index would let a deleted video hold a date
+-- forever.
+-- ============================================================
+
+ALTER TABLE `promotion_videos`
+    ADD COLUMN `featured_date` DATE NULL DEFAULT NULL AFTER `is_basic_level`,
+    ADD INDEX `pv_featured_idx` (`featured_date`, `is_active`, `is_deleted`);
+
+-- ROLLBACK:
+-- ALTER TABLE `promotion_videos`
+--     DROP INDEX `pv_featured_idx`,
+--     DROP COLUMN `featured_date`;
+-- Safe at any time: selection falls straight back to the random pool.
+
+-- What is featured, and is it actually servable? A featured video with no
+-- live quiz is ignored at serve time (the session would dead-end with nothing
+-- to answer), so this should return 0 rows:
+-- SELECT v.`id`, v.`title`, v.`featured_date`
+--   FROM `promotion_videos` v
+--  WHERE v.`featured_date` IS NOT NULL
+--    AND v.`is_deleted` = 0
+--    AND NOT EXISTS (
+--        SELECT 1 FROM `promotion_video_quizzes` q
+--          JOIN `promotion_quiz_questions` qq
+--            ON qq.`promotion_video_quiz_id` = q.`id` AND qq.`is_deleted` = 0
+--         WHERE q.`promotion_video_id` = v.`id` AND q.`is_deleted` = 0);
+
+-- Two videos claiming the same date should be impossible via the screen:
+-- SELECT `featured_date`, COUNT(*) FROM `promotion_videos`
+--  WHERE `featured_date` IS NOT NULL AND `is_deleted` = 0
+--  GROUP BY `featured_date` HAVING COUNT(*) > 1;

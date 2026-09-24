@@ -726,6 +726,22 @@ further training videos are assigned.
                               PROMOTION VIDEO ENDPOINTS
 ===============================================================================
 
+HOW A USER'S VIDEO IS CHOSEN
+Promotion videos are NOT a list the user browses — one video is served per
+slot by /user-promoter-video-get, picked at random from the eligible pool
+(see that endpoint). Two rules sit on top of the random pick:
+
+  * is_basic_level — Promoter L0/L1/L2 only get videos flagged basic; L3/L4
+    get everything. A usable video must have a quiz with at least one
+    question, or the quiz/earning step would be empty.
+
+  * featured_date — OPTIONAL, at most one video per date. On that date the
+    video is served FIRST to every user, once, ahead of the random pool and
+    regardless of is_basic_level. Once a user has been shown it, the rest of
+    their day (including a retry) is the usual random selection. A featured
+    video that is inactive or has lost its quiz is silently ignored and the
+    user gets a normal video — a featured video never breaks a session.
+
 29. GET ALL PROMOTION VIDEOS
     Method: GET
     URL: /api/v1/promotion-videos
@@ -745,11 +761,47 @@ further training videos are assigned.
           "showing_date": "date",
           "video_order": "integer",
           "session_type": "string",
+          "is_basic_level": "integer",
+          "featured_date": "date|null (shown first to everyone on this day)",
           "is_active": "integer",
           "created_at_formatted": "string",
           "updated_at_formatted": "string"
         }
       ]
+    }
+
+29b. SET / CLEAR THE FEATURED VIDEO
+    Method: PATCH
+    URL: /api/v1/promotion-videos/featured-update
+    Authentication: Required (Bearer token, can_promotion_videos)
+
+    Request Body:
+    {
+      "id": "integer (required)",
+      "featured_date": "date (omit or send null to clear)"
+    }
+
+    Only one video may hold a date. Setting a date that another video already
+    holds moves it — the previous video is cleared automatically, so the
+    "only one" rule cannot be broken through normal use and the admin never
+    has to unset the old one first.
+
+    Refused with 400 if the video has no live quiz with at least one question:
+    it would be served first and then dead-end the user with nothing to
+    answer. Add the quiz, then feature it.
+
+    Deleting a video clears its featured_date, so the day becomes reusable.
+
+    Response (Success - 200):
+    {
+      "message": "Video featured for 24-09-2026 — every user sees it first that day",
+      "status": 200
+    }
+
+    Response (No quiz - 400):
+    {
+      "message": "Add a quiz with at least one question to this video before featuring it.",
+      "status": 400
     }
 
 30. CREATE PROMOTION VIDEO
@@ -1016,3 +1068,31 @@ For any questions or clarifications about these APIs, please contact the backend
 
 Last Updated: 2025-09-08
 Version: 1.0
+
+================================================================================
+PAYMENT GATEWAY — Omniware (Federal Bank), admin test payments
+================================================================================
+Two-step hosted checkout (v2/getpaymentrequesturl). Config: OMNIWARE_* in .env
+(config/services.php 'omniware'). SALT stays on the server only.
+Promoter-side payments are NOT built yet (planned for a later phase).
+
+ADMIN (super-admin — jwt + role:0)
+GET  /api/v1/payment-gateway/config                  mode, api_url, masked key/salt, return/callback URLs, stats
+POST /api/v1/payment-gateway/test-initiate           { amount, name, email, phone(10), city, state?, zip_code(6),
+                                                       description?, return_origin }  -> { order_id, payment_url, request }
+     return_origin must be a host in OMNIWARE_ADMIN_HOSTS; after paying, the browser is
+     sent to {return_origin}/portal/admin/payment-gateway?order_id=...
+     400 with the gateway's message if it rejects the request (e.g. amount below ₹10).
+GET  /api/v1/payment-gateway/transactions            page_size, page_number, purpose=test|promoter
+GET  /api/v1/payment-gateway/transactions/{order_id} re-checks with the gateway Status API
+     -> { payment, gateway_rows, gateway_error, gateway_says }
+
+GATEWAY → US (public; the SALT-signed hash is the credential)
+POST /api/v1/payments/omniware/return            browser post-back; verifies hash, records result,
+                                                 302 -> the admin page the payment started from
+POST /api/v1/payments/omniware/callback          server-to-server; set as "Payment Callback URL"
+                                                 in the Omniware dashboard. 200 OK | 400 INVALID HASH
+
+Status: 0 pending | 1 success | 2 failed | 3 cancelled. A recorded success is never
+overwritten; a success whose amount differs from the order is recorded as failed.
+Table: promoter_payments (one row per attempt; test payments have purpose='test').

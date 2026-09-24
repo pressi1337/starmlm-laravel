@@ -17,6 +17,8 @@ use App\Http\Controllers\V1\Api\LoginLogController;
 use App\Http\Controllers\V1\Api\PromotionQuizController;
 use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
+use App\Http\Controllers\V1\Api\OmniwareWebhookController;
+use App\Http\Controllers\V1\Api\PaymentGatewayController;
 use App\Http\Controllers\V1\Api\BoxRequestController;
 use App\Http\Controllers\V1\Api\BillTemplateController;
 use App\Http\Controllers\V1\Api\ProductPriceController;
@@ -70,6 +72,8 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         // On/off toggle for "Basic (L0-L2)" eligibility. Any number of videos
         // can be flagged. Declared before the resource to avoid collision.
         Route::patch('promotion-videos/basic-level-update', [PromotionVideoController::class, 'basicLevelUpdate']);
+        // Optional: make one video THE first video everyone sees on a date.
+        Route::patch('promotion-videos/featured-update', [PromotionVideoController::class, 'featuredUpdate']);
         Route::patch('promotion-video-quizzes/status-update', [PromotionQuizController::class, 'StatusUpdate']);
         Route::resource('promotion-videos', PromotionVideoController::class)->except(['destroy']);
         Route::resource('promotion-video-quizzes', PromotionQuizController::class)->except(['destroy']);
@@ -182,6 +186,12 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
 
 // Super-Admin only. Sub-Admin (role=1) gets a 403 from RoleMiddleware here.
 Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
+    // Payment Gateway (Omniware / Federal Bank) — config view + admin test payments.
+    Route::get('payment-gateway/config', [PaymentGatewayController::class, 'config']);
+    Route::post('payment-gateway/test-initiate', [PaymentGatewayController::class, 'testInitiate'])->middleware('throttle:20,1');
+    Route::get('payment-gateway/transactions', [PaymentGatewayController::class, 'transactions']);
+    Route::get('payment-gateway/transactions/{orderId}', [PaymentGatewayController::class, 'checkStatus'])->where('orderId', '[A-Za-z0-9]+');
+
     // Training Videos and their quizzes
     Route::patch('training-videos/status-update', [TrainingVideoController::class, 'StatusUpdate']);
     Route::patch('training-video-quizzes/status-update', [TrainingQuizController::class, 'StatusUpdate']);
@@ -290,6 +300,14 @@ Route::middleware('signed:relative')->prefix('v1')->group(function () {
     Route::get('invoice-file/{id}', [BoxRequestController::class, 'invoicePdfFile'])
         ->name('box.invoice.file')
         ->where('id', '[0-9]+');
+});
+
+// Omniware (Federal Bank) payment gateway — posted to by the gateway itself,
+// so no JWT. The response hash (signed with our SALT) is the credential, and
+// OmniwareWebhookController verifies it before touching any row.
+Route::prefix('v1')->middleware('throttle:60,1')->group(function () {
+    Route::post('payments/omniware/return', [OmniwareWebhookController::class, 'gatewayReturn']);
+    Route::post('payments/omniware/callback', [OmniwareWebhookController::class, 'gatewayCallback']);
 });
 
 Route::middleware('userjwt')->prefix('v1')->group(function () {
