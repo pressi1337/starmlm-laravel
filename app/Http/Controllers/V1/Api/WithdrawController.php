@@ -8,8 +8,10 @@ use App\Models\EarningHistory;
 use App\Models\User;
 use App\Models\UserBankDetail;
 use App\Models\WithdrawRequest;
+use App\Services\WithdrawImport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
@@ -545,24 +547,151 @@ class WithdrawController extends Controller
             if (!$withdraw_request) {
                 return response()->json(['success' => false, 'message' => 'Withdraw request not found'], 422);
             }
-            $withdraw_request->status = $request->status;
-            $withdraw_request->reason = $request->reason;
-            $withdraw_request->save();
-            if($request->status == WithdrawRequest::STATUS_REJECTED){
-                $user = User::find($withdraw_request->user_id);
-                if($withdraw_request->wallet_type == WithdrawRequest::WALLET_TYPE_MAIN){        
-                    $user->quiz_total_withdraw -= $withdraw_request->amount;
-                }else if($withdraw_request->wallet_type == WithdrawRequest::WALLET_TYPE_SCRATCH){
-                    $user->scratch_total_withdraw -= $withdraw_request->amount;
-                }else if($withdraw_request->wallet_type == WithdrawRequest::WALLET_TYPE_GROW){
-                    $user->saving_total_withdraw -= $withdraw_request->amount;
-                }
-                $user->save();
-            }
+
+            $this->applyWithdrawStatus($withdraw_request, (int) $request->status, $request->reason);
+
             return response()->json(['success' => true, 'message' => 'Withdraw request updated successfully'], 200);
         } catch (\Throwable $e) {
             Log::error('Withdraw Status Update failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
+        }
+    }
+
+    /**
+     * Write a status onto a withdraw request, with its money side-effect.
+     *
+     * Rejecting hands the amount back by unwinding the withdraw total on the
+     * wallet it was taken from. That makes this NOT safe to run twice for the
+     * same rejection — it would refund twice — which is why both callers
+     * refuse to touch a request that is already Completed or Rejected.
+     *
+     * Single update and bulk import both go through here so the money rule
+     * lives in exactly one place.
+     */
+    private function applyWithdrawStatus(WithdrawRequest $withdraw_request, int $status, ?string $reason): void
+    {
+        $withdraw_request->status = $status;
+        $withdraw_request->reason = $reason;
+        $withdraw_request->save();
+
+        if ($status !== WithdrawRequest::STATUS_REJECTED) {
+            return;
+        }
+
+        $user = User::find($withdraw_request->user_id);
+        if (!$user) {
+            return;
+        }
+
+        if ($withdraw_request->wallet_type == WithdrawRequest::WALLET_TYPE_MAIN) {
+            $user->quiz_total_withdraw -= $withdraw_request->amount;
+        } elseif ($withdraw_request->wallet_type == WithdrawRequest::WALLET_TYPE_SCRATCH) {
+            $user->scratch_total_withdraw -= $withdraw_request->amount;
+        } elseif ($withdraw_request->wallet_type == WithdrawRequest::WALLET_TYPE_GROW) {
+            $user->saving_total_withdraw -= $withdraw_request->amount;
+        }
+        $user->save();
+    }
+
+    /**
+     * Step 1 of the bulk update: say what the uploaded file would do.
+     *
+     * Changes nothing. The screen shows these rows, and only a file with no
+     * problem rows can go on to be confirmed.
+     */
+    public function importValidate(Request $request, WithdrawImport $importer)
+    {
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
+        ], ['file.required' => 'Choose the Excel file to upload']);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        try {
+            return response()->json(['success' => true] + $importer->analyse($request->file('file')), 200);
+        } catch (\RuntimeException $e) {
+            // Thrown only for a file we cannot use at all — worth showing.
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            Log::error('Withdraw import validate failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong reading that file'], 500);
+        }
+    }
+
+    /**
+     * Step 2: apply it.
+     *
+     * The file is analysed AGAIN here rather than trusting what step 1
+     * returned — statuses can change between the two steps, and the client
+     * must not be able to hand us a verdict of its own. If anything is wrong
+     * the whole upload is refused; nothing is applied in part.
+     */
+    public function importConfirm(Request $request, WithdrawImport $importer)
+    {
+        $validator = Validator::make($request->all(), [
+            'file' => 'required|file|mimes:xlsx,xls,csv|max:10240',
+        ], ['file.required' => 'Choose the Excel file to upload']);
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        try {
+            $result = $importer->analyse($request->file('file'));
+
+            if (!$result['can_confirm']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => $result['summary']['errors'] > 0
+                        ? 'This file still has rows that need fixing.'
+                        : 'There is nothing to update in this file.',
+                ] + $result, 422);
+            }
+
+            $applied = 0;
+            DB::transaction(function () use ($result, &$applied) {
+                foreach ($result['rows'] as $row) {
+                    if ($row['action'] !== WithdrawImport::ACTION_UPDATE) {
+                        continue;
+                    }
+
+                    // Locked for update: a concurrent single-record change
+                    // must not slip in between the analysis and the write.
+                    $withdraw = WithdrawRequest::where('id', $row['request_id'])
+                        ->where('is_deleted', 0)
+                        ->lockForUpdate()
+                        ->first();
+                    if (!$withdraw) {
+                        continue;
+                    }
+
+                    // Re-check under the lock. Whoever got there first wins and
+                    // this row is left alone rather than double-refunded.
+                    if (in_array((int) $withdraw->status, WithdrawImport::FINAL_STATUSES, true)) {
+                        continue;
+                    }
+
+                    $status = array_search($row['new_status'], WithdrawImport::STATUS_LABELS, true);
+                    if ($status === false) {
+                        continue;
+                    }
+
+                    $this->applyWithdrawStatus($withdraw, (int) $status, $row['reason'] !== '' ? $row['reason'] : null);
+                    $applied++;
+                }
+            });
+
+            return response()->json([
+                'success' => true,
+                'message' => $applied . ' withdraw request' . ($applied === 1 ? '' : 's') . ' updated',
+                'applied' => $applied,
+                'summary' => $result['summary'],
+            ], 200);
+        } catch (\RuntimeException $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            Log::error('Withdraw import confirm failed', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Something went wrong applying that file'], 500);
         }
     }
 
