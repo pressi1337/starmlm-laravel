@@ -16,6 +16,16 @@ class WithdrawRequestExport extends DefaultValueBinder implements FromCollection
 {
     use PreservesNumericIdentifiers;
 
+    /**
+     * Processing fee held back from a withdrawal, as a percentage.
+     *
+     * Reporting only — nothing in the withdrawal flow stores or deducts a fee,
+     * so this is derived for the sheet rather than read from the request. If
+     * the fee ever becomes something the system actually deducts, it belongs
+     * on withdraw_requests and this constant should go.
+     */
+    public const PROCESSING_FEE_PERCENT = 10.0;
+
     protected $withdrawRequests;
 
     public function __construct($withdrawRequests)
@@ -44,6 +54,8 @@ class WithdrawRequestExport extends DefaultValueBinder implements FromCollection
             'Request Date',
             'Status',
             'Amount',
+            'Processing Fee (' . rtrim(rtrim(number_format(self::PROCESSING_FEE_PERCENT, 2), '0'), '.') . '%)',
+            'Withdrawable Amount',
         ];
     }
 
@@ -63,6 +75,14 @@ class WithdrawRequestExport extends DefaultValueBinder implements FromCollection
             4 => 'Promoter4'
         ];
 
+        // Amount stays exactly what the user asked for. The fee is rounded
+        // first and the payable derived by subtraction, so Fee + Withdrawable
+        // always equals Amount to the paisa — rounding both independently
+        // would leave rows that are a paisa out and never reconcile.
+        $amount = round((float) $withdrawRequest->amount, 2);
+        $fee = round($amount * self::PROCESSING_FEE_PERCENT / 100, 2);
+        $withdrawable = round($amount - $fee, 2);
+
         return [
             $withdrawRequest->id,
             $withdrawRequest->user->username ?? 'N/A',
@@ -76,7 +96,13 @@ class WithdrawRequestExport extends DefaultValueBinder implements FromCollection
             $withdrawRequest->bankDetail->branch_name ?? 'N/A',
             $withdrawRequest->request_at ? date('d-m-Y h:i A', strtotime($withdrawRequest->request_at)) : '-',
             $statuses[$withdrawRequest->status] ?? 'Unknown',
-            number_format($withdrawRequest->amount, 2),
+            // Written as real numbers, not number_format strings: a formatted
+            // string like "1,234.56" lands in Excel as TEXT, so accounts
+            // cannot total the column. The 0.00 cell format below handles
+            // display.
+            $amount,
+            $fee,
+            $withdrawable,
         ];
     }
 
@@ -109,12 +135,11 @@ class WithdrawRequestExport extends DefaultValueBinder implements FromCollection
             'D' => ['numberFormat' => ['formatCode' => '@']],
             'H' => ['numberFormat' => ['formatCode' => '@']],
             'I' => ['numberFormat' => ['formatCode' => '@']],
-            // Amount column (M) keeps 2-decimal numeric format.
-            'M' => [
-                'numberFormat' => [
-                    'formatCode' => '0.00'
-                ]
-            ]
+            // Money columns keep 2-decimal numeric format.
+            // M = Amount, N = Processing Fee, O = Withdrawable Amount.
+            'M' => ['numberFormat' => ['formatCode' => '0.00']],
+            'N' => ['numberFormat' => ['formatCode' => '0.00']],
+            'O' => ['numberFormat' => ['formatCode' => '0.00']],
         ];
     }
 }
