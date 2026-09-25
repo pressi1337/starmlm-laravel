@@ -56,6 +56,10 @@ class WithdrawRequestExport extends DefaultValueBinder implements FromCollection
             'Amount',
             'Processing Fee (' . rtrim(rtrim(number_format(self::PROCESSING_FEE_PERCENT, 2), '0'), '.') . '%)',
             'Withdrawable Amount',
+            // Filled in by the admin when they set Status to Rejected, and
+            // read back by the bulk import. Kept last so the sheet reads
+            // left-to-right as: what was asked for, then what you decided.
+            'Reason',
         ];
     }
 
@@ -103,6 +107,7 @@ class WithdrawRequestExport extends DefaultValueBinder implements FromCollection
             $amount,
             $fee,
             $withdrawable,
+            $withdrawRequest->reason ?? '',
         ];
     }
 

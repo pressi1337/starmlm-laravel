@@ -1970,3 +1970,47 @@ ALTER TABLE `promotion_videos`
 -- SELECT `featured_date`, COUNT(*) FROM `promotion_videos`
 --  WHERE `featured_date` IS NOT NULL AND `is_deleted` = 0
 --  GROUP BY `featured_date` HAVING COUNT(*) > 1;
+
+
+-- ============================================================
+-- Bulk withdraw status update from Excel — NO SCHEMA CHANGE.
+-- Recorded here only so the deploy checklist is complete.
+--
+-- The admin exports the withdraw list, sets Status (Processing / Completed /
+-- Rejected) and a Reason on rejected rows, and uploads it again. Two steps:
+--   POST /api/v1/withdraws/import/validate  — says what the file would do,
+--                                             writes nothing
+--   POST /api/v1/withdraws/import/confirm   — re-checks and applies it
+-- Both are super-admin only (jwt + role:0), like withdraw-status-update.
+--
+-- Nothing new is stored: the import writes the existing
+-- withdraw_requests.status and .reason columns, and a rejection unwinds the
+-- user's *_total_withdraw exactly as the single-record update always has.
+-- Single update and bulk import now share one method
+-- (WithdrawController::applyWithdrawStatus), so the refund rule lives in one
+-- place.
+--
+-- A request that is already Completed or Rejected is refused, by design:
+-- re-applying a rejection would refund the user a second time. That is
+-- checked when the file is analysed AND again under a row lock inside the
+-- transaction, so a concurrent single-record update cannot slip through.
+--
+-- The withdraw export also gained three columns — Processing Fee (10%),
+-- Withdrawable Amount and Reason. Fee and withdrawable are DERIVED for the
+-- sheet; no fee is stored or deducted anywhere in the withdrawal flow.
+-- ============================================================
+
+-- Nothing to run. Sanity checks if a bulk update looks wrong:
+
+-- What an import changed, most recent first:
+-- SELECT `id`, `user_id`, `amount`, `status`, `reason`, `updated_at`
+--   FROM `withdraw_requests`
+--  WHERE `is_deleted` = 0
+--  ORDER BY `updated_at` DESC
+--  LIMIT 50;
+
+-- Rejected rows must always carry a reason (expect 0 rows):
+-- SELECT `id`, `user_id`, `amount`, `updated_at`
+--   FROM `withdraw_requests`
+--  WHERE `is_deleted` = 0 AND `status` = 3
+--    AND (`reason` IS NULL OR TRIM(`reason`) = '');

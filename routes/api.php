@@ -209,6 +209,12 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     Route::get('additional-scratch-referrals', [AdditionalScratchReferralController::class, 'show']);
 
     Route::post('withdraw-status-update', [WithdrawController::class, 'withdrawStatusUpdate']);
+    // Bulk status update from an edited copy of the withdraw export. Two
+    // steps: validate says what the file would do and changes nothing,
+    // confirm re-checks and applies it. Same money side-effects as the
+    // single update above, so super-admin only like it.
+    Route::post('withdraws/import/validate', [WithdrawController::class, 'importValidate']);
+    Route::post('withdraws/import/confirm', [WithdrawController::class, 'importConfirm']);
 
     // Admin Bank Details
     Route::post('admin-bank-details/upsert', [AdminBankDetailController::class, 'manage']);
