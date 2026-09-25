@@ -49,12 +49,16 @@ class WithdrawImport
     ];
 
     public const COL_REQUEST_ID = 'request id';
+    /** The column the admin fills in, via the dropdown in the export. */
+    public const COL_NEW_STATUS = 'new status';
+    /** The current status, shown for reference. Only read as a fallback for a
+     *  hand-made sheet that has no "New Status" column. */
     public const COL_STATUS = 'status';
     public const COL_REASON = 'reason';
 
     /** A row that will be applied. */
     public const ACTION_UPDATE = 'update';
-    /** Valid, but the status already matches — applying it would change nothing. */
+    /** Valid, but nothing to do — left blank, or already at that status. */
     public const ACTION_UNCHANGED = 'unchanged';
     /** Something is wrong with the row; it blocks the whole upload. */
     public const ACTION_ERROR = 'error';
@@ -78,7 +82,10 @@ class WithdrawImport
 
         for ($r = $headerRowIndex + 1; $r <= $highestRow; $r++) {
             $rawId = $this->cell($sheet, $columns[self::COL_REQUEST_ID], $r);
-            $rawStatus = $this->cell($sheet, $columns[self::COL_STATUS] ?? null, $r);
+            // "New Status" is the column the admin fills in. "Status" is only
+            // read when that column is absent, for a hand-made sheet.
+            $statusColumn = $columns[self::COL_NEW_STATUS] ?? $columns[self::COL_STATUS] ?? null;
+            $rawStatus = $this->cell($sheet, $statusColumn, $r);
             $rawReason = $this->cell($sheet, $columns[self::COL_REASON] ?? null, $r);
 
             // A completely blank line is padding, not a row the admin meant.
@@ -86,10 +93,44 @@ class WithdrawImport
                 continue;
             }
 
+            // The export ships every request with New Status empty, so most
+            // rows in a real upload are ones the admin chose not to action.
+            // Those are reported as untouched rather than as mistakes.
+            if ($rawId !== '' && $rawStatus === '') {
+                $rows[] = $this->untouchedRow($r, $rawId, $rawReason, $seenIds);
+                continue;
+            }
+
             $rows[] = $this->analyseRow($r, $rawId, $rawStatus, $rawReason, $seenIds);
         }
 
         return $this->withSummary($rows);
+    }
+
+    /**
+     * A row the admin left blank: nothing to do, and nothing to complain
+     * about. Still looked up so the review table can show who it was.
+     */
+    private function untouchedRow(int $rowNumber, string $rawId, string $rawReason, array &$seenIds): array
+    {
+        $id = ctype_digit($rawId) ? (int) $rawId : null;
+        $withdraw = $id ? WithdrawRequest::with('user')->where('id', $id)->where('is_deleted', 0)->first() : null;
+
+        if ($id !== null && !isset($seenIds[$id])) {
+            $seenIds[$id] = $rowNumber;
+        }
+
+        return [
+            'row_number' => $rowNumber,
+            'request_id' => $id ?? $rawId,
+            'username' => $withdraw->user->username ?? null,
+            'amount' => $withdraw ? (float) $withdraw->amount : null,
+            'current_status' => $withdraw ? (self::STATUS_LABELS[(int) $withdraw->status] ?? 'Unknown') : null,
+            'new_status' => '',
+            'reason' => trim($rawReason),
+            'issues' => [],
+            'action' => self::ACTION_UNCHANGED,
+        ];
     }
 
     private function analyseRow(int $rowNumber, string $rawId, string $rawStatus, string $rawReason, array &$seenIds): array
@@ -226,13 +267,14 @@ class WithdrawImport
                 }
             }
 
-            if (isset($found[self::COL_REQUEST_ID]) && isset($found[self::COL_STATUS])) {
+            $hasStatusColumn = isset($found[self::COL_NEW_STATUS]) || isset($found[self::COL_STATUS]);
+            if (isset($found[self::COL_REQUEST_ID]) && $hasStatusColumn) {
                 return [$r, $found, $sheet];
             }
         }
 
         throw new \RuntimeException(
-            'Could not find the "Request ID" and "Status" columns. Upload the .xlsx exported from this page, with those headings left as they are.'
+            'Could not find the "Request ID" and "New Status" columns. Upload the .xlsx exported from this page, with the headings left as they are.'
         );
     }
 

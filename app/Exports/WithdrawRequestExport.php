@@ -9,10 +9,14 @@ use Maatwebsite\Excel\Concerns\WithMapping;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
 use Maatwebsite\Excel\Concerns\WithStyles;
 use Maatwebsite\Excel\Concerns\WithCustomValueBinder;
+use Maatwebsite\Excel\Concerns\WithEvents;
+use Maatwebsite\Excel\Events\AfterSheet;
+use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Cell\DataValidation;
 use PhpOffice\PhpSpreadsheet\Cell\DefaultValueBinder;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
-class WithdrawRequestExport extends DefaultValueBinder implements FromCollection, WithHeadings, WithMapping, ShouldAutoSize, WithStyles, WithCustomValueBinder
+class WithdrawRequestExport extends DefaultValueBinder implements FromCollection, WithHeadings, WithMapping, ShouldAutoSize, WithStyles, WithCustomValueBinder, WithEvents
 {
     use PreservesNumericIdentifiers;
 
@@ -56,9 +60,11 @@ class WithdrawRequestExport extends DefaultValueBinder implements FromCollection
             'Amount',
             'Processing Fee (' . rtrim(rtrim(number_format(self::PROCESSING_FEE_PERCENT, 2), '0'), '.') . '%)',
             'Withdrawable Amount',
-            // Filled in by the admin when they set Status to Rejected, and
-            // read back by the bulk import. Kept last so the sheet reads
-            // left-to-right as: what was asked for, then what you decided.
+            // The two columns the admin fills in. "Status" above stays as it
+            // is — the current status, for reference only. This one ships
+            // EMPTY with a dropdown, so the only thing they can do is pick
+            // one of the three options; a row left blank is left alone.
+            'New Status',
             'Reason',
         ];
     }
@@ -107,6 +113,7 @@ class WithdrawRequestExport extends DefaultValueBinder implements FromCollection
             $amount,
             $fee,
             $withdrawable,
+            '', // New Status — left empty on purpose; the admin picks it.
             $withdrawRequest->reason ?? '',
         ];
     }
@@ -121,6 +128,75 @@ class WithdrawRequestExport extends DefaultValueBinder implements FromCollection
         if (!empty($user->pin_code)) $address[] = $user->pin_code;
         
         return !empty($address) ? implode(', ', $address) : 'N/A';
+    }
+
+    /**
+     * The statuses an admin may choose when editing the sheet.
+     *
+     * Must stay in step with WithdrawImport::SETTABLE_STATUSES — this is what
+     * the dropdown offers, that is what the upload accepts. Pending is
+     * deliberately absent: moving a request back to Pending is not an
+     * operation the system supports.
+     */
+    public const SETTABLE_STATUS_LABELS = ['Processing', 'Completed', 'Rejected'];
+
+    /**
+     * Put a real dropdown on the Status column of the downloaded file.
+     *
+     * The admin edits this sheet and uploads it back, so the three choices are
+     * given to them here rather than left to be typed from memory. Typing
+     * anything else is refused by Excel at the point of entry, which is a far
+     * better place to catch it than in our validation step afterwards.
+     */
+    public function registerEvents(): array
+    {
+        return [
+            AfterSheet::class => function (AfterSheet $event) {
+                $count = is_countable($this->withdrawRequests)
+                    ? count($this->withdrawRequests)
+                    : collect($this->withdrawRequests)->count();
+                $lastRow = $count + 1; // +1 for the heading row
+
+                $statusColumn = $this->columnLetter('New Status');
+                if ($lastRow < 2 || $statusColumn === null) {
+                    return; // nothing exported, or no column to guard
+                }
+
+                $sheet = $event->sheet->getDelegate();
+                $reasonColumn = $this->columnLetter('Reason');
+
+                for ($row = 2; $row <= $lastRow; $row++) {
+                    $rule = $sheet->getCell($statusColumn . $row)->getDataValidation();
+                    $rule->setType(DataValidation::TYPE_LIST);
+                    $rule->setErrorStyle(DataValidation::STYLE_STOP);
+                    // Blank is allowed and means "do not touch this request".
+                    $rule->setAllowBlank(true);
+                    $rule->setShowDropDown(true);
+                    $rule->setShowErrorMessage(true);
+                    $rule->setShowInputMessage(true);
+                    $rule->setErrorTitle('Not a valid status');
+                    $rule->setError('Pick Processing, Completed or Rejected from the list.');
+                    $rule->setPromptTitle('New status');
+                    $rule->setPrompt('Pick one to change this request. Leave blank to leave it alone. Rejected also needs a Reason.');
+                    // Quoted inline list — no helper sheet to leak into the file.
+                    $rule->setFormula1('"' . implode(',', self::SETTABLE_STATUS_LABELS) . '"');
+                }
+
+                // Reason is free text, but say what it is for.
+                if ($reasonColumn !== null) {
+                    $sheet->getComment($reasonColumn . '1')->getText()
+                        ->createTextRun('Required when Status is Rejected.');
+                }
+            },
+        ];
+    }
+
+    /** Column letter of a heading, so moving columns cannot break the rules. */
+    private function columnLetter(string $heading): ?string
+    {
+        $index = array_search($heading, $this->headings(), true);
+
+        return $index === false ? null : Coordinate::stringFromColumnIndex($index + 1);
     }
 
     public function styles(Worksheet $sheet)
