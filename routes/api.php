@@ -47,8 +47,9 @@ Route::get('/login', function () {
 // Admin endpoints shared by Super-Admin (role=0) and Sub-Admin (role=1).
 // For sub-admin, each surface is further gated by a per-feature permission
 // flag — super-admin auto-passes the subadmin.permission middleware.
-// Pin operations additionally enforce promoter level 0/1 inside the
-// controller.
+// A granted permission now means FULL access to that surface — sub-admin pin
+// operations used to be additionally limited to promoter levels 0/1, and are
+// not any more.
 Route::middleware('jwt')->prefix('v1')->group(function () {
     // Daily Videos — requires can_daily_videos for sub-admin.
     // DELETE is split out to super-admin only (see below).
@@ -97,8 +98,8 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         Route::delete('promotion-video-quizzes/{promotion_video_quiz}', [PromotionQuizController::class, 'destroy']);
     });
 
-    // Pin lifecycle — requires can_pin_requests AND (for sub-admin) the
-    // promoter level 0/1 controller check.
+    // Pin lifecycle — requires can_pin_requests. A granted sub-admin has full
+    // access at every promoter level, same as a super-admin.
     Route::middleware('subadmin.permission:pin_requests')->group(function () {
         Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
         Route::post('term-raised', [UserPromoterController::class, 'termRaised']);
