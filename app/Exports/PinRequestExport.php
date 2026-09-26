@@ -15,8 +15,9 @@ use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 /**
  * Excel export for the admin Pin Requests page. Filtered scope (search,
- * status, level, fromdate/todate) is applied by the controller — including
- * the sub-admin "level 0/1 only" restriction.
+ * status, level, fromdate/todate) is applied by the controller, which also
+ * enforces the can_pin_requests permission. A granted sub-admin exports every
+ * promoter level, same as a super-admin.
  */
 class PinRequestExport extends DefaultValueBinder implements FromCollection, WithHeadings, WithMapping, ShouldAutoSize, WithStyles, WithCustomValueBinder
 {

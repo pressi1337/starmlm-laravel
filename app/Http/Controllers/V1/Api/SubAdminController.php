@@ -40,6 +40,7 @@ class SubAdminController extends Controller
         'can_plan_product.boolean'      => 'Plan Product permission must be true/false',
         'can_support_help.boolean'      => 'Support & Help permission must be true/false',
         'can_promotion_settings.boolean' => 'Promotion Settings permission must be true/false',
+        'can_withdraw_requests.boolean' => 'Withdraw Request permission must be true/false',
     ];
 
     /**
@@ -68,13 +69,15 @@ class SubAdminController extends Controller
                 ? (int) (bool) $request->input('can_support_help') : 0,
             'can_promotion_settings' => $request->has('can_promotion_settings')
                 ? (int) (bool) $request->input('can_promotion_settings') : 0,
+            'can_withdraw_requests' => $request->has('can_withdraw_requests')
+                ? (int) (bool) $request->input('can_withdraw_requests') : 0,
         ];
 
         if ($required && array_sum($perms) === 0) {
             return response()->json([
                 'success' => false,
                 'errors'  => [
-                    'permissions' => 'Grant at least one permission (Daily Videos, Promotion Videos, Promotion Log, Promotion Settings, Pin Requests, Plan Product, Support & Help, Suggestions, or Personal Documents).',
+                    'permissions' => 'Grant at least one permission (Daily Videos, Promotion Videos, Promotion Log, Promotion Settings, Pin Requests, Plan Product, Withdraw Request, Support & Help, Suggestions, or Personal Documents).',
                 ],
             ], 422);
         }
@@ -144,6 +147,7 @@ class SubAdminController extends Controller
                 'can_plan_product',
                 'can_support_help',
                 'can_promotion_settings',
+                'can_withdraw_requests',
             ])
             ->map(function ($row) {
                 $row->created_at_formatted = $row->created_at ? $row->created_at->format('d-m-Y h:i A') : '-';
@@ -182,6 +186,7 @@ class SubAdminController extends Controller
             'can_plan_product'     => 'nullable|boolean',
             'can_support_help'     => 'nullable|boolean',
             'can_promotion_settings' => 'nullable|boolean',
+            'can_withdraw_requests' => 'nullable|boolean',
         ], $this->messages);
 
         if ($validator->fails()) {
@@ -215,6 +220,7 @@ class SubAdminController extends Controller
             $user->can_plan_product     = $perms['can_plan_product'];
             $user->can_support_help     = $perms['can_support_help'];
             $user->can_promotion_settings = $perms['can_promotion_settings'];
+            $user->can_withdraw_requests = $perms['can_withdraw_requests'];
             $user->created_by = $actorId;
             $user->updated_by = $actorId;
             $user->save();
@@ -281,6 +287,7 @@ class SubAdminController extends Controller
             'can_plan_product'     => 'nullable|boolean',
             'can_support_help'     => 'nullable|boolean',
             'can_promotion_settings' => 'nullable|boolean',
+            'can_withdraw_requests' => 'nullable|boolean',
         ], $this->messages);
 
         if ($validator->fails()) {
@@ -298,7 +305,8 @@ class SubAdminController extends Controller
             || $request->has('can_promotion_logs')
             || $request->has('can_plan_product')
             || $request->has('can_support_help')
-            || $request->has('can_promotion_settings');
+            || $request->has('can_promotion_settings')
+            || $request->has('can_withdraw_requests');
 
         $perms = null;
         if ($permsTouched) {
@@ -338,6 +346,7 @@ class SubAdminController extends Controller
             $user->can_plan_product     = $perms['can_plan_product'];
             $user->can_support_help     = $perms['can_support_help'];
             $user->can_promotion_settings = $perms['can_promotion_settings'];
+            $user->can_withdraw_requests = $perms['can_withdraw_requests'];
                 // Permissions are embedded in the JWT, so a token issued under
                 // the old perms must be invalidated to avoid staleness.
                 $user->remember_token = null;
@@ -441,6 +450,7 @@ class SubAdminController extends Controller
             'can_plan_product'     => (int) ($user->can_plan_product ?? 0),
             'can_support_help'     => (int) ($user->can_support_help ?? 0),
             'can_promotion_settings' => (int) ($user->can_promotion_settings ?? 0),
+            'can_withdraw_requests' => (int) ($user->can_withdraw_requests ?? 0),
             'created_at'           => $user->created_at,
             'updated_at'           => $user->updated_at,
         ];

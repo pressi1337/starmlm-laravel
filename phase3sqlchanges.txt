@@ -2014,3 +2014,48 @@ ALTER TABLE `promotion_videos`
 --   FROM `withdraw_requests`
 --  WHERE `is_deleted` = 0 AND `status` = 3
 --    AND (`reason` IS NULL OR TRIM(`reason`) = '');
+
+
+-- ============================================================
+-- Sub-admin permission 10: Withdraw Request.
+-- Equivalent of migration
+-- 2026_09_26_000001_add_withdraw_requests_permission_to_users.
+--
+-- Withdrawals were super-admin only. The flag grants FULL access to the menu:
+-- the list, both Excel exports, the single status update and the bulk Excel
+-- import.
+--
+-- BE DELIBERATE ABOUT WHO GETS THIS. Setting a withdrawal to Rejected returns
+-- the amount to the user's wallet, so a sub-admin holding this flag can move
+-- money exactly as a super-admin can.
+--
+-- Server side, withdraw-status-update and the two import endpoints moved out
+-- of the ['jwt','role:0'] group into the all-admin group behind
+-- subadmin.permission:withdraw_requests. The list and the exports stay in the
+-- shared auth:jwt,userjwt group and check the same permission inside
+-- WithdrawController (that group cannot carry the permission middleware).
+--
+-- SECURITY FIX shipped alongside: WithdrawController::exportExcel had NO
+-- authorization check of any kind while sitting in the shared user+admin
+-- route group, so ANY logged-in end user could download every pending
+-- withdrawal — account numbers, IFSC codes and home addresses included. It is
+-- now gated on the same permission. exportFilteredExcel was already
+-- restricted and simply moved from a role check to the permission check.
+--
+-- Defaults to 0. No sub-admin loses anything — none could reach this before.
+-- ============================================================
+
+ALTER TABLE `users`
+    ADD COLUMN `can_withdraw_requests` TINYINT(1) NOT NULL DEFAULT 0 AFTER `can_promotion_settings`;
+
+-- ROLLBACK:
+-- ALTER TABLE `users` DROP COLUMN `can_withdraw_requests`;
+
+-- Permissions ride in the JWT, so anyone changed by hand needs a fresh token.
+-- The admin screen does this automatically; raw SQL does not:
+-- UPDATE `users` SET `remember_token` = NULL WHERE `role` = 1;
+
+-- Who can move withdrawal money (sanity check):
+-- SELECT `id`, `username`, `can_withdraw_requests`
+--   FROM `users` WHERE `role` = 1 AND `is_deleted` = 0
+--  ORDER BY `can_withdraw_requests` DESC;

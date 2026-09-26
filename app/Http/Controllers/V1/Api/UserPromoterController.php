@@ -48,22 +48,28 @@ class UserPromoterController extends Controller
         ];
     }
 
-    // Sub-admins (role=1) are allowed to drive the pin lifecycle only for
-    // promoters at level 0 or 1. Returns a 403 response if the caller is a
-    // sub-admin acting on a higher-level promoter, otherwise null.
-    private function denyIfSubAdminCannotActOnPromoter(UserPromoter $promoter)
+    /**
+     * Refuse a sub-admin who has not been granted Pin Requests.
+     *
+     * The user-promoters resource and its export sit in the shared
+     * auth:jwt,userjwt route group, which cannot carry the
+     * subadmin.permission middleware — so the check has to happen in the
+     * controller. The pin ACTIONS (generate/term-raised/rejected) are in the
+     * admin group and are gated by that middleware instead.
+     *
+     * Sub-admins granted the permission now have FULL access: every promoter
+     * level, same as a super-admin. There used to be an extra restriction to
+     * levels 0 and 1; it is gone deliberately.
+     */
+    private function denyIfCannotSeePinRequests()
     {
         $actor = Auth::user();
-        if (!$actor || $actor->role !== User::ROLE_SUB_ADMIN) {
-            return null;
-        }
-
-        $allowedLevels = [0, 1];
-        if (!in_array((int) $promoter->level, $allowedLevels, true)) {
+        if ($actor && (int) $actor->role === User::ROLE_SUB_ADMIN
+            && !$actor->hasAdminPermission('pin_requests')) {
             return response()->json([
                 'success' => false,
-                'message' => 'Sub-admins can only manage pins for Promoter and Level 1 promoters.',
-                'code' => 'forbidden',
+                'message' => 'You do not have permission to view pin requests.',
+                'code'    => 'forbidden',
             ], 403);
         }
 
@@ -143,14 +149,8 @@ class UserPromoterController extends Controller
         // Sub-admin without the pin-requests permission gets 403; end users
         // (role=2) still hit this for their own promoter records via other
         // methods on this controller — index is the admin listing.
-        $actor = Auth::user();
-        if ($actor && (int) $actor->role === User::ROLE_SUB_ADMIN
-            && !$actor->hasAdminPermission('pin_requests')) {
-            return response()->json([
-                'success' => false,
-                'message' => 'You do not have permission to view pin requests.',
-                'code'    => 'forbidden',
-            ], 403);
+        if ($error = $this->denyIfCannotSeePinRequests()) {
+            return $error;
         }
 
         // Default sorting
@@ -170,14 +170,6 @@ class UserPromoterController extends Controller
 
         // Apply default filters
         $query->where('is_deleted', 0);
-
-        // Sub-admins only ever see Promoter (level 0) and Promoter Level 1 rows.
-        // Applied here so it's enforced regardless of any client-side filter the
-        // caller tries to set.
-        $actor = Auth::user();
-        if ($actor && $actor->role === User::ROLE_SUB_ADMIN) {
-            $query->whereIn('level', [0, 1]);
-        }
 
         // Apply search_param filters
         foreach ($search_param as $key => $value) {
@@ -232,12 +224,8 @@ class UserPromoterController extends Controller
         // sub-admin level lock) but ignore the status/level dropdowns so each
         // status tile stays meaningful. Built fresh to avoid breaking the
         // builder's where/bindings sync.
-        $statsBase = function () use ($fromDate, $toDate, $search_term, $actor) {
+        $statsBase = function () use ($fromDate, $toDate, $search_term) {
             $q = UserPromoter::query()->where('is_deleted', 0);
-            // Preserve the sub-admin lock for stats too.
-            if ($actor && $actor->role === User::ROLE_SUB_ADMIN) {
-                $q->whereIn('level', [0, 1]);
-            }
             if ($fromDate && $toDate) {
                 $q->whereBetween('created_at', [$fromDate, $toDate]);
             } elseif ($fromDate) {
@@ -301,22 +289,26 @@ class UserPromoterController extends Controller
 
     /**
      * Excel export for the admin Pin Requests page. Mirrors index()'s filter
-     * pipeline (status, level, fromdate/todate, user-relation search) and
-     * preserves the sub-admin level-0/1 restriction. No pagination — the
-     * whole filtered set is exported.
+     * pipeline (status, level, fromdate/todate, user-relation search). No
+     * pagination — the whole filtered set is exported.
+     *
+     * Gated on the same permission as index(). It previously had no permission
+     * check at all and leaned on the level restriction to limit what a
+     * sub-admin could pull; with that restriction lifted the check has to be
+     * explicit, or an ungranted sub-admin could export every promoter.
      */
     public function exportExcel(Request $request)
     {
+        if ($error = $this->denyIfCannotSeePinRequests()) {
+            return $error;
+        }
+
         try {
             $search_term = trim((string) $request->query('search', ''));
             $search_param = $this->safeJsonDecode($request->query('search_param', '{}'));
 
             $query = UserPromoter::query()->where('is_deleted', 0);
 
-            $actor = Auth::user();
-            if ($actor && $actor->role === User::ROLE_SUB_ADMIN) {
-                $query->whereIn('level', [0, 1]);
-            }
 
             foreach (($search_param ?? []) as $key => $value) {
                 if ($value === '' || $value === null) {
@@ -471,10 +463,6 @@ class UserPromoterController extends Controller
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
 
-        if ($error = $this->denyIfSubAdminCannotActOnPromoter($promoter)) {
-            return $error;
-        }
-
         $user = User::find($promoter->user_id);
         $user->promoter_status = User::PROMOTER_STATUS_SHOW_TERM;
         $user->save();
@@ -511,10 +499,6 @@ class UserPromoterController extends Controller
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
 
-        if ($error = $this->denyIfSubAdminCannotActOnPromoter($promoter)) {
-            return $error;
-        }
-
         $promoter->pin = strtoupper('PROM' . rand(1000, 9999));
         $promoter->status = UserPromoter::PIN_STATUS_APPROVED;
         $promoter->pin_generated_at = now();
@@ -538,10 +522,6 @@ class UserPromoterController extends Controller
         $promoter = UserPromoter::find($request->id);
         if (!$promoter || $promoter->is_deleted) {
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
-        }
-
-        if ($error = $this->denyIfSubAdminCannotActOnPromoter($promoter)) {
-            return $error;
         }
 
         $promoter->status = UserPromoter::PIN_STATUS_REJECTED;
