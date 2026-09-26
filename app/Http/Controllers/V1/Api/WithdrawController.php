@@ -35,9 +35,58 @@ class WithdrawController extends Controller
             "wallet_type.required" => "Wallet Type Required",
         ];
     }
+    /**
+     * May the caller see the ADMIN withdraw surface — every user's requests,
+     * their bank details, the exports and the status changes?
+     *
+     * True for a super-admin, and for a sub-admin granted can_withdraw_requests
+     * (which is full access, same as a super-admin). The list and the two
+     * exports sit in the shared auth:jwt,userjwt route group, which cannot
+     * carry the subadmin.permission middleware, so they call this instead. The
+     * status update and the bulk import are gated by that middleware on the
+     * route.
+     */
+    private function canManageWithdrawRequests(): bool
+    {
+        $actor = Auth::user();
+        if (!$actor) {
+            return false;
+        }
+        if ((int) $actor->role === User::ROLE_SUPER_ADMIN) {
+            return true;
+        }
+
+        return (int) $actor->role === User::ROLE_SUB_ADMIN
+            && $actor->hasAdminPermission('withdraw_requests');
+    }
+
+    /** 403 unless the caller may see the admin withdraw surface. */
+    private function denyUnlessCanManageWithdrawRequests()
+    {
+        if ($this->canManageWithdrawRequests()) {
+            return null;
+        }
+
+        return response()->json([
+            'success' => false,
+            'message' => 'You do not have permission to view withdraw requests.',
+            'code'    => 'forbidden',
+        ], 403);
+    }
+
     public function index(Request $request)
     {
-        if (Auth::user()->role == User::ROLE_ADMIN) {
+        // This endpoint is admin-only: anyone who fails the check below falls
+        // to a bare 401 at the end of the method (end users read their own
+        // history from /withdraw-histories instead). Answer an ungranted
+        // sub-admin with an explicit 403 first, so the reason is clear and
+        // consistent with every other permission-gated surface.
+        if ((int) Auth::user()->role === User::ROLE_SUB_ADMIN
+            && !$this->canManageWithdrawRequests()) {
+            return $this->denyUnlessCanManageWithdrawRequests();
+        }
+
+        if ($this->canManageWithdrawRequests()) {
           try {
             // Default sorting
             $sort_column = $request->query('sort_column', 'created_at');
@@ -543,14 +592,37 @@ class WithdrawController extends Controller
             if ($validator->fails()) {
                 return response()->json(['errors' => $validator->errors()], 422);
             }
-            $withdraw_request = WithdrawRequest::find($request->id);
-            if (!$withdraw_request) {
-                return response()->json(['success' => false, 'message' => 'Withdraw request not found'], 422);
-            }
+            // Read the row, check it and write it inside one transaction, so
+            // the lock actually holds and two simultaneous updates cannot both
+            // get past the guard below. lockForUpdate outside a transaction
+            // would release immediately and guard nothing.
+            return DB::transaction(function () use ($request) {
+                $withdraw_request = WithdrawRequest::where('id', $request->id)
+                    ->where('is_deleted', 0)
+                    ->lockForUpdate()
+                    ->first();
+                if (!$withdraw_request) {
+                    return response()->json(['success' => false, 'message' => 'Withdraw request not found'], 422);
+                }
 
-            $this->applyWithdrawStatus($withdraw_request, (int) $request->status, $request->reason);
+                // Completed and Rejected are the end of the road. Re-applying a
+                // rejection would refund the user a second time, so refuse
+                // rather than repeat — the same rule the bulk import enforces,
+                // so the two paths agree. A UI bug used to be able to fire
+                // this on an already-completed row.
+                if (in_array((int) $withdraw_request->status, WithdrawImport::FINAL_STATUSES, true)) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'This request is already '
+                            . (WithdrawImport::STATUS_LABELS[(int) $withdraw_request->status] ?? 'finalised')
+                            . ' and can no longer be updated.',
+                    ], 422);
+                }
 
-            return response()->json(['success' => true, 'message' => 'Withdraw request updated successfully'], 200);
+                $this->applyWithdrawStatus($withdraw_request, (int) $request->status, $request->reason);
+
+                return response()->json(['success' => true, 'message' => 'Withdraw request updated successfully'], 200);
+            });
         } catch (\Throwable $e) {
             Log::error('Withdraw Status Update failed', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'message' => 'Something went wrong'], 500);
@@ -702,7 +774,13 @@ class WithdrawController extends Controller
      */
     public function exportExcel()
     {
-
+        // This route is in the shared auth:jwt,userjwt group and had NO
+        // authorization check at all — any logged-in end user could download
+        // every pending withdrawal, complete with account numbers, IFSC codes
+        // and home addresses. Gated now.
+        if ($error = $this->denyUnlessCanManageWithdrawRequests()) {
+            return $error;
+        }
 
         try {
             // Get all withdraw requests with user and bank details
@@ -730,8 +808,9 @@ class WithdrawController extends Controller
      */
     public function exportFilteredExcel(Request $request)
     {
-        if (Auth::user()->role != User::ROLE_ADMIN) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 401);
+        // Was super-admin only; a granted sub-admin may export too.
+        if ($error = $this->denyUnlessCanManageWithdrawRequests()) {
+            return $error;
         }
 
         try {

@@ -98,6 +98,17 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         Route::delete('promotion-video-quizzes/{promotion_video_quiz}', [PromotionQuizController::class, 'destroy']);
     });
 
+    // Withdraw Request — status changes and the bulk Excel import. Grantable
+    // to a sub-admin, who then has full access to the menu. NOTE this moves
+    // money: rejecting a withdrawal returns the amount to the user's wallet.
+    // The list and the two exports live in the shared auth:jwt,userjwt group
+    // and check the same permission inside WithdrawController.
+    Route::middleware('subadmin.permission:withdraw_requests')->group(function () {
+        Route::post('withdraw-status-update', [WithdrawController::class, 'withdrawStatusUpdate']);
+        Route::post('withdraws/import/validate', [WithdrawController::class, 'importValidate']);
+        Route::post('withdraws/import/confirm', [WithdrawController::class, 'importConfirm']);
+    });
+
     // Pin lifecycle — requires can_pin_requests. A granted sub-admin has full
     // access at every promoter level, same as a super-admin.
     Route::middleware('subadmin.permission:pin_requests')->group(function () {
@@ -209,13 +220,7 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     Route::post('additional-scratch-referrals/upsert', [AdditionalScratchReferralController::class, 'upsert']);
     Route::get('additional-scratch-referrals', [AdditionalScratchReferralController::class, 'show']);
 
-    Route::post('withdraw-status-update', [WithdrawController::class, 'withdrawStatusUpdate']);
-    // Bulk status update from an edited copy of the withdraw export. Two
-    // steps: validate says what the file would do and changes nothing,
-    // confirm re-checks and applies it. Same money side-effects as the
-    // single update above, so super-admin only like it.
-    Route::post('withdraws/import/validate', [WithdrawController::class, 'importValidate']);
-    Route::post('withdraws/import/confirm', [WithdrawController::class, 'importConfirm']);
+
 
     // Admin Bank Details
     Route::post('admin-bank-details/upsert', [AdminBankDetailController::class, 'manage']);
