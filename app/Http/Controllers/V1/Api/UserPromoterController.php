@@ -389,6 +389,26 @@ class UserPromoterController extends Controller
                 return response()->json(['errors' => $validator->errors()], 422);
             }
             $authId = Auth::id();
+
+            // An already-issued pin that was never activated blocks a new
+            // request. It used to not: only a status-0 row was checked, so a
+            // user holding an un-activated pin could open a SECOND cycle. The
+            // old row keeps its pin forever (autoRejectStalePins only clears
+            // rows with no pin), so the app then showed that stale pin as
+            // ready to activate the moment the new term was accepted — looking
+            // exactly like a pin had been generated without the admin.
+            $awaitingActivation = UserPromoter::where('user_id', $authId)
+                ->where('status', UserPromoter::PIN_STATUS_APPROVED)
+                ->where('is_deleted', 0)
+                ->first();
+            if ($awaitingActivation) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You already have a pin waiting to be activated. Activate it before requesting another upgrade.',
+                    'data' => $awaitingActivation,
+                ], 400);
+            }
+
             $promoter = UserPromoter::where('status',0)->where('is_deleted',0)->where('user_id',$authId)->first();
             if(empty($promoter)){
             DB::beginTransaction();
@@ -784,6 +804,11 @@ class UserPromoterController extends Controller
             ->where('user_id', $userId)
             ->where('is_deleted', 0)
             ->orderBy('created_at', 'desc')
+            // Tiebreak on id. Two cycles created in the same second otherwise
+            // come back in whatever order the database feels like, and the app
+            // treats the first row as "the current request" — so without this
+            // it can show an older cycle as the live one.
+            ->orderBy('id', 'desc')
             ->get();
 
         return response()->json([
