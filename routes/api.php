@@ -30,6 +30,7 @@ use App\Http\Controllers\V1\Api\WithdrawController;
 use App\Http\Controllers\VideoUploadController;
 use App\Http\Controllers\V1\Api\AdminDashboardController;
 use App\Http\Controllers\V1\Api\SubAdminController;
+use App\Http\Controllers\V1\Api\TaxPaymentController;
 use App\Http\Controllers\V1\Api\TaxReportController;
 use App\Http\Controllers\V1\Api\SupportHelpController;
 use App\Http\Controllers\V1\Api\SuggestionController;
@@ -231,6 +232,9 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     // running totals. Read-only; it never assigns an invoice number.
     // Super-admin only for now.
     Route::get('tax-report', [TaxReportController::class, 'index']);
+    // The paid side of the same report: tax actually remitted to the
+    // government. Hand-entered, so full CRUD.
+    Route::resource('tax-payments', TaxPaymentController::class)->except(['create', 'edit']);
 
     // Sub-Admin management (super-admin manages sub-admins)
     Route::patch('sub-admins/status-update', [SubAdminController::class, 'statusUpdate']);
