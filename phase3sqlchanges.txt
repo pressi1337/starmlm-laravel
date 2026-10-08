@@ -2122,3 +2122,70 @@ ALTER TABLE `users`
 --   FROM `promoter_box_requests`
 --  WHERE `is_deleted` = 0 AND `status` = 3 AND `rate_per_qty` IS NOT NULL
 --  GROUP BY `level` ORDER BY `level`;
+
+
+-- ============================================================
+-- Tax paid to the government — the second tab of the Tax report.
+-- Equivalent of migration 2026_10_08_000001_create_tax_payments_table.
+--
+-- The invoice tab is DERIVED (what was billed) and cannot be edited. This
+-- table is the other half: what has actually been remitted, entered by hand.
+-- Balance shown on screen = tax collected - tax paid, over the same date
+-- window, so the two halves always agree on their range.
+--
+-- `amount` is authoritative. `cgst` / `sgst` are an optional breakdown; when
+-- filled in they must add up to `amount`, enforced in TaxPaymentController,
+-- so a split can never contradict the total beside it.
+--
+-- `fy` is derived from payment_date on save (April-March, matching
+-- InvoiceBuilder::financialYear) and never taken from the client.
+--
+-- Collected is summed with InvoiceBuilder::money() — the same function that
+-- printed each bill — so the balance cannot drift from the invoice tab.
+--
+-- Endpoints (all super-admin only, ['jwt','role:0']):
+--   GET    /api/v1/tax-payments        list + totals + balance
+--   POST   /api/v1/tax-payments        add
+--   GET    /api/v1/tax-payments/{id}   read one
+--   PUT    /api/v1/tax-payments/{id}   edit
+--   DELETE /api/v1/tax-payments/{id}   soft delete (is_deleted = 1)
+-- ============================================================
+
+CREATE TABLE `tax_payments` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `payment_date` DATE NOT NULL,
+    `amount` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    `cgst` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    `sgst` DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+    `reference_no` VARCHAR(100) NULL DEFAULT NULL,
+    `payment_mode` VARCHAR(50) NULL DEFAULT NULL,
+    `fy` VARCHAR(7) NULL DEFAULT NULL,
+    `remarks` TEXT NULL DEFAULT NULL,
+    `created_by` BIGINT UNSIGNED NULL DEFAULT NULL,
+    `updated_by` BIGINT UNSIGNED NULL DEFAULT NULL,
+    `is_active` TINYINT NOT NULL DEFAULT 1,
+    `is_deleted` TINYINT NOT NULL DEFAULT 0,
+    `created_at` TIMESTAMP NULL DEFAULT NULL,
+    `updated_at` TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    KEY `tax_payments_live_date_idx` (`is_deleted`, `payment_date`),
+    KEY `tax_payments_live_fy_idx` (`is_deleted`, `fy`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ROLLBACK:
+-- DROP TABLE IF EXISTS `tax_payments`;
+-- Safe: the invoice tab is derived from promoter_box_requests and is
+-- unaffected. Only the paid/balance figures disappear.
+
+-- What has been paid, by financial year:
+-- SELECT `fy`, COUNT(*) AS payments, ROUND(SUM(`amount`), 2) AS paid
+--   FROM `tax_payments` WHERE `is_deleted` = 0
+--  GROUP BY `fy` ORDER BY `fy`;
+
+-- Rows whose CGST/SGST split does not reconcile with the amount. The screen
+-- refuses these, so this should always be empty — if it is not, they were
+-- written outside the app:
+-- SELECT `id`, `payment_date`, `amount`, `cgst`, `sgst`
+--   FROM `tax_payments`
+--  WHERE `is_deleted` = 0 AND (`cgst` > 0 OR `sgst` > 0)
+--    AND ABS((`cgst` + `sgst`) - `amount`) > 0.009;
