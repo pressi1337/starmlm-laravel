@@ -46,29 +46,61 @@ class InvoiceBuilder
         return substr((string) $start, 2) . '-' . substr((string) ($start + 1), 2);
     }
 
-    public function build(PromoterBoxRequest $box): array
+    /**
+     * Every rupee figure on an invoice, from a quantity and a per-unit rate.
+     *
+     * The ONE place this arithmetic lives. The invoice and the tax report both
+     * call it, so a report total can never disagree with the bill the customer
+     * was given.
+     *
+     * Round off exists because the rate is a back-calculation of a round
+     * selling price (750 / 1.18 = 635.5932..., stored as 635.59), so
+     * multiplying back up lands a few paise short, and the gap grows with
+     * quantity. CGST and SGST stay at a true 9% each and the difference goes
+     * on its own "Round Off" line — how a GST invoice is expected to handle
+     * it, and it makes the customer see the round figure the price list quotes.
+     *
+     * @return array{qty:int, rate:float, taxable:float, cgst:float, sgst:float,
+     *               tax:float, total:float, round_off:float, grand_total:float}
+     */
+    public static function money($quantity, $ratePerQty): array
     {
-        $template = BillTemplate::current();
-
-        $qty = max(0, (int) $box->quantity);
-        $rate = round((float) $box->rate_per_qty, 2);
+        $qty = max(0, (int) $quantity);
+        $rate = round((float) $ratePerQty, 2);
 
         // qty * rate is the taxable amount; tax is added on top.
         $taxable = round($qty * $rate, 2);
         $cgst = round($taxable * self::CGST_PERCENT / 100, 2);
         $sgst = round($taxable * self::SGST_PERCENT / 100, 2);
         $total = round($taxable + $cgst + $sgst, 2);
-
-        // Round off to the nearest rupee.
-        //
-        // The rate is itself a back-calculation of a round selling price
-        // (750 / 1.18 = 635.5932..., stored as 635.59), so multiplying back up
-        // lands a few paise short — and the gap grows with quantity. CGST and
-        // SGST stay at a true 9% each, and the difference is shown on its own
-        // "Round Off" line, which is how a GST invoice is expected to handle
-        // this. The customer sees the round figure the price list quotes.
         $grandTotal = round($total, 0);
-        $roundOff = round($grandTotal - $total, 2);
+
+        return [
+            'qty'         => $qty,
+            'rate'        => $rate,
+            'taxable'     => $taxable,
+            'cgst'        => $cgst,
+            'sgst'        => $sgst,
+            'tax'         => round($cgst + $sgst, 2),
+            'total'       => $total,
+            'round_off'   => round($grandTotal - $total, 2),
+            'grand_total' => $grandTotal,
+        ];
+    }
+
+    public function build(PromoterBoxRequest $box): array
+    {
+        $template = BillTemplate::current();
+
+        $money = self::money($box->quantity, $box->rate_per_qty);
+        $qty = $money['qty'];
+        $rate = $money['rate'];
+        $taxable = $money['taxable'];
+        $cgst = $money['cgst'];
+        $sgst = $money['sgst'];
+        $total = $money['total'];
+        $grandTotal = $money['grand_total'];
+        $roundOff = $money['round_off'];
 
         return [
             'invoice_no'   => $this->formatInvoiceNo($box, $template),
@@ -120,14 +152,33 @@ class InvoiceBuilder
 
         // Fall back to deriving the year for rows numbered before invoice_fy
         // existed, so an older invoice still prints a sensible number.
-        $fy = $box->invoice_fy ?: self::financialYear($box->delivered_at);
-        $sequence = str_pad((string) $box->invoice_no, 3, '0', STR_PAD_LEFT);
+        return self::formatNumber(
+            $box->invoice_fy ?: self::financialYear($box->delivered_at),
+            $box->invoice_no,
+            $template
+        );
+    }
+
+    /**
+     * Build a printed invoice number from its parts.
+     *
+     * Public so the tax report shows the SAME string the customer's bill does.
+     * Note an empty prefix is dropped rather than substituted, giving
+     * "26-27/001" — do not re-implement this with a default prefix, or the
+     * report will quote numbers that no invoice carries.
+     */
+    public static function formatNumber(?string $fy, $sequence, ?BillTemplate $template = null): string
+    {
+        if (!$sequence) {
+            return '-';
+        }
+
+        $sequence = str_pad((string) $sequence, 3, '0', STR_PAD_LEFT);
 
         // Trim any separator the admin typed so we never emit "startup//26-27".
-        $prefix = trim((string) ($template?->invoice_prefix ?? ''));
-        $prefix = rtrim($prefix, '/-');
+        $prefix = rtrim(trim((string) ($template?->invoice_prefix ?? '')), '/-');
 
-        $parts = array_filter([$prefix, $fy, $sequence], fn ($p) => $p !== '');
+        $parts = array_filter([$prefix, (string) $fy, $sequence], fn ($p) => $p !== '');
 
         return implode('/', $parts);
     }

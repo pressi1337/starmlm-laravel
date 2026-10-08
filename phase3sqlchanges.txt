@@ -2059,3 +2059,66 @@ ALTER TABLE `users`
 -- SELECT `id`, `username`, `can_withdraw_requests`
 --   FROM `users` WHERE `role` = 1 AND `is_deleted` = 0
 --  ORDER BY `can_withdraw_requests` DESC;
+
+
+-- ============================================================
+-- Tax / Invoice report — NO SCHEMA CHANGE.
+-- Logged here only so the deploy checklist is complete.
+--
+-- New read-only admin page at GET /api/v1/tax-report
+-- (TaxReportController@index), super-admin only: ['jwt','role:0'].
+--
+-- Lists every issued invoice with qty, rate per qty, gross total, CGST, SGST,
+-- total tax, round off and grand total, plus totals across the whole filtered
+-- range and a per-product delivered tally (Energy Plus / Health Plus) for the
+-- top cards.
+--
+-- An "invoice" is a promoter_box_requests row that is DELIVERED (status = 3)
+-- with rate_per_qty NOT NULL and is_deleted = 0 — exactly the eligibility
+-- BoxRequestController::resolveInvoiceBox enforces. Batches dispatched before
+-- pricing was captured have no rate and can never be invoiced, so they are
+-- not tax records and are excluded.
+--
+-- Every rupee comes from InvoiceBuilder::money(), newly extracted so the
+-- report and the printed bill share ONE formula and cannot drift. Invoice
+-- numbers are rendered by InvoiceBuilder::formatNumber() for the same reason.
+--
+-- The report has NO side effects: it never assigns an invoice number.
+-- Numbers are issued when a delivery is CONFIRMED — markDelivered (user) and
+-- adminMarkDelivered (admin) both call assignInvoiceNumber — so in normal
+-- operation every row already has one. Only batches delivered BEFORE
+-- numbering existed lack a number; those are numbered lazily on first invoice
+-- view. `awaiting_number` in the summary counts them and the page shows a
+-- banner, so the totals are never silently short.
+-- ============================================================
+
+-- Nothing to run. Cross-checks if a figure looks wrong:
+
+-- What the report should be listing:
+-- SELECT COUNT(*) AS invoices, SUM(`quantity`) AS units
+--   FROM `promoter_box_requests`
+--  WHERE `is_deleted` = 0 AND `status` = 3 AND `rate_per_qty` IS NOT NULL;
+
+-- Delivered batches that can NEVER be invoiced (no price recorded at
+-- dispatch). These are excluded from the report by design — if the list is
+-- not empty, those deliveries have no tax record at all:
+-- SELECT `id`, `user_id`, `level`, `quantity`, `delivered_at`
+--   FROM `promoter_box_requests`
+--  WHERE `is_deleted` = 0 AND `status` = 3 AND `rate_per_qty` IS NULL
+--  ORDER BY `delivered_at` DESC;
+
+-- Gross / tax / grand total straight from SQL, to reconcile against the page.
+-- Round off is per-invoice (grand total is rounded to whole rupees per row),
+-- so it cannot be derived in one aggregate — expect small differences here
+-- versus the page's Grand Total, which applies rounding row by row:
+-- SELECT ROUND(SUM(`quantity` * `rate_per_qty`), 2) AS gross,
+--        ROUND(SUM(`quantity` * `rate_per_qty`) * 0.09, 2) AS cgst_approx,
+--        ROUND(SUM(`quantity` * `rate_per_qty`) * 0.09, 2) AS sgst_approx
+--   FROM `promoter_box_requests`
+--  WHERE `is_deleted` = 0 AND `status` = 3 AND `rate_per_qty` IS NOT NULL;
+
+-- Per-level delivered split behind the product cards:
+-- SELECT `level`, COUNT(*) AS invoices, SUM(`quantity`) AS units
+--   FROM `promoter_box_requests`
+--  WHERE `is_deleted` = 0 AND `status` = 3 AND `rate_per_qty` IS NOT NULL
+--  GROUP BY `level` ORDER BY `level`;
