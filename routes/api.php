@@ -30,6 +30,7 @@ use App\Http\Controllers\V1\Api\WithdrawController;
 use App\Http\Controllers\VideoUploadController;
 use App\Http\Controllers\V1\Api\AdminDashboardController;
 use App\Http\Controllers\V1\Api\SubAdminController;
+use App\Http\Controllers\V1\Api\TaxReportController;
 use App\Http\Controllers\V1\Api\SupportHelpController;
 use App\Http\Controllers\V1\Api\SuggestionController;
 use App\Http\Controllers\V1\Api\TermsAndConditionController;
@@ -225,6 +226,11 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     // Admin Bank Details
     Route::post('admin-bank-details/upsert', [AdminBankDetailController::class, 'manage']);
     Route::get('admin-bank-details', [AdminBankDetailController::class, 'getActive']);
+
+    // Tax tracking — every issued invoice with its GST breakdown, plus
+    // running totals. Read-only; it never assigns an invoice number.
+    // Super-admin only for now.
+    Route::get('tax-report', [TaxReportController::class, 'index']);
 
     // Sub-Admin management (super-admin manages sub-admins)
     Route::patch('sub-admins/status-update', [SubAdminController::class, 'statusUpdate']);
