@@ -55,6 +55,7 @@ class PaymentGatewayController extends Controller
             's2s_url'        => $this->settlement->s2sUrl($request),
             'dashboard_url'  => 'https://www.paynimo.com/corpproducts/',
             'integration'    => 'Single URL integration (SOAP getTransactionToken + AES-128-CBC)',
+            'bank_code'      => $cfg['bank_code'] ?: null,
             'min_amount'     => $test ? self::TEST_MIN : 1,
             'max_amount'     => $test ? self::TEST_MAX : null,
             'test_bank_login' => $test ? 'test / test' : null,
@@ -83,6 +84,9 @@ class PaymentGatewayController extends Controller
             'email'         => 'required|email|max:150',
             'phone'         => 'required|digits:10',
             'description'   => 'nullable|string|max:200',
+            // Payment-option / bank code. Required by merchant setups that
+            // don't show Worldline's own payment-options page (TPPGE006).
+            'bank_code'     => 'nullable|alpha_num|max:10',
             'return_origin' => 'required|url|max:255',
         ], [
             'amount.max' => $test ? 'In TEST mode the gateway only accepts ₹1 to ₹10.' : 'Amount is too large.',
@@ -119,9 +123,11 @@ class PaymentGatewayController extends Controller
             'email'       => trim($request->email),
             'phone'       => $request->phone,
             'customer_id' => 'admin-' . $adminId,
+            'bank_code'   => $request->bank_code ?: (config('services.worldline.bank_code') ?: null),
             'return_url'  => $this->settlement->returnUrl($request),
             's2s_url'     => $this->settlement->s2sUrl($request),
         ];
+        $params = array_filter($params, fn ($v) => $v !== null && $v !== '');
         $payment->update(['request_payload' => $params]);
 
         try {

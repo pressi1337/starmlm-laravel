@@ -203,9 +203,29 @@ class WorldlineGateway
             's2s_url'        => $o['s2s_url'] ?? null,
             'rqst_rqst_dtls' => $this->cartDetails($amount),
             'clnt_dt_tm'     => $o['txn_date'] ?? $this->txnDate(),
+            // Some merchant/scheme setups require the bank (payment option)
+            // code in the request: without it the hosted page has nothing to
+            // pay with and the transaction fails with TPPGE006.
+            'tpsl_bank_cd'   => $o['bank_code'] ?? config('services.worldline.bank_code') ?: null,
             'cust_id'        => $o['customer_id'] ?? null,
             'mob'            => $o['phone'] ?? null,
         ], fn ($v) => $v !== null && $v !== '');
+    }
+
+    /**
+     * Their published sentence for a txn_err_msg code (TPPGExxx), or null.
+     * See config/worldline_errors.php.
+     */
+    public static function errorMessage(?string $code): ?string
+    {
+        $code = strtoupper(trim((string) $code));
+        if ($code === '') {
+            return null;
+        }
+        static $codes = null;
+        $codes ??= require config_path('worldline_errors.php');
+
+        return $codes[$code] ?? null;
     }
 
     /** "{email:...}{mob:...}{custid:...}{custname:...}" — all parts optional. */

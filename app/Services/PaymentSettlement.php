@@ -56,7 +56,7 @@ class PaymentSettlement
                 'transaction_id'   => $f['tpsl_txn_id'] ?? $row->transaction_id,
                 'response_code'    => isset($f['txn_status']) && $f['txn_status'] !== '' ? (int) $f['txn_status'] : $row->response_code,
                 'response_message' => isset($f['txn_msg']) ? mb_substr((string) $f['txn_msg'], 0, 255) : $row->response_message,
-                'error_desc'       => !empty($f['txn_err_msg']) ? mb_substr((string) $f['txn_err_msg'], 0, 500) : $row->error_desc,
+                'error_desc'       => !empty($f['txn_err_msg']) ? $this->describeError((string) $f['txn_err_msg']) : $row->error_desc,
                 'payment_mode'     => $f['tpsl_bank_cd'] ?? $row->payment_mode,
                 'payment_channel'  => $f['bank_name'] ?? $row->payment_channel,
                 'payment_datetime' => $f['tpsl_txn_time'] ?? $row->payment_datetime,
@@ -146,6 +146,18 @@ class PaymentSettlement
     public function s2sUrl(Request $request): string
     {
         return str_replace('/worldline/return', '/worldline/s2s', $this->returnUrl($request));
+    }
+
+    /**
+     * The gateway reports failures as bare codes like "TPPGE006". Store the
+     * code with its published meaning so the admin page is readable.
+     */
+    private function describeError(string $raw): string
+    {
+        $raw = trim($raw);
+        $message = WorldlineGateway::errorMessage($raw);
+
+        return mb_substr($message ? $raw . ' — ' . $message : $raw, 0, 500);
     }
 
     public function present(PromoterPayment $p): array

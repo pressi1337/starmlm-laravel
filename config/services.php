@@ -99,6 +99,11 @@ return [
         'enc_iv'            => env('WORLDLINE_ENC_IV'),
         'mode'              => env('WORLDLINE_MODE', 'TEST'),
         'itc'               => env('WORLDLINE_ITC'),
+        // Bank / payment-option code (tpsl_bank_cd). Required by merchant
+        // setups that do not show Worldline's own payment-options page — a
+        // payment without it fails with TPPGE006 "Bank ID is mandatory".
+        // Worldline supplies the code list for the merchant.
+        'bank_code'         => env('WORLDLINE_BANK_CODE'),
         'callback_base_url' => env('WORLDLINE_CALLBACK_BASE_URL'),
         // Hosts the admin test-payment page may be served from; the gateway
         // return sends the browser back there. Comma-separated host suffixes.
