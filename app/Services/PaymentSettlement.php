@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Models\ProductPrice;
 use App\Models\PromoterPayment;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -10,55 +9,58 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Applies Omniware results to PromoterPayment rows — shared by the gateway
- * return/callback handlers and the admin status re-check.
+ * Applies Worldline (Paynimo) results to PromoterPayment rows — shared by the
+ * gateway return/S2S handlers and the admin status re-check.
+ *
+ * Response fields used (decrypted, pipe-delimited — see WorldlineGateway):
+ *   txn_status 0300 success / 0399 failure / 0002 pending
+ *   txn_msg, txn_err_msg, clnt_txn_ref (our order id), tpsl_txn_id (theirs),
+ *   txn_amt, bank_name, tpsl_bank_cd, tpsl_txn_time
  */
 class PaymentSettlement
 {
-    public function __construct(private OmniwareGateway $gateway)
+    public function __construct(private WorldlineGateway $gateway)
     {
     }
 
     /**
      * Apply a gateway result to a payment attempt. Idempotent and race-safe:
-     * the browser return and the server callback can arrive together.
+     * the browser return and the server-to-server call can arrive together.
      *
-     * @param bool|null $hashVerified true when $data's hash was checked, null
-     *                                when it came from the Status API.
+     * @param bool|null $hashVerified true when the payload decrypted AND its
+     *                                hash matched; null when not applicable.
      */
-    public function settle(PromoterPayment $payment, array $data, string $via, ?bool $hashVerified = null): PromoterPayment
+    public function settle(PromoterPayment $payment, array $f, string $via, ?bool $hashVerified = null): PromoterPayment
     {
-        return DB::transaction(function () use ($payment, $data, $via, $hashVerified) {
+        return DB::transaction(function () use ($payment, $f, $via, $hashVerified) {
             $row = PromoterPayment::whereKey($payment->id)->lockForUpdate()->first();
 
             if ((int) $row->status === PromoterPayment::STATUS_SUCCESS) {
                 return $row; // never downgrade a settled success
             }
 
-            $status = PromoterPayment::statusFromGatewayCode($data['response_code'] ?? null);
+            $status = PromoterPayment::statusFromGatewayStatus($f['txn_status'] ?? null);
 
-            // Amount the merchant asked for — amount_orig when the account
-            // passes the convenience fee to the customer, else amount.
-            $charged = (float) ($data['amount_orig'] ?? $data['amount'] ?? 0);
+            // The amount the gateway actually processed must match the order.
+            $charged = (float) ($f['txn_amt'] ?? 0);
             if ($status === PromoterPayment::STATUS_SUCCESS && abs($charged - (float) $row->amount) > 0.009) {
-                Log::critical('Omniware amount mismatch', [
+                Log::critical('Worldline amount mismatch', [
                     'order_id' => $row->order_id, 'expected' => $row->amount, 'got' => $charged,
                 ]);
                 $status = PromoterPayment::STATUS_FAILED;
-                $data['error_desc'] = 'Amount mismatch: expected ' . $row->amount . ', got ' . $charged;
+                $f['txn_err_msg'] = 'Amount mismatch: expected ' . $row->amount . ', got ' . $charged;
             }
 
-            unset($data['hash']);
             $row->fill([
                 'status'           => $status,
-                'transaction_id'   => $data['transaction_id'] ?? $row->transaction_id,
-                'response_code'    => isset($data['response_code']) && $data['response_code'] !== '' ? (int) $data['response_code'] : $row->response_code,
-                'response_message' => isset($data['response_message']) ? mb_substr((string) $data['response_message'], 0, 255) : $row->response_message,
-                'error_desc'       => isset($data['error_desc']) ? mb_substr((string) $data['error_desc'], 0, 500) : $row->error_desc,
-                'payment_mode'     => $data['payment_mode'] ?? $data['payment_method'] ?? $row->payment_mode,
-                'payment_channel'  => $data['payment_channel'] ?? $row->payment_channel,
-                'payment_datetime' => $data['payment_datetime'] ?? $row->payment_datetime,
-                'gateway_response' => $data,
+                'transaction_id'   => $f['tpsl_txn_id'] ?? $row->transaction_id,
+                'response_code'    => isset($f['txn_status']) && $f['txn_status'] !== '' ? (int) $f['txn_status'] : $row->response_code,
+                'response_message' => isset($f['txn_msg']) ? mb_substr((string) $f['txn_msg'], 0, 255) : $row->response_message,
+                'error_desc'       => !empty($f['txn_err_msg']) ? mb_substr((string) $f['txn_err_msg'], 0, 500) : $row->error_desc,
+                'payment_mode'     => $f['tpsl_bank_cd'] ?? $row->payment_mode,
+                'payment_channel'  => $f['bank_name'] ?? $row->payment_channel,
+                'payment_datetime' => $f['tpsl_txn_time'] ?? $row->payment_datetime,
+                'gateway_response' => $f,
             ]);
             if ($hashVerified !== null) {
                 $row->hash_verified = $hashVerified ? 1 : 0;
@@ -76,57 +78,74 @@ class PaymentSettlement
     }
 
     /**
-     * Ask the gateway for the truth about one attempt. Never throws.
+     * Ask the gateway for the truth about one attempt (status enquiry).
+     * Never throws.
      *
-     * @return array{0: PromoterPayment, 1: array, 2: ?string} payment, raw status rows, lookup error
+     * @return array{0: PromoterPayment, 1: array, 2: ?string} payment, decrypted fields, lookup error
      */
     public function reconcile(PromoterPayment $payment): array
     {
         try {
-            $rows = $this->gateway->fetchStatus($payment->order_id);
+            $answer = $this->gateway->fetchStatus(
+                $payment->order_id,
+                number_format((float) $payment->amount, 2, '.', ''),
+                $this->gateway->txnDate(optional($payment->created_at)->toDateString()),
+            );
         } catch (Throwable $e) {
-            // Most commonly: this server's IP isn't whitelisted with Omniware yet.
-            Log::info('Omniware status lookup unavailable', ['order_id' => $payment->order_id, 'error' => $e->getMessage()]);
+            Log::info('Worldline status enquiry failed', ['order_id' => $payment->order_id, 'error' => $e->getMessage()]);
             return [$payment, [], $e->getMessage()];
         }
 
-        if (!$rows) {
-            return [$payment, [], null];
+        $fields = $answer['fields'];
+        $txnStatus = (string) ($fields['txn_status'] ?? '');
+
+        // No answer, or the gateway has never seen this order (the payer never
+        // reached the payment page). Leave the row alone.
+        if ($txnStatus === '' || $txnStatus === WorldlineGateway::STATUS_NOT_FOUND) {
+            return [$payment, $fields, $txnStatus === WorldlineGateway::STATUS_NOT_FOUND
+                ? ($fields['txn_err_msg'] ?: 'Transaction not found at the gateway')
+                : null];
         }
 
-        // Prefer a successful transaction if the user attempted more than once
-        // on the same payment page; otherwise take the latest.
-        $pick = collect($rows)->first(fn ($r) => (string) ($r['response_code'] ?? '') === '0') ?? end($rows);
+        // A hash on an enquiry answer must match. The enquiry runs over our
+        // own authenticated TLS call, so an answer with no hash is accepted
+        // but recorded as unverified rather than verified.
+        if ($answer['hash_present'] && !$answer['verified']) {
+            Log::warning('Worldline enquiry hash mismatch', ['order_id' => $payment->order_id]);
+            return [$payment, $fields, 'Gateway answer failed its hash check'];
+        }
 
-        return [$this->settle($payment, $pick, 'status_api'), $rows, null];
+        $verified = $answer['hash_present'] ? true : null;
+
+        return [$this->settle($payment, $fields, 'status_api', $verified), $fields, null];
     }
 
     /**
-     * Raw form body as the gateway sent it. Laravel's TrimStrings /
-     * ConvertEmptyStringsToNull middleware rewrite $request->all(), and the
-     * hash must be computed over what the gateway actually signed.
+     * The gateway posts its result as a single encrypted `msg` field. Read it
+     * from the raw body — Laravel's TrimStrings / ConvertEmptyStringsToNull
+     * middleware rewrite $request->all(), and the payload must stay byte-exact.
      */
-    public function gatewayPayload(Request $request): array
+    public function gatewayPayload(Request $request): string
     {
         $raw = (string) $request->getContent();
         if ($raw !== '' && str_contains((string) $request->header('Content-Type'), 'application/x-www-form-urlencoded')) {
             parse_str($raw, $parsed);
-            if (is_array($parsed) && $parsed) {
-                return $parsed;
+            if (is_array($parsed) && isset($parsed['msg'])) {
+                return (string) $parsed['msg'];
             }
         }
-        return array_map(fn ($v) => $v ?? '', $request->all());
+        return (string) ($request->input('msg') ?? $request->query('msg') ?? '');
     }
 
     public function returnUrl(Request $request): string
     {
-        $base = (string) config('services.omniware.callback_base_url');
-        return rtrim($base !== '' ? $base : $request->getSchemeAndHttpHost(), '/') . '/api/v1/payments/omniware/return';
+        $base = (string) config('services.worldline.callback_base_url');
+        return rtrim($base !== '' ? $base : $request->getSchemeAndHttpHost(), '/') . '/api/v1/payments/worldline/return';
     }
 
-    public function callbackUrl(Request $request): string
+    public function s2sUrl(Request $request): string
     {
-        return str_replace('/omniware/return', '/omniware/callback', $this->returnUrl($request));
+        return str_replace('/worldline/return', '/worldline/s2s', $this->returnUrl($request));
     }
 
     public function present(PromoterPayment $p): array
@@ -137,8 +156,6 @@ class PaymentSettlement
             'amount'           => (float) $p->amount,
             'currency'         => $p->currency,
             'mode'             => $p->mode,
-            'level'            => $p->level !== null ? (int) $p->level : null,
-            'level_label'      => $p->level !== null ? ProductPrice::levelLabel($p->level) : 'Test payment',
             'status'           => (int) $p->status,
             'status_label'     => [0 => 'pending', 1 => 'success', 2 => 'failed', 3 => 'cancelled'][(int) $p->status] ?? 'pending',
             'transaction_id'   => $p->transaction_id,

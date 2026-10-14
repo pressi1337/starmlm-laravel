@@ -1070,29 +1070,45 @@ Last Updated: 2025-09-08
 Version: 1.0
 
 ================================================================================
-PAYMENT GATEWAY — Omniware (Federal Bank), admin test payments
+PAYMENT GATEWAY — Worldline ePayments India (Paynimo), admin test payments
 ================================================================================
-Two-step hosted checkout (v2/getpaymentrequesturl). Config: OMNIWARE_* in .env
-(config/services.php 'omniware'). SALT stays on the server only.
+"Single URL" integration: a pipe-delimited request string ending in
+|hash=sha1(...), AES-128-CBC encrypted with the merchant key+IV, posted to the
+SOAP operation getTransactionToken (plain XML POST — ext-soap is NOT required).
+It answers with a hosted payment page URL. Config: WORLDLINE_* in .env
+(config/services.php 'worldline'). Key and IV never leave the server.
 Promoter-side payments are NOT built yet (planned for a later phase).
 
+Gateway rules learned from their TEST merchant:
+  - clnt_dt_tm must be dd-MM-yyyy with NO time, else the gateway returns ERROR035.
+  - rqst_rqst_dtls is "<SCHEME>_<amount with 1 decimal>_0.0" e.g. FIRST_5.0_0.0.
+  - TEST merchant accepts ₹1–₹10 only; test bank login is test / test.
+  - Status enquiry answers in PLAIN TEXT (no encryption, no hash), and reports
+    txn_status=9999 "notfound" for an order nobody has paid yet.
+
 ADMIN (super-admin — jwt + role:0)
-GET  /api/v1/payment-gateway/config                  mode, api_url, masked key/salt, return/callback URLs, stats
-POST /api/v1/payment-gateway/test-initiate           { amount, name, email, phone(10), city, state?, zip_code(6),
-                                                       description?, return_origin }  -> { order_id, payment_url, request }
-     return_origin must be a host in OMNIWARE_ADMIN_HOSTS; after paying, the browser is
+GET  /api/v1/payment-gateway/config                  mode, merchant/scheme code, masked key+IV,
+                                                     service URL, return/S2S URLs, amount limits, stats
+POST /api/v1/payment-gateway/test-initiate           { amount, name, email, phone(10), description?,
+                                                       return_origin } -> { order_id, payment_url, request }
+     return_origin must be a host in WORLDLINE_ADMIN_HOSTS; after paying, the browser is
      sent to {return_origin}/portal/admin/payment-gateway?order_id=...
-     400 with the gateway's message if it rejects the request (e.g. amount below ₹10).
+     422 when the amount is outside the mode's limits; 400 with the gateway's
+     own error code (e.g. ERROR035) when it rejects the request.
 GET  /api/v1/payment-gateway/transactions            page_size, page_number, purpose=test|promoter
-GET  /api/v1/payment-gateway/transactions/{order_id} re-checks with the gateway Status API
+GET  /api/v1/payment-gateway/transactions/{order_id} re-checks with the status enquiry (request type S)
      -> { payment, gateway_rows, gateway_error, gateway_says }
 
-GATEWAY → US (public; the SALT-signed hash is the credential)
-POST /api/v1/payments/omniware/return            browser post-back; verifies hash, records result,
-                                                 302 -> the admin page the payment started from
-POST /api/v1/payments/omniware/callback          server-to-server; set as "Payment Callback URL"
-                                                 in the Omniware dashboard. 200 OK | 400 INVALID HASH
+GATEWAY → US (public routes; the encrypted+hashed payload is the credential)
+POST /api/v1/payments/worldline/return   browser post-back of the encrypted `msg`; decrypts,
+                                         verifies the sha1 hash, records the result, then 302s
+                                         to the admin page the payment started from
+POST /api/v1/payments/worldline/s2s      Worldline's server-to-server copy — give them this URL.
+                                         200 OK | 400 INVALID PAYLOAD | 404 UNKNOWN ORDER
 
-Status: 0 pending | 1 success | 2 failed | 3 cancelled. A recorded success is never
-overwritten; a success whose amount differs from the order is recorded as failed.
+txn_status mapping: 0300 success | 0399 (and anything unknown) failed | 0002 pending |
+9999 not-found, which leaves the row open. A recorded success is never overwritten,
+and a success whose txn_amt differs from the order is recorded as failed.
+A payload that fails its hash check is never trusted — the row is re-checked
+against the gateway instead.
 Table: promoter_payments (one row per attempt; test payments have purpose='test').

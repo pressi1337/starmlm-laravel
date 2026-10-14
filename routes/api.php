@@ -17,7 +17,7 @@ use App\Http\Controllers\V1\Api\LoginLogController;
 use App\Http\Controllers\V1\Api\PromotionQuizController;
 use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
-use App\Http\Controllers\V1\Api\OmniwareWebhookController;
+use App\Http\Controllers\V1\Api\WorldlineWebhookController;
 use App\Http\Controllers\V1\Api\PaymentGatewayController;
 use App\Http\Controllers\V1\Api\BoxRequestController;
 use App\Http\Controllers\V1\Api\BillTemplateController;
@@ -200,7 +200,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
 
 // Super-Admin only. Sub-Admin (role=1) gets a 403 from RoleMiddleware here.
 Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
-    // Payment Gateway (Omniware / Federal Bank) — config view + admin test payments.
+    // Payment Gateway (Worldline / Paynimo) — config view + admin test payments.
     Route::get('payment-gateway/config', [PaymentGatewayController::class, 'config']);
     Route::post('payment-gateway/test-initiate', [PaymentGatewayController::class, 'testInitiate'])->middleware('throttle:20,1');
     Route::get('payment-gateway/transactions', [PaymentGatewayController::class, 'transactions']);
@@ -324,12 +324,12 @@ Route::middleware('signed:relative')->prefix('v1')->group(function () {
         ->where('id', '[0-9]+');
 });
 
-// Omniware (Federal Bank) payment gateway — posted to by the gateway itself,
-// so no JWT. The response hash (signed with our SALT) is the credential, and
-// OmniwareWebhookController verifies it before touching any row.
+// Worldline (Paynimo) payment gateway — posted to by the gateway itself, so
+// no JWT. The payload is AES-encrypted with our key and carries its own hash;
+// WorldlineWebhookController verifies both before touching any row.
 Route::prefix('v1')->middleware('throttle:60,1')->group(function () {
-    Route::post('payments/omniware/return', [OmniwareWebhookController::class, 'gatewayReturn']);
-    Route::post('payments/omniware/callback', [OmniwareWebhookController::class, 'gatewayCallback']);
+    Route::post('payments/worldline/return', [WorldlineWebhookController::class, 'gatewayReturn']);
+    Route::post('payments/worldline/s2s', [WorldlineWebhookController::class, 'gatewayS2s']);
 });
 
 Route::middleware('userjwt')->prefix('v1')->group(function () {
