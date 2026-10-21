@@ -74,13 +74,23 @@ class VideoUploadController extends Controller
 
             File::deleteDirectory($tempDir);
 
-            // Re-encode to a mobile-friendly size before it ever reaches a
-            // user. Raw phone uploads are often 10x larger than needed, which
-            // is what drives app data usage. Done in place under the same
-            // filename, so the stored_filename below (and every DB reference to
-            // it) stays valid. Never fatal: if ffmpeg is missing or the encode
-            // fails, the original file is kept and the upload still succeeds.
-            $compression = $this->compressInPlace($finalPath);
+            // Re-encode to a mobile-friendly size. Raw phone uploads are often
+            // 10x larger than needed, which is what drives app data usage.
+            // Done in place under the same filename, so the stored_filename
+            // below (and every DB reference to it) stays valid. Never fatal:
+            // if ffmpeg is missing or the encode fails, the original is kept.
+            //
+            // Deferred until after the response is sent: an encode takes
+            // minutes, and running it inline held the final chunk request open
+            // past the proxy/browser timeout — the client saw "failed" at 98%
+            // even though the server finished. Until the encode lands, the
+            // original file is served under the same name; rename() then
+            // swaps the compressed one in atomically.
+            defer(function () use ($finalPath) {
+                ignore_user_abort(true);
+                set_time_limit(0);
+                $this->compressInPlace($finalPath);
+            });
 
             return response()->json([
                 'message' => 'File merged successfully',
@@ -88,7 +98,7 @@ class VideoUploadController extends Controller
                 'filename' => $filename,
                 'stored_filename' => $storedName,
                 'stored_path' => "{$this->finalPath}{$storedName}",
-                'compression' => $compression,
+                'compression' => ['applied' => false, 'reason' => 'queued'],
             ]);
         }
 

@@ -1846,7 +1846,7 @@ ALTER TABLE `users`
 
 
 -- ============================================================
--- Online payments — Omniware (Federal Bank) payment gateway.
+-- Online payments — Worldline ePayments India (Paynimo) payment gateway.
 -- Equivalent of migration
 -- 2026_09_21_000001_create_promoter_payments_table.
 --
@@ -1859,11 +1859,15 @@ ALTER TABLE `users`
 -- Only the server writes these rows, after verifying the gateway's hash.
 --
 -- Also required in the server .env (then `php artisan config:cache`):
---   OMNIWARE_API_URL=https://pgbiz.omniware.in
---   OMNIWARE_API_KEY=...            OMNIWARE_SALT=...
---   OMNIWARE_MODE=TEST              (LIVE once the merchant is approved)
---   OMNIWARE_CALLBACK_BASE_URL=https://api.starupworld.com
---   OMNIWARE_ADMIN_HOSTS=starupworld.com,starup.in,localhost,127.0.0.1
+--   WORLDLINE_SERVICE_URL=https://www.tpsl-india.in/PaymentGateway/services/TransactionDetailsNew
+--   WORLDLINE_MERCHANT_CODE=...      WORLDLINE_SCHEME_CODE=...
+--   WORLDLINE_ENC_KEY=...            WORLDLINE_ENC_IV=...   (16 characters each)
+--   WORLDLINE_MODE=TEST              (LIVE once the merchant is approved)
+--   WORLDLINE_CALLBACK_BASE_URL=https://api.starupworld.com
+--   WORLDLINE_ADMIN_HOSTS=starupworld.com,starup.in,localhost,127.0.0.1
+--
+-- The table itself is gateway-independent — if it was already created for the
+-- earlier Omniware build, NOTHING needs to run again for Worldline.
 -- ============================================================
 
 CREATE TABLE `promoter_payments` (
