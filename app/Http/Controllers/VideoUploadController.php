@@ -49,58 +49,66 @@ class VideoUploadController extends Controller
         // Save current chunk
         $chunk->move($tempDir, "part-{$chunkIndex}");
 
-        // Check progress
-        $uploadedChunks = collect(range(0, $totalChunks - 1))
-            ->filter(fn($i) => File::exists("{$tempDir}/part-{$i}"))
-            ->values();
+        // Fast progress check: count parts in temp dir to avoid repeated filesystem stat scans
+        $partFiles = glob("{$tempDir}/part-*") ?: [];
+        $uploadedCount = count($partFiles);
 
-        if ($uploadedChunks->count() === $totalChunks) {
-            if (!File::exists($finalDir)) {
-                File::makeDirectory($finalDir, 0777, true);
-            }
-
-            $storedName = Str::uuid() . '_' . $filename; // safe unique name
-            $finalPath = "{$finalDir}/{$storedName}";
-
-            $output = fopen($finalPath, 'ab');
+        if ($uploadedCount === $totalChunks) {
+            // Verify all sequential parts from 0 to totalChunks - 1 are present
+            $allPartsPresent = true;
             for ($i = 0; $i < $totalChunks; $i++) {
-                $chunkPath = "{$tempDir}/part-{$i}";
-                $chunkStream = fopen($chunkPath, 'rb');
-                stream_copy_to_stream($chunkStream, $output);
-                fclose($chunkStream);
-                File::delete($chunkPath);
+                if (!file_exists("{$tempDir}/part-{$i}")) {
+                    $allPartsPresent = false;
+                    break;
+                }
             }
-            fclose($output);
 
-            File::deleteDirectory($tempDir);
+            if ($allPartsPresent) {
+                if (!File::exists($finalDir)) {
+                    File::makeDirectory($finalDir, 0777, true);
+                }
 
-            // Re-encode to a mobile-friendly size. Raw phone uploads are often
-            // 10x larger than needed, which is what drives app data usage.
-            // Done in place under the same filename, so the stored_filename
-            // below (and every DB reference to it) stays valid. Never fatal:
-            // if ffmpeg is missing or the encode fails, the original is kept.
-            //
-            // Deferred until after the response is sent: an encode takes
-            // minutes, and running it inline held the final chunk request open
-            // past the proxy/browser timeout — the client saw "failed" at 98%
-            // even though the server finished. Until the encode lands, the
-            // original file is served under the same name; rename() then
-            // swaps the compressed one in atomically.
-            defer(function () use ($finalPath) {
-                ignore_user_abort(true);
-                set_time_limit(0);
-                $this->compressInPlace($finalPath);
-            });
+                $storedName = Str::uuid() . '_' . $filename; // safe unique name
+                $finalPath = "{$finalDir}/{$storedName}";
 
-            return response()->json([
-                'message' => 'File merged successfully',
-                'status' => 'merged',
-                'filename' => $filename,
-                'stored_filename' => $storedName,
-                'stored_path' => "{$this->finalPath}{$storedName}",
-                'compression' => ['applied' => false, 'reason' => 'queued'],
-            ]);
+                $output = fopen($finalPath, 'ab');
+                for ($i = 0; $i < $totalChunks; $i++) {
+                    $chunkPath = "{$tempDir}/part-{$i}";
+                    $chunkStream = fopen($chunkPath, 'rb');
+                    stream_copy_to_stream($chunkStream, $output);
+                    fclose($chunkStream);
+                    File::delete($chunkPath);
+                }
+                fclose($output);
+
+                File::deleteDirectory($tempDir);
+
+                // Re-encode to a mobile-friendly size if enabled.
+                // Deferred until after the response is flushed to client:
+                // fastcgi_finish_request ensures the client is not blocked.
+                defer(function () use ($finalPath) {
+                    if (function_exists('fastcgi_finish_request')) {
+                        fastcgi_finish_request();
+                    }
+                    ignore_user_abort(true);
+                    set_time_limit(0);
+                    $this->compressInPlace($finalPath);
+                });
+
+                return response()->json([
+                    'message' => 'File merged successfully',
+                    'status' => 'merged',
+                    'filename' => $filename,
+                    'stored_filename' => $storedName,
+                    'stored_path' => "{$this->finalPath}{$storedName}",
+                    'compression' => ['applied' => false, 'reason' => 'queued'],
+                ]);
+            }
         }
+
+        $uploadedChunks = array_map(function ($path) {
+            return (int) substr(basename($path), 5); // extracts index from 'part-X'
+        }, $partFiles);
 
         return response()->json([
             'message' => 'Chunk uploaded',
@@ -127,6 +135,11 @@ class VideoUploadController extends Controller
             'original_mb' => null,
             'final_mb'    => null,
         ];
+
+        if (!config('services.ffmpeg.enabled', true)) {
+            $result['reason'] = 'disabled';
+            return $result;
+        }
 
         try {
             $videoExt = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v', 'mpg', 'mpeg', '3gp'];
