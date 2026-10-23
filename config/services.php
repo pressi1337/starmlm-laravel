@@ -53,6 +53,27 @@ return [
         // Max output height. 720p is already sharp on a phone; 1080p sources
         // are downscaled, smaller sources are left as-is (never upscaled).
         'height' => env('FFMPEG_HEIGHT', 720),
+
+        /*
+         * WHEN the encode runs. The work is the same either way — only what
+         * holds it differs.
+         *
+         *   'defer' (default) — after the response, in the PHP-FPM worker that
+         *       served the upload. Needs nothing installed, which is why it is
+         *       the default, but it keeps that worker busy for the whole encode
+         *       (minutes). A few uploads in a row can tie up the pool and make
+         *       the whole API feel slow.
+         *
+         *   'queue' — handed to a queue worker, freeing the web worker at once.
+         *       This is the right setting for production, but it REQUIRES a
+         *       running worker ("php artisan queue:work"); without one, videos
+         *       are never compressed and simply stay at their original size.
+         *
+         *   'off' — don't compress at all; serve exactly what was uploaded.
+         *
+         * See UPLOAD_PERFORMANCE.md for the worker setup.
+         */
+        'mode' => env('VIDEO_COMPRESS_MODE', 'defer'),
     ],
 
     /*
