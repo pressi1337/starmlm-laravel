@@ -43,7 +43,6 @@ return [
      * FFMPEG_PATH=/home/youruser/bin/ffmpeg
      */
     'ffmpeg' => [
-        'enabled' => env('FFMPEG_ENABLED', true),
         'path' => env('FFMPEG_PATH', 'ffmpeg'),
 
         // Quality dial for uploaded videos. Lower CRF = better quality, bigger

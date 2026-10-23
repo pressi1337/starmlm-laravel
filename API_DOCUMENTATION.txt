@@ -22,7 +22,7 @@ AUTHENTICATION:
    {
      "name": "string (required)",
      "email": "string (required, valid email, unique)",
-     "mobile": "string (required, unique)",
+     "mobile": "string (required, unique, EXACTLY 10 digits)",
      "password": "string (required, min:8)",
      "password_confirmation": "string (required, must match password)"
    }
@@ -1112,3 +1112,53 @@ and a success whose txn_amt differs from the order is recorded as failed.
 A payload that fails its hash check is never trusted — the row is re-checked
 against the gateway instead.
 Table: promoter_payments (one row per attempt; test payments have purpose='test').
+
+================================================================================
+MOBILE NUMBER FORMAT (users.mobile)
+================================================================================
+
+Every endpoint that writes `users.mobile` validates it through the single rule
+App\Rules\MobileNumber. There is one definition, so the contract is identical on
+all of them:
+
+  - POST   /api/v1/auth/register
+  - PATCH  /api/v1/update-personal-details
+  - POST   /api/v1/referrals            (admin creates a user)
+  - PUT    /api/v1/referrals/{id}       (admin edits a user)
+
+Accepted: exactly 10 digits, and not already in use by another live user
+(soft-deleted rows do not block reuse — see App\Rules\UniqueActive).
+
+Before validating, the value is normalised: surrounding whitespace, spaces,
+dashes, dots, slashes, round brackets and a leading "+" are removed, and an
+Indian country code or trunk prefix is dropped. All of these are therefore
+accepted and stored identically as "9876543210":
+
+    9876543210      +91 98765 43210     +919876543210
+    91-9876543210   098765 43210        0919876543210
+    (98765) 43210   98765-43210
+
+Letters are NOT stripped, deliberately: stripping them would reduce
+"Suresh9876543210" to a passing number. Any value still containing a non-digit
+after normalisation is rejected.
+
+Rejected (422), with "Mobile number must be exactly 10 digits.":
+
+    Devaraj         (a name — this was a real defect; the field previously
+                     accepted any string up to 15 characters)
+    987654321       (9 digits)
+    98765432101     (11 digits)
+    98765a43210     (letters mixed in)
+    ""              (empty)
+
+Error shape is the standard validation envelope:
+
+   {
+     "errors": {
+       "mobile": ["Mobile number must be exactly 10 digits."]
+     }
+   }
+
+Note: the column itself is VARCHAR(255) NULL and carries no CHECK constraint, so
+rows written before this rule existed may still hold bad values. Audit and
+repair queries are in phase3sqlchanges.txt under "users.mobile — audit".
