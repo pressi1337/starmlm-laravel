@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
+use App\Rules\MobileNumber;
 use App\Rules\UniqueActive;
 use Tymon\JWTAuth\Facades\JWTAuth;
 use App\Models\AdditionalScratchReferral;
@@ -32,6 +33,12 @@ class JwtAuthController extends Controller
 
     public function Register(Request $request)
     {
+        // Strip "+91", spaces and dashes before validating, so a number pasted
+        // from a contact list is accepted and stored in one canonical shape.
+        if ($request->has('mobile')) {
+            $request->merge(['mobile' => MobileNumber::normalize($request->input('mobile'))]);
+        }
+
         // Validate (aligned with ReferralController::store)
         $validator = Validator::make($request->all(), [
             'first_name'    => 'required|string|max:100',
@@ -48,7 +55,7 @@ class JwtAuthController extends Controller
                     }
                 },
             ],
-            'mobile'        => ['required', new UniqueActive('users', 'mobile', null, [])],
+            'mobile'        => ['required', new MobileNumber(), new UniqueActive('users', 'mobile', null, [])],
             'nationality'   => 'nullable|string|max:100',
             'state'         => 'nullable|string|max:100',
             'city'          => 'nullable|string|max:100',
@@ -74,8 +81,9 @@ class JwtAuthController extends Controller
             "username.unique" => "Username Already Exists",
             "password.confirmed" => "Password Confirmation Mismatch",
             "password.min" => "Password Must Be At Least 6 Characters Long",
-            "mobile.max" => "Mobile Must Be At Most 15 Characters Long",
-            "mobile.string" => "Mobile Must Be A String",
+            // No mobile.max / mobile.string here: the length and character
+            // rules now live in App\Rules\MobileNumber, which supplies its own
+            // message. A stale "at most 15 characters" override would lie.
             "nationality.max" => "Nationality Must Be At Most 100 Characters Long",
             "nationality.string" => "Nationality Must Be A String",
             "state.max" => "State Must Be At Most 100 Characters Long",
@@ -373,6 +381,10 @@ class JwtAuthController extends Controller
     {
         $user = User::find(auth()->user()->id);
 
+        if ($request->has('mobile')) {
+            $request->merge(['mobile' => MobileNumber::normalize($request->input('mobile'))]);
+        }
+
         // Validate incoming fields (all optional), enforce uniqueness on username/mobile when provided
         $validator = Validator::make($request->all(), [
             'first_name' => 'sometimes|nullable|string|max:100',
@@ -390,7 +402,10 @@ class JwtAuthController extends Controller
                     }
                 },
             ],
-            'mobile' => 'sometimes|required|string|max:15|unique:users,mobile,' . $user->id,
+            // Was 'string|max:15', which happily accepted a name. A plain
+            // `unique` would also collide with soft-deleted rows, so the
+            // uniqueness check goes through UniqueActive like everywhere else.
+            'mobile' => ['sometimes', 'required', new MobileNumber(), new UniqueActive('users', 'mobile', $user->id, [])],
             'nationality' => 'sometimes|nullable|string|max:100',
             'state' => 'sometimes|nullable|string|max:100',
             'city' => 'sometimes|nullable|string|max:100',

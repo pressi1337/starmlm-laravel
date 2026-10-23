@@ -25,7 +25,10 @@ class UserFactory extends Factory
     {
         return [
             'name' => fake()->name(),
-            'mobile' => fake()->phoneNumber(),
+            // 10 digits, as App\Rules\MobileNumber requires. fake()->phoneNumber()
+            // returns decorated US numbers, which the rule rejects — factory
+            // rows would then look nothing like production data.
+            'mobile' => (string) fake()->numerify('9#########'),
             'mobile_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),

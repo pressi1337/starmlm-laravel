@@ -2193,3 +2193,73 @@ CREATE TABLE `tax_payments` (
 --   FROM `tax_payments`
 --  WHERE `is_deleted` = 0 AND (`cgst` > 0 OR `sgst` > 0)
 --    AND ABS((`cgst` + `sgst`) - `amount`) > 0.009;
+
+
+-- =====================================================================
+-- users.mobile — audit for the "a name got saved as a mobile number" bug
+-- =====================================================================
+-- No schema change. The column stays VARCHAR(255) NULL: tightening it would
+-- reject the bad rows that already exist rather than reveal them, and the
+-- app now validates every write path (App\Rules\MobileNumber).
+--
+-- These are DIAGNOSTIC + REPAIR queries. Run 1 and 2, decide, then 3.
+
+-- 1) How bad is it? One row of counts.
+-- SELECT COUNT(*)                                                      AS live_users,
+--        SUM(`mobile` IS NULL OR `mobile` = '')                        AS blank,
+--        SUM(`mobile` REGEXP '[A-Za-z]')                               AS contains_letters,
+--        SUM(`mobile` REGEXP '[^0-9]')                                 AS contains_non_digit,
+--        SUM(`mobile` NOT REGEXP '[^0-9]' AND CHAR_LENGTH(`mobile`) <> 10) AS wrong_length,
+--        SUM(`mobile` REGEXP '^[0-9]{10}$')                            AS already_clean
+--   FROM `users` WHERE `is_deleted` = 0;
+
+-- 2) The offending rows, worst first, so they can be chased up by hand.
+--    `suggested` shows what the new normaliser would make of it: a value that
+--    is NULL there cannot be repaired automatically and needs a real number.
+-- SELECT `id`, `username`, `first_name`, `last_name`, `mobile`,
+--        CHAR_LENGTH(`mobile`) AS len,
+--        CASE
+--          WHEN `mobile` REGEXP '[A-Za-z]' THEN NULL
+--          WHEN REGEXP_REPLACE(`mobile`, '[^0-9]', '') REGEXP '^91[0-9]{10}$'
+--               THEN SUBSTRING(REGEXP_REPLACE(`mobile`, '[^0-9]', ''), 3)
+--          WHEN REGEXP_REPLACE(`mobile`, '[^0-9]', '') REGEXP '^0[0-9]{10}$'
+--               THEN SUBSTRING(REGEXP_REPLACE(`mobile`, '[^0-9]', ''), 2)
+--          WHEN REGEXP_REPLACE(`mobile`, '[^0-9]', '') REGEXP '^[0-9]{10}$'
+--               THEN REGEXP_REPLACE(`mobile`, '[^0-9]', '')
+--          ELSE NULL
+--        END AS suggested
+--   FROM `users`
+--  WHERE `is_deleted` = 0
+--    AND (`mobile` IS NULL OR `mobile` NOT REGEXP '^[0-9]{10}$')
+--  ORDER BY (`mobile` REGEXP '[A-Za-z]') DESC, `id`;
+
+-- 3) Repair ONLY the rows that are a real number wearing decoration
+--    (+91, a leading 0, spaces, dashes). Rows holding a name are deliberately
+--    left alone — there is no number in them to recover, so they must be
+--    corrected from the user, not guessed at.
+--    TAKE A BACKUP FIRST:  CREATE TABLE users_mobile_bak_20261023 AS
+--                          SELECT id, mobile FROM users;
+-- UPDATE `users`
+--    SET `mobile` = CASE
+--          WHEN REGEXP_REPLACE(`mobile`, '[^0-9]', '') REGEXP '^91[0-9]{10}$'
+--               THEN SUBSTRING(REGEXP_REPLACE(`mobile`, '[^0-9]', ''), 3)
+--          WHEN REGEXP_REPLACE(`mobile`, '[^0-9]', '') REGEXP '^0[0-9]{10}$'
+--               THEN SUBSTRING(REGEXP_REPLACE(`mobile`, '[^0-9]', ''), 2)
+--          ELSE REGEXP_REPLACE(`mobile`, '[^0-9]', '')
+--        END
+--  WHERE `is_deleted` = 0
+--    AND `mobile` NOT REGEXP '^[0-9]{10}$'
+--    AND `mobile` NOT REGEXP '[A-Za-z]'
+--    AND REGEXP_REPLACE(`mobile`, '[^0-9]', '') REGEXP '^(91|0)?[0-9]{10}$';
+
+-- 4) Repair can create a duplicate (two rows decorated differently were the
+--    same number all along). Uniqueness is enforced in the app, not the
+--    column, so check afterwards and merge by hand:
+-- SELECT `mobile`, COUNT(*) AS rows_sharing_it,
+--        GROUP_CONCAT(`id` ORDER BY `id`) AS user_ids
+--   FROM `users` WHERE `is_deleted` = 0 AND `mobile` IS NOT NULL AND `mobile` <> ''
+--  GROUP BY `mobile` HAVING COUNT(*) > 1;
+
+-- ROLLBACK for step 3 (needs the backup table above):
+-- UPDATE `users` u JOIN `users_mobile_bak_20261023` b ON b.`id` = u.`id`
+--    SET u.`mobile` = b.`mobile`;

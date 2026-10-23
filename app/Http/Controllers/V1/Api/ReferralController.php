@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use App\Models\User;
 use App\Models\UserTrainingVideo;
 use Illuminate\Support\Facades\Validator;
+use App\Rules\MobileNumber;
 use App\Rules\UniqueActive;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -50,8 +51,8 @@ class ReferralController extends Controller
             "username.unique" => "Username Already Exists",
             "password.confirmed" => "Password Confirmation Mismatch",
             "password.min" => "Password Must Be At Least 6 Characters Long",
-            "mobile.max" => "Mobile Must Be At Most 15 Characters Long",
-            "mobile.string" => "Mobile Must Be A String",
+            // Length/character rules live in App\Rules\MobileNumber, which
+            // carries its own message — no mobile.max / mobile.string here.
             "mobile.required" => "Mobile Required",
             "nationality.max" => "Nationality Must Be At Most 100 Characters Long",
             "nationality.string" => "Nationality Must Be A String",
@@ -483,6 +484,10 @@ class ReferralController extends Controller
     public function store(Request $request)
     {
         try {
+            if ($request->has('mobile')) {
+                $request->merge(['mobile' => MobileNumber::normalize($request->input('mobile'))]);
+            }
+
             // Validation
             $validator = Validator::make($request->all(), [
                 'first_name'    => 'required|string|max:100',
@@ -499,7 +504,7 @@ class ReferralController extends Controller
                         }
                     },
                 ],
-                'mobile'        => ['required', new UniqueActive('users', 'mobile', null, [])],
+                'mobile'        => ['required', new MobileNumber(), new UniqueActive('users', 'mobile', null, [])],
                 'nationality'   => 'nullable|string|max:100',
                 'state'         => 'nullable|string|max:100',
                 'city'          => 'nullable|string|max:100',
@@ -669,6 +674,10 @@ class ReferralController extends Controller
                 return response()->json(['success' => false, 'message' => 'Not found'], 400);
             }
 
+            if ($request->has('mobile')) {
+                $request->merge(['mobile' => MobileNumber::normalize($request->input('mobile'))]);
+            }
+
             // Validation rules - similar to store but adjusted for update
             $validator = Validator::make($request->all(), [
                 'first_name'    => 'required|string|max:100',
@@ -685,7 +694,7 @@ class ReferralController extends Controller
                         }
                     },
                 ],
-                'mobile'        => ['required', new UniqueActive('users', 'mobile', $id, [])],
+                'mobile'        => ['required', new MobileNumber(), new UniqueActive('users', 'mobile', $id, [])],
                 'nationality'   => 'nullable|string|max:100',
                 'state'         => 'nullable|string|max:100',
                 'city'          => 'nullable|string|max:100',
