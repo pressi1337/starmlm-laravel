@@ -53,6 +53,46 @@ return [
         // Max output height. 720p is already sharp on a phone; 1080p sources
         // are downscaled, smaller sources are left as-is (never upscaled).
         'height' => env('FFMPEG_HEIGHT', 720),
+
+        /*
+         * WHEN the encode runs. The work is identical in every mode — only
+         * what holds it differs, and that turns out to decide whether uploads
+         * succeed at all.
+         *
+         *   'queue' (default) — handed to a queue worker, so the web request
+         *       returns immediately. Needs "php artisan queue:work" running;
+         *       without a worker the upload still succeeds, the video just
+         *       stays at its original size until something compresses it
+         *       (see 'off' below).
+         *
+         *   'defer' — after the response, in the PHP-FPM worker that served
+         *       the upload. DO NOT USE unless you have verified it on your
+         *       server: measured on this one, the encode held the final chunk
+         *       request open until nginx returned 504 after 64s, so EVERY real
+         *       video upload failed at 100% even though the file had merged
+         *       fine. fastcgi_finish_request() is called first to try to
+         *       release the response, but if PHP has it disabled the request
+         *       blocks anyway and uploads break.
+         *
+         *   'off' — don't compress during upload at all. Combine with a cron
+         *       running the backfill command, which is idempotent, keeps the
+         *       originals, and only replaces a file when the result is
+         *       genuinely smaller:
+         *           * /10 * * * *  php artisan videos:compress
+         *
+         * See UPLOAD_PERFORMANCE.md.
+         */
+        'mode' => env('VIDEO_COMPRESS_MODE', 'spawn'),
+
+        /*
+         * The PHP **CLI** binary, used by 'spawn' mode to run artisan.
+         *
+         * PHP_BINARY cannot be used for this: under PHP-FPM it points at the
+         * FPM binary (e.g. /usr/sbin/php-fpm8.2), which will not run artisan.
+         * "php" works whenever the CLI is on the web user's PATH; set an
+         * absolute path if it is not.
+         */
+        'php_binary' => env('PHP_CLI_BINARY', 'php'),
     ],
 
     /*
