@@ -36,48 +36,11 @@ class CompressUploadedVideos extends Command
         {--height= : Target height in px (defaults to config services.ffmpeg.height)}
         {--crf= : Quality 18=best/large .. 32=small (defaults to config services.ffmpeg.crf)}
         {--delete-originals : Delete originals instead of keeping a backup copy}
-        {--file= : Compress only this single filename}
-        {--force : Re-process files even if they were compressed before}';
+        {--file= : Compress only this single filename}';
 
     protected $description = 'Re-encode already-uploaded videos in place to reduce app data usage';
 
-    /** Held for the whole run so two scheduled runs cannot overlap. */
-    private $runLock = null;
-
     public function handle(): int
-    {
-        // An encode takes minutes and this runs every ten, so overlap is a
-        // real possibility. Two runs would both pick up a file that has no
-        // marker yet (its encode is still in flight) and write to the same
-        // ".compressing.mp4" temp path, corrupting each other.
-        //
-        // flock on a local file, deliberately: withoutOverlapping() would take
-        // a lock from the cache store, which here is the remote database, so a
-        // blip there would silently stop compression happening at all.
-        $lockPath = storage_path('app/uploads/videos-compress.lock');
-        @mkdir(dirname($lockPath), 0775, true);
-        $this->runLock = @fopen($lockPath, 'c');
-        if ($this->runLock === false || !flock($this->runLock, LOCK_EX | LOCK_NB)) {
-            if (is_resource($this->runLock)) {
-                fclose($this->runLock);
-                $this->runLock = null;
-            }
-            $this->line('Another videos:compress run is still going; leaving it to finish.');
-
-            return self::SUCCESS;
-        }
-
-        try {
-            return $this->compress();
-        } finally {
-            if (is_resource($this->runLock)) {
-                flock($this->runLock, LOCK_UN);
-                fclose($this->runLock);
-            }
-        }
-    }
-
-    private function compress(): int
     {
         // Same binary + quality settings the upload flow uses, so existing and
         // new videos end up consistent. FFMPEG_PATH supports a static binary.
@@ -148,19 +111,6 @@ class CompressUploadedVideos extends Command
                 continue;
             }
 
-            // Has this exact file already been through here?
-            //
-            // This matters enormously now that the command runs on a schedule.
-            // Size alone cannot tell "compressed" from "not compressed", and
-            // re-encoding an already-compressed file at the same CRF produces
-            // a slightly SMALLER file, which the size check below would accept
-            // — so without this guard every run would re-encode the whole
-            // library and lose a generation of quality each time.
-            if (!$this->option('force') && $this->alreadyProcessed($path, $originalSize)) {
-                $skipped++;
-                continue;
-            }
-
             if ($dryRun) {
                 $this->line(sprintf('  would compress  %-45s %s', $this->shorten($name), $this->mb($originalSize)));
                 $processed++;
@@ -195,17 +145,13 @@ class CompressUploadedVideos extends Command
             if (!$process->isSuccessful() || $newSize < 10240) {
                 @unlink($tmp);
                 $failed++;
-                // Marked so a permanently undecodable file is not retried on
-                // every scheduled run. --force clears that.
-                $this->markProcessed($path, $originalSize, 'failed');
-                $this->warn("    failed, original left untouched ({$name})");
+                $this->warn("    failed — original left untouched ({$name})");
                 continue;
             }
             if ($newSize >= $originalSize) {
                 @unlink($tmp);
                 $skipped++;
-                $this->markProcessed($path, $originalSize, 'already_efficient');
-                $this->line('    already efficient, kept original');
+                $this->line('    already efficient — kept original');
                 continue;
             }
 
@@ -226,9 +172,6 @@ class CompressUploadedVideos extends Command
                 $this->error("    could not replace {$name} — backup is in uploads/original/");
                 continue;
             }
-
-            clearstatcache(true, $path);
-            $this->markProcessed($path, filesize($path) ?: $newSize, 'compressed');
 
             $saved = $originalSize - $newSize;
             $savedBytes += $saved;
@@ -255,64 +198,6 @@ class CompressUploadedVideos extends Command
         }
 
         return self::SUCCESS;
-    }
-
-    /**
-     * Where the "I have already handled this file" markers live.
-     *
-     * A plain directory of tiny JSON files rather than a database table: this
-     * command has to work from cron on a box where the database may be
-     * unreachable, and the state is per-file and disposable. Deleting the
-     * directory simply means everything is considered again.
-     */
-    private function stateDir(): string
-    {
-        $dir = storage_path('app/uploads/compress-state');
-        if (!is_dir($dir)) {
-            @mkdir($dir, 0775, true);
-        }
-
-        return $dir;
-    }
-
-    private function stateFile(string $path): string
-    {
-        // Hashed, so an awkward filename can never produce an awkward path.
-        return $this->stateDir() . DIRECTORY_SEPARATOR . sha1(basename($path)) . '.json';
-    }
-
-    /**
-     * True when this exact file has been processed before.
-     *
-     * Keyed on size AND mtime, not just the name, so a video replaced under
-     * the same name is treated as new work.
-     */
-    private function alreadyProcessed(string $path, int $size): bool
-    {
-        $file = $this->stateFile($path);
-        if (!is_file($file)) {
-            return false;
-        }
-
-        $state = json_decode((string) @file_get_contents($file), true);
-        if (!is_array($state)) {
-            return false;
-        }
-
-        return (int) ($state['size'] ?? -1) === $size
-            && (int) ($state['mtime'] ?? -1) === (int) @filemtime($path);
-    }
-
-    private function markProcessed(string $path, int $size, string $result): void
-    {
-        clearstatcache(true, $path);
-        @file_put_contents($this->stateFile($path), json_encode([
-            'name' => basename($path),
-            'size' => $size,
-            'mtime' => (int) @filemtime($path),
-            'result' => $result,
-            'at' => date('c'),
-        ]));
     }
 
     private function ffmpegAvailable(string $ffmpeg): bool
