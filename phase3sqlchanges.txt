@@ -2263,3 +2263,127 @@ CREATE TABLE `tax_payments` (
 -- ROLLBACK for step 3 (needs the backup table above):
 -- UPDATE `users` u JOIN `users_mobile_bak_20261023` b ON b.`id` = u.`id`
 --    SET u.`mobile` = b.`mobile`;
+
+
+-- =====================================================================
+-- Second pass of performance indexes (migration
+-- 2026_10_23_000001_add_more_performance_indexes)
+-- =====================================================================
+-- Covers what 2026_08_14_000000 left out. Every entry was checked against
+-- the real query in the code AND against the indexes that already exist,
+-- so nothing here is a duplicate.
+--
+-- Small configuration tables (support_helps, terms_and_conditions,
+-- youtube_channels, admin_bank_details, referral_scratch_*, bill_templates)
+-- are deliberately NOT indexed: a few rows each, MySQL scans them anyway,
+-- and an unused index only costs write time.
+--
+-- Adding an index rebuilds the table. InnoDB does it online, but on a large
+-- table it still costs time and IO -- RUN THIS OFF-PEAK.
+--
+-- MySQL has no "CREATE INDEX IF NOT EXISTS", so a statement for an index
+-- that already exists errors with 1061 (Duplicate key name). That is safe
+-- to ignore; run them one at a time, or use the migration, which skips
+-- any index already present.
+
+-- ---- users ----------------------------------------------------------
+-- The login lookup: WHERE username = ?
+-- NOTE: the admin search uses username LIKE '%term%', which NO B-tree index
+-- can serve. This helps the exact-match login only.
+ALTER TABLE `users` ADD INDEX `idx_users_username` (`username`);
+-- Resolving the referrer on every registration.
+ALTER TABLE `users` ADD INDEX `idx_users_referral_code` (`referral_code`);
+-- "Live rows" -- the pair filtered together throughout the app.
+ALTER TABLE `users` ADD INDEX `idx_users_deleted_active` (`is_deleted`, `is_active`);
+-- Admin lists filtered by promoter level.
+ALTER TABLE `users` ADD INDEX `idx_users_deleted_level` (`is_deleted`, `current_promoter_level`);
+
+-- ---- per-user-per-day tables (these grow fastest) -------------------
+ALTER TABLE `daily_video_watch_details`
+    ADD INDEX `idx_dvwd_user_video_date` (`user_id`, `daily_video_id`, `watched_date`);
+ALTER TABLE `training_attendances`
+    ADD INDEX `idx_ta_user_video` (`user_id`, `training_video_id`);
+
+-- ---- quiz tables: foreign keys read on every quiz load -------------
+-- None of these had ANY index, so each quiz load scanned the whole table
+-- once per level of nesting.
+ALTER TABLE `training_video_quizzes`   ADD INDEX `idx_tvq_video`    (`training_video_id`);
+ALTER TABLE `training_quiz_questions`  ADD INDEX `idx_tqq_quiz`     (`training_quiz_id`);
+ALTER TABLE `training_quiz_choices`    ADD INDEX `idx_tqc_question` (`training_quiz_question_id`);
+ALTER TABLE `promotion_video_quizzes`  ADD INDEX `idx_pvq_video`    (`promotion_video_id`);
+ALTER TABLE `promotion_quiz_questions` ADD INDEX `idx_pqq_quiz`     (`promotion_video_quiz_id`);
+ALTER TABLE `promotion_quiz_choices`   ADD INDEX `idx_pqc_question` (`promotion_quiz_question_id`);
+
+-- ---- content lookups ----------------------------------------------
+-- "Today's video" and "the video for day N".
+ALTER TABLE `daily_videos`
+    ADD INDEX `idx_dv_visible_date` (`is_deleted`, `is_active`, `showing_date`);
+ALTER TABLE `training_videos`
+    ADD INDEX `idx_tv_visible_day` (`is_deleted`, `is_active`, `day`);
+
+-- ---- invoices / Tax report ----------------------------------------
+-- WHERE is_deleted = 0 AND status = <delivered>, filtered and ordered by
+-- delivered_at. The existing pbr indexes are (user_id, level) and (status),
+-- neither of which serves this.
+ALTER TABLE `promoter_box_requests`
+    ADD INDEX `idx_pbr_live_status_delivered` (`is_deleted`, `status`, `delivered_at`);
+
+-- ---- bank details --------------------------------------------------
+ALTER TABLE `user_bank_details` ADD INDEX `idx_ubd_user` (`user_id`);
+
+-- ROLLBACK:
+-- ALTER TABLE `users`                     DROP INDEX `idx_users_username`;
+-- ALTER TABLE `users`                     DROP INDEX `idx_users_referral_code`;
+-- ALTER TABLE `users`                     DROP INDEX `idx_users_deleted_active`;
+-- ALTER TABLE `users`                     DROP INDEX `idx_users_deleted_level`;
+-- ALTER TABLE `daily_video_watch_details` DROP INDEX `idx_dvwd_user_video_date`;
+-- ALTER TABLE `training_attendances`      DROP INDEX `idx_ta_user_video`;
+-- ALTER TABLE `training_video_quizzes`    DROP INDEX `idx_tvq_video`;
+-- ALTER TABLE `training_quiz_questions`   DROP INDEX `idx_tqq_quiz`;
+-- ALTER TABLE `training_quiz_choices`     DROP INDEX `idx_tqc_question`;
+-- ALTER TABLE `promotion_video_quizzes`   DROP INDEX `idx_pvq_video`;
+-- ALTER TABLE `promotion_quiz_questions`  DROP INDEX `idx_pqq_quiz`;
+-- ALTER TABLE `promotion_quiz_choices`    DROP INDEX `idx_pqc_question`;
+-- ALTER TABLE `daily_videos`              DROP INDEX `idx_dv_visible_date`;
+-- ALTER TABLE `training_videos`           DROP INDEX `idx_tv_visible_day`;
+-- ALTER TABLE `promoter_box_requests`     DROP INDEX `idx_pbr_live_status_delivered`;
+-- ALTER TABLE `user_bank_details`         DROP INDEX `idx_ubd_user`;
+-- Dropping an index is instant-ish and never loses data.
+
+-- ---- WHICH INDEXES DO I ALREADY HAVE? ------------------------------
+-- Run this FIRST. Anything listed here does not need adding again.
+-- SELECT table_name, index_name,
+--        GROUP_CONCAT(column_name ORDER BY seq_in_index) AS cols,
+--        non_unique
+--   FROM information_schema.statistics
+--  WHERE table_schema = DATABASE()
+--  GROUP BY table_name, index_name, non_unique
+--  ORDER BY table_name, index_name;
+
+-- ---- DID THEY HELP? ------------------------------------------------
+-- Check a specific query actually uses one ("key" should name the index,
+-- and "type" should NOT be ALL):
+-- EXPLAIN SELECT * FROM `users` WHERE `username` = 'admin';
+-- EXPLAIN SELECT * FROM `promoter_box_requests`
+--          WHERE `is_deleted` = 0 AND `status` = 4
+--            AND `delivered_at` BETWEEN '2026-04-01' AND '2027-03-31';
+--
+-- Index sizes, so you can see what they cost:
+-- SELECT table_name,
+--        ROUND(data_length/1048576, 1)  AS data_mb,
+--        ROUND(index_length/1048576, 1) AS index_mb,
+--        table_rows
+--   FROM information_schema.tables
+--  WHERE table_schema = DATABASE()
+--  ORDER BY index_length DESC;
+
+-- ---- KNOWN NON-SARGABLE QUERIES (indexes cannot help these) --------
+-- Flagged for a later code change, not fixable with an index:
+--   1. username/first_name/last_name searches use LIKE '%term%'. A leading
+--      wildcard cannot use a B-tree index. Needs a FULLTEXT index and
+--      MATCH...AGAINST, or a prefix search (LIKE 'term%').
+--   2. whereDate('watched_date', ...) and whereDate('showing_date', ...)
+--      compile to DATE(col) = ?, and wrapping a column in a function stops
+--      MySQL using an index on it. Both columns are already DATE type, so
+--      the DATE() call is redundant -- switching these to
+--      where('watched_date', $date) lets the new indexes above be used.
