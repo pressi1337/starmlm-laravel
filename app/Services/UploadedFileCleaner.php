@@ -33,6 +33,12 @@ class UploadedFileCleaner
         ['daily_videos', 'video_path'],
         ['promotion_videos', 'video_path'],
         ['training_videos', 'video_path'],
+        // Support & Help entries can carry an optional video, stored exactly
+        // like the others (a chunked-upload stored_filename). This was missing,
+        // which made storage:prune-orphans see every one of those videos as an
+        // orphan and delete it — the column is written by a <FileUpload
+        // name="video"> on the Support & Help form.
+        ['support_helps', 'video'],
         ['company_documents', 'file_path'],
         ['company_personal_documents', 'file_path'],
         ['company_personal_document_files', 'file_path'],
