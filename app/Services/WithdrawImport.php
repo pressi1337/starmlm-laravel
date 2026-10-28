@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\WithdrawRequest;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 /**
@@ -248,6 +249,12 @@ class WithdrawImport
         try {
             $sheet = IOFactory::load($file->getRealPath())->getActiveSheet();
         } catch (\Throwable $e) {
+            // The admin only sees the generic message; keep the real cause for whoever debugs it.
+            Log::warning('Withdraw import: spreadsheet load failed', [
+                'file' => $file->getClientOriginalName(),
+                'path' => $file->getRealPath(),
+                'error' => get_class($e) . ': ' . $e->getMessage(),
+            ]);
             throw new \RuntimeException('That file could not be read. Upload the .xlsx exported from this page.');
         }
 
