@@ -33,6 +33,7 @@ use App\Http\Controllers\V1\Api\SubAdminController;
 use App\Http\Controllers\V1\Api\TaxPaymentController;
 use App\Http\Controllers\V1\Api\TaxReportController;
 use App\Http\Controllers\V1\Api\SupportHelpController;
+use App\Http\Controllers\V1\Api\PolicyPageController;
 use App\Http\Controllers\V1\Api\SuggestionController;
 use App\Http\Controllers\V1\Api\TermsAndConditionController;
 
@@ -279,6 +280,11 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
     // Terms & Conditions — admin saves the single document via upsert.
     Route::post('terms-and-conditions/upsert', [TermsAndConditionController::class, 'upsert']);
 
+    // Policy pages (Privacy, Refund & Cancellation, Shipping) — admin editor.
+    // Reads are public (see the public group below); only writes sit here.
+    Route::get('policies-admin', [PolicyPageController::class, 'adminIndex']);
+    Route::post('policies/upsert', [PolicyPageController::class, 'upsert']);
+
     // ── Offer module (admin) ────────────────────────────────────────────────
     // Master config (active flag, start datetime, leaderboard size), the
     // per-upgrade point values (one row per option: own / referral), and the
@@ -305,6 +311,13 @@ Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
 // public by design; gating it would block the registration flow.
 Route::prefix('v1')->group(function () {
     Route::get('terms-and-conditions', [TermsAndConditionController::class, 'show']);
+
+    // Privacy / Refund / Shipping policies. Public by requirement: payment
+    // gateways must be able to read them without an account, and the website
+    // renders them at /privacy-policy, /refund-policy and /shipping-policy.
+    Route::get('policies', [PolicyPageController::class, 'index']);
+    Route::get('policies/{slug}', [PolicyPageController::class, 'show'])
+        ->where('slug', '[a-z0-9-]+');
 });
 
 // Invoice PDF via a short-lived SIGNED link. Deliberately outside the JWT
