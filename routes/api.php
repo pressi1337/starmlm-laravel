@@ -17,8 +17,9 @@ use App\Http\Controllers\V1\Api\LoginLogController;
 use App\Http\Controllers\V1\Api\PromotionQuizController;
 use App\Http\Controllers\V1\Api\ReferralController;
 use App\Http\Controllers\V1\Api\UserPromoterController;
-use App\Http\Controllers\V1\Api\WorldlineWebhookController;
+use App\Http\Controllers\V1\Api\OmniwareWebhookController;
 use App\Http\Controllers\V1\Api\PaymentGatewayController;
+use App\Http\Controllers\V1\Api\PromoterPaymentController;
 use App\Http\Controllers\V1\Api\BoxRequestController;
 use App\Http\Controllers\V1\Api\BillTemplateController;
 use App\Http\Controllers\V1\Api\ProductPriceController;
@@ -118,6 +119,9 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
         Route::post('generate-pin', [UserPromoterController::class, 'generatePin']);
         Route::post('term-raised', [UserPromoterController::class, 'termRaised']);
         Route::post('pin-rejected', [UserPromoterController::class, 'pinRejected']);
+        // Cash / direct-transfer collections. Generate Pin is closed until a
+        // request is paid, and this is how an off-gateway payment gets in.
+        Route::post('promoter-payment/offline', [PromoterPaymentController::class, 'recordOffline']);
     });
 
     // Plan Product (promoter box fulfilment) — its own permission, so product
@@ -201,7 +205,7 @@ Route::middleware('jwt')->prefix('v1')->group(function () {
 
 // Super-Admin only. Sub-Admin (role=1) gets a 403 from RoleMiddleware here.
 Route::middleware(['jwt', 'role:0'])->prefix('v1')->group(function () {
-    // Payment Gateway (Worldline / Paynimo) — config view + admin test payments.
+    // Payment Gateway (Omniware / Federal Bank) — config view + admin test payments.
     Route::get('payment-gateway/config', [PaymentGatewayController::class, 'config']);
     Route::post('payment-gateway/test-initiate', [PaymentGatewayController::class, 'testInitiate'])->middleware('throttle:20,1');
     Route::get('payment-gateway/transactions', [PaymentGatewayController::class, 'transactions']);
@@ -337,12 +341,12 @@ Route::middleware('signed:relative')->prefix('v1')->group(function () {
         ->where('id', '[0-9]+');
 });
 
-// Worldline (Paynimo) payment gateway — posted to by the gateway itself, so
-// no JWT. The payload is AES-encrypted with our key and carries its own hash;
-// WorldlineWebhookController verifies both before touching any row.
+// Omniware (Federal Bank) payment gateway — posted to by the gateway itself,
+// so no JWT. The response hash (signed with our SALT) is the credential, and
+// OmniwareWebhookController verifies it before touching any row.
 Route::prefix('v1')->middleware('throttle:60,1')->group(function () {
-    Route::post('payments/worldline/return', [WorldlineWebhookController::class, 'gatewayReturn']);
-    Route::post('payments/worldline/s2s', [WorldlineWebhookController::class, 'gatewayS2s']);
+    Route::post('payments/omniware/return', [OmniwareWebhookController::class, 'gatewayReturn']);
+    Route::post('payments/omniware/callback', [OmniwareWebhookController::class, 'gatewayCallback']);
 });
 
 Route::middleware('userjwt')->prefix('v1')->group(function () {
@@ -355,6 +359,13 @@ Route::middleware('userjwt')->prefix('v1')->group(function () {
     Route::post('user-day-training-mark-as-completed', [UserTrainingController::class, 'completeTraining']);
     Route::post('term-accepted', [UserPromoterController::class, 'termrAccepted']);
     Route::post('activate-pin', [UserPromoterController::class, 'activatePin']);
+
+    // Plan payment — comes after the terms are accepted and before the pin.
+    // The amount is read from the Product Prices master on the server; the
+    // app never sends one. A success issues the pin on its own.
+    Route::get('promoter-payment/summary', [PromoterPaymentController::class, 'summary']);
+    Route::post('promoter-payment/initiate', [PromoterPaymentController::class, 'initiate'])->middleware('throttle:20,1');
+    Route::get('promoter-payment/status/{orderId}', [PromoterPaymentController::class, 'status'])->where('orderId', '[A-Za-z0-9]+');
     Route::get('user-promoters/list', [UserPromoterController::class, 'userPromotersList']);
     Route::get('user-promoter-video-get', [PromotionVideoController::class, 'userPromotionVideo']);
     Route::post('user-promoter-video-watched', [PromotionVideoController::class, 'markVideoWatched']);

@@ -1070,48 +1070,92 @@ Last Updated: 2025-09-08
 Version: 1.0
 
 ================================================================================
-PAYMENT GATEWAY — Worldline ePayments India (Paynimo), admin test payments
+PAYMENT GATEWAY — Omniware (Federal Bank): promoter plan payments + admin tests
 ================================================================================
-"Single URL" integration: a pipe-delimited request string ending in
-|hash=sha1(...), AES-128-CBC encrypted with the merchant key+IV, posted to the
-SOAP operation getTransactionToken (plain XML POST — ext-soap is NOT required).
-It answers with a hosted payment page URL. Config: WORLDLINE_* in .env
-(config/services.php 'worldline'). Key and IV never leave the server.
-Promoter-side payments are NOT built yet (planned for a later phase).
+Two-step hosted checkout: the server signs a request, POSTs it to
+/v2/getpaymentrequesturl, and gets back a one-time payment page URL for the
+browser to open. Config: OMNIWARE_* in .env (config/services.php 'omniware').
+The SALT signs every request and response and never leaves the server.
 
-Gateway rules learned from their TEST merchant:
-  - clnt_dt_tm must be dd-MM-yyyy with NO time, else the gateway returns ERROR035.
-  - rqst_rqst_dtls is "<SCHEME>_<amount with 1 decimal>_0.0" e.g. FIRST_5.0_0.0.
-  - TEST merchant accepts ₹1–₹10 only; test bank login is test / test.
-  - Status enquiry answers in PLAIN TEXT (no encryption, no hash), and reports
-    txn_status=9999 "notfound" for an order nobody has paid yet.
+Hash: SALT, then every non-empty field value in key-sorted order, pipe-joined,
+SHA-512, upper-cased. The same algorithm signs requests and verifies responses.
 
-ADMIN (super-admin — jwt + role:0)
-GET  /api/v1/payment-gateway/config                  mode, merchant/scheme code, masked key+IV,
-                                                     service URL, return/S2S URLs, amount limits, stats
-POST /api/v1/payment-gateway/test-initiate           { amount, name, email, phone(10), description?,
+Chain of parties: Federal Bank acquires → Worldline/TPSL configures the merchant
+on their platform → Omniware is the gateway this app integrates with. TPSL
+confirmed in writing that the Omniware kit is the final one.
+
+PROMOTER PLAN PAYMENT (user — userjwt)
+Where it sits in the promoter flow:
+  request upgrade → terms raised → terms accepted → PAY → pin issued
+  automatically → user activates the pin.
+The amount is the Product Prices sales price for the level being upgraded to,
+read on the server every time; the client never sends an amount.
+
+GET  /api/v1/promoter-payment/summary          { request, product{name,price,mrp},
+                                                 terms_accepted, payment_required, paid,
+                                                 payment, last_attempt, payer, gateway }
+POST /api/v1/promoter-payment/initiate         { return_origin, name?, email?, phone?,
+                                                 city?, state?, zip_code? }
+                                               -> { order_id, payment_url, amount, expiry_datetime }
+     return_origin must be a host in OMNIWARE_ADMIN_HOSTS; after paying, the browser
+     is sent to {return_origin}/portal/user/plan-payment?order_id=...
+     400 before the terms are accepted, when the request is already paid, or when
+     the level has no active price. 422 when a payer field the gateway requires
+     (name, email, phone, city, zip_code) is still blank on the profile.
+     Throttled to 20/min.
+GET  /api/v1/promoter-payment/status/{order_id} own payments only. Re-checks with the
+                                               gateway while the row is still open.
+                                               -> { payment, gateway_error, request{pin_ready} }
+
+ADMIN — offline collections (jwt + subadmin.permission:pin_requests)
+POST /api/v1/promoter-payment/offline          { user_promoter_id, amount,
+                                                 payment_mode: CASH|UPI|BANK|CHEQUE,
+                                                 reference?, note? }
+     Records a payment collected outside the gateway, which unblocks Generate Pin.
+     It does NOT issue the pin. 400 when the request is already paid or no longer
+     waiting for payment.
+
+PIN RULES (the money and the pin stay in step)
+  - A verified gateway SUCCESS on a 'promoter' payment issues the pin itself
+    (PaymentSettlement → PromoterPinService) and moves the user to APPROVED, so
+    nobody waits for an admin after paying. Idempotent: the browser return and
+    the server callback racing cannot produce two pins.
+  - POST /api/v1/generate-pin refuses an unpaid request with 400 and
+    { payment_required: true }. The offline endpoint above is the override.
+
+ADMIN — gateway page (super-admin: jwt + role:0)
+GET  /api/v1/payment-gateway/config                  provider, mode, masked API key + SALT,
+                                                     API URL, return/callback URLs, stats
+POST /api/v1/payment-gateway/test-initiate           { amount, name, email, phone(10), city,
+                                                       zip_code(6), state?, description?,
                                                        return_origin } -> { order_id, payment_url, request }
-     return_origin must be a host in WORLDLINE_ADMIN_HOSTS; after paying, the browser is
+     return_origin must be a host in OMNIWARE_ADMIN_HOSTS; after paying, the browser is
      sent to {return_origin}/portal/admin/payment-gateway?order_id=...
-     422 when the amount is outside the mode's limits; 400 with the gateway's
-     own error code (e.g. ERROR035) when it rejects the request.
-GET  /api/v1/payment-gateway/transactions            page_size, page_number, purpose=test|promoter
-GET  /api/v1/payment-gateway/transactions/{order_id} re-checks with the status enquiry (request type S)
+     400 with the gateway's own message when it rejects the request.
+GET  /api/v1/payment-gateway/transactions            page_size, page_number, and
+                                                     purpose=test|promoter (query param or search_param)
+GET  /api/v1/payment-gateway/transactions/{order_id} re-checks with the Payment Status API
      -> { payment, gateway_rows, gateway_error, gateway_says }
+     Note: the Status API only answers from an IP whitelisted with Omniware.
 
-GATEWAY → US (public routes; the encrypted+hashed payload is the credential)
-POST /api/v1/payments/worldline/return   browser post-back of the encrypted `msg`; decrypts,
-                                         verifies the sha1 hash, records the result, then 302s
-                                         to the admin page the payment started from
-POST /api/v1/payments/worldline/s2s      Worldline's server-to-server copy — give them this URL.
-                                         200 OK | 400 INVALID PAYLOAD | 404 UNKNOWN ORDER
+GATEWAY → US (public routes; the SHA-512 hash signed with our SALT is the credential)
+POST /api/v1/payments/omniware/return    browser post-back; verifies the hash, records the
+                                         result, then 302s to the screen the payment started
+                                         from (the app's plan-payment page, or the admin
+                                         gateway page for a test payment)
+POST /api/v1/payments/omniware/callback  server-to-server copy — set this as the Payment
+                                         Callback URL in the Omniware dashboard.
+                                         200 OK | 400 INVALID HASH | 404 UNKNOWN ORDER
 
-txn_status mapping: 0300 success | 0399 (and anything unknown) failed | 0002 pending |
-9999 not-found, which leaves the row open. A recorded success is never overwritten,
-and a success whose txn_amt differs from the order is recorded as failed.
+response_code mapping: 0 success | 1043 cancelled | 1006, 1030 pending (row stays
+open for a re-check) | anything else failed. A recorded success is never
+overwritten, and a success whose amount differs from the order is recorded as
+FAILED with an amount-mismatch note, so a short payment never issues a pin.
 A payload that fails its hash check is never trusted — the row is re-checked
 against the gateway instead.
-Table: promoter_payments (one row per attempt; test payments have purpose='test').
+Table: promoter_payments (one row per attempt). purpose='promoter' for plan
+payments, 'test' for admin tests; an offline collection is a 'promoter' row with
+status=1 and settled_via='offline'.
 
 ================================================================================
 MOBILE NUMBER FORMAT (users.mobile)

@@ -12,6 +12,9 @@ use App\Models\User;
 use App\Models\UserPromoter;
 use App\Models\PromoterBoxRequest;
 use App\Models\OfferPoint;
+use App\Models\ProductPrice;
+use App\Models\PromoterPayment;
+use App\Services\PromoterPinService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Auth;
@@ -261,14 +264,37 @@ class UserPromoterController extends Controller
                     ->take($page_size);
             })
             ->with('user')
-            ->get()
-            ->map(function ($user_promoter) {
+            ->get();
+
+        // Plan payment per request, so the console can show Paid/Unpaid and
+        // keep Generate Pin closed until the money is in. Fetched for the
+        // whole page in one query rather than per row.
+        $payments = $this->planPaymentsFor($user_promoters->pluck('id')->all());
+
+        $user_promoters = $user_promoters->map(function ($user_promoter) use ($payments) {
                 $user_promoter->created_at_formatted = $user_promoter->created_at
                     ? $user_promoter->created_at->format('d-m-Y h:i A')
                     : '-';
                 $user_promoter->updated_at_formatted = $user_promoter->updated_at
                     ? $user_promoter->updated_at->format('d-m-Y h:i A')
                     : '-';
+
+                $price = ProductPrice::forLevel($user_promoter->level);
+                $paid = $payments[$user_promoter->id] ?? null;
+                $user_promoter->plan_amount = $price ? (float) $price->price : null;
+                $user_promoter->plan_product = $price ? $price->product_name : null;
+                $user_promoter->is_paid = (bool) $paid;
+                $user_promoter->payment = $paid ? [
+                    'order_id'     => $paid->order_id,
+                    'amount'       => (float) $paid->amount,
+                    'payment_mode' => $paid->payment_mode,
+                    'settled_via'  => $paid->settled_via,
+                    'is_offline'   => $paid->settled_via === 'offline',
+                    'reference'    => $paid->transaction_id,
+                    'offline_note' => $paid->offline_note,
+                    'paid_at'      => $paid->paid_at,
+                ] : null;
+
                 return $user_promoter;
             });
 
@@ -285,6 +311,27 @@ class UserPromoterController extends Controller
                 'total_records' => $total_records
             ]
         ], 200);
+    }
+
+    /**
+     * The successful plan payment for each of $promoterIds, keyed by request
+     * id. One query for a whole page; a request can in principle have more
+     * than one success row (a duplicate charge), in which case the newest
+     * wins, which is the one the admin is being told about.
+     */
+    private function planPaymentsFor(array $promoterIds)
+    {
+        if (!$promoterIds) {
+            return collect();
+        }
+
+        return PromoterPayment::whereIn('user_promoter_id', $promoterIds)
+            ->where('purpose', PromoterPayment::PURPOSE_PROMOTER)
+            ->where('status', PromoterPayment::STATUS_SUCCESS)
+            ->where('is_deleted', 0)
+            ->orderBy('id')
+            ->get()
+            ->keyBy('user_promoter_id');
     }
 
     /**
@@ -511,7 +558,16 @@ class UserPromoterController extends Controller
         ], 200);
     }
 
-    public function generatePin(Request $request)
+    /**
+     * Issue the activation pin for a request (admin action).
+     *
+     * A pin is what the promoter paid for, so an unpaid request is refused.
+     * Online payments never reach here — they issue the pin themselves the
+     * moment the gateway confirms them (PaymentSettlement). What does reach
+     * here is a promoter who paid in cash: an admin records that payment
+     * (PromoterPaymentController::recordOffline) and then presses this.
+     */
+    public function generatePin(Request $request, PromoterPinService $pins)
     {
         $promoter = UserPromoter::find($request->id);
 
@@ -519,16 +575,15 @@ class UserPromoterController extends Controller
             return response()->json(['success' => false, 'message' => 'Not found'], 400);
         }
 
-        $promoter->pin = strtoupper('PROM' . rand(1000, 9999));
-        $promoter->status = UserPromoter::PIN_STATUS_APPROVED;
-        $promoter->pin_generated_at = now();
-        $promoter->updated_by = Auth::id();
-        $promoter->save();
+        if (!$pins->isPaid((int) $promoter->id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This request has not been paid yet. Record the payment first, then generate the pin.',
+                'payment_required' => true,
+            ], 400);
+        }
 
-        $user = User::find($promoter->user_id);
-        $user->current_promoter_level = $promoter->level;
-        $user->promoter_status = User::PROMOTER_STATUS_APPROVED;
-        $user->save();
+        $promoter = $pins->generate($promoter, Auth::id());
 
         return response()->json([
             'success' => true,

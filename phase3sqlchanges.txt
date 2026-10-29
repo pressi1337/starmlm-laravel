@@ -2562,3 +2562,89 @@ VALUES ('contact-us', 'Contact Us', '<p>We are happy to help with anything to do
 
 -- ----- Rollback -----
 -- DROP TABLE `policy_pages`;
+
+
+-- ============================================================
+-- Promoter plan payments (Omniware / Federal Bank gateway).
+-- Equivalent of migrations
+--   2026_09_21_000001_create_promoter_payments_table
+--   2026_10_29_000001_add_offline_note_to_promoter_payments
+--
+-- One row per payment ATTEMPT — the gateway rejects a reused order_id, so a
+-- retry after a failure is a new row with a new order_id.
+--   purpose = 'promoter' : a promoter paying for the plan product of the level
+--                          being upgraded to. A success issues the pin.
+--   purpose = 'test'     : the admin console's gateway test payment.
+-- An offline collection (cash / UPI / transfer an admin recorded) is a
+-- 'promoter' row with status = 1 and settled_via = 'offline'.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `promoter_payments` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `purpose` VARCHAR(20) NOT NULL DEFAULT 'promoter',
+    `user_id` BIGINT UNSIGNED NOT NULL,
+    `user_promoter_id` BIGINT UNSIGNED NULL DEFAULT NULL,
+    `level` TINYINT NULL DEFAULT NULL,
+    `order_id` VARCHAR(30) NOT NULL,
+    `amount` DECIMAL(12,2) NOT NULL,
+    `currency` VARCHAR(3) NOT NULL DEFAULT 'INR',
+    `mode` VARCHAR(4) NOT NULL DEFAULT 'TEST',
+    -- 0 initiated, 1 success, 2 failed, 3 cancelled
+    `status` TINYINT NOT NULL DEFAULT 0,
+    `gateway_uuid` VARCHAR(64) NULL DEFAULT NULL,
+    `payment_url` VARCHAR(500) NULL DEFAULT NULL,
+    `url_expires_at` DATETIME NULL DEFAULT NULL,
+    `redirect_to` VARCHAR(255) NULL DEFAULT NULL,
+    `request_payload` JSON NULL DEFAULT NULL,
+    `transaction_id` VARCHAR(64) NULL DEFAULT NULL,
+    `response_code` INT NULL DEFAULT NULL,
+    `response_message` VARCHAR(255) NULL DEFAULT NULL,
+    `error_desc` VARCHAR(500) NULL DEFAULT NULL,
+    `payment_mode` VARCHAR(100) NULL DEFAULT NULL,
+    `payment_channel` VARCHAR(100) NULL DEFAULT NULL,
+    `payment_datetime` VARCHAR(30) NULL DEFAULT NULL,
+    -- return | callback | status_api | offline
+    `settled_via` VARCHAR(20) NULL DEFAULT NULL,
+    -- Note typed by the admin who recorded an offline collection.
+    `offline_note` VARCHAR(255) NULL DEFAULT NULL,
+    -- 1 = response hash matched, 0 = mismatch, NULL = not checked
+    `hash_verified` TINYINT NULL DEFAULT NULL,
+    `paid_at` DATETIME NULL DEFAULT NULL,
+    `gateway_response` JSON NULL DEFAULT NULL,
+    `is_active` TINYINT NOT NULL DEFAULT 1,
+    `is_deleted` TINYINT NOT NULL DEFAULT 0,
+    `created_by` BIGINT UNSIGNED NULL DEFAULT NULL,
+    `updated_by` BIGINT UNSIGNED NULL DEFAULT NULL,
+    `created_at` TIMESTAMP NULL DEFAULT NULL,
+    `updated_at` TIMESTAMP NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `promoter_payments_order_id_unique` (`order_id`),
+    KEY `promoter_payments_user_promoter_id_status_index` (`user_promoter_id`, `status`),
+    KEY `promoter_payments_user_id_created_at_index` (`user_id`, `created_at`),
+    KEY `promoter_payments_purpose_created_at_index` (`purpose`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Only if this server ALREADY has `promoter_payments` from an earlier
+-- `php artisan migrate` (the CREATE above then does nothing):
+-- ALTER TABLE `promoter_payments`
+--     ADD COLUMN `offline_note` VARCHAR(255) NULL DEFAULT NULL AFTER `settled_via`;
+
+-- If this server ALSO runs `php artisan migrate`, record both as done:
+-- INSERT INTO `migrations` (`migration`, `batch`)
+-- SELECT '2026_09_21_000001_create_promoter_payments_table', IFNULL(MAX(`batch`),0)+1 FROM `migrations`;
+-- INSERT INTO `migrations` (`migration`, `batch`)
+-- SELECT '2026_10_29_000001_add_offline_note_to_promoter_payments', IFNULL(MAX(`batch`),0)+1 FROM `migrations`;
+
+-- Plan payments against pin requests, newest first:
+-- SELECT p.`order_id`, p.`purpose`, p.`amount`, p.`status`, p.`settled_via`,
+--        p.`payment_mode`, p.`user_promoter_id`, up.`status` AS pin_status, p.`paid_at`
+-- FROM `promoter_payments` p
+-- LEFT JOIN `user_promoters` up ON up.`id` = p.`user_promoter_id`
+-- WHERE p.`is_deleted` = 0 ORDER BY p.`id` DESC LIMIT 50;
+
+-- A plan payment needs a price for its level, or the app refuses to start one:
+-- SELECT `level`, `product_name`, `price` FROM `product_prices` WHERE `is_deleted`=0 AND `is_active`=1;
+
+-- ----- Rollback (only if you need to revert) -----
+-- ALTER TABLE `promoter_payments` DROP COLUMN `offline_note`;
+-- DROP TABLE `promoter_payments`;

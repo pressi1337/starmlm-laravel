@@ -73,42 +73,34 @@ return [
     ],
 
     /*
-     * Worldline ePayments India (Paynimo / TPSL) payment gateway, "Single URL"
-     * integration. Used by the admin console's Payment Gateway page.
+     * Omniware (Federal Bank) payment gateway — the gateway the platform
+     * integrates with. Federal Bank acquires, Worldline/TPSL configures the
+     * merchant on their platform, and Omniware is what we actually call.
      *
-     * The encryption key and IV encrypt every request and decrypt every
-     * response; they must only ever live here on the server. Never send them
-     * to a frontend or bake them into the APK.
+     * Used by the admin console's Payment Gateway page (test payments) and by
+     * promoter plan payments, which charge the Product Prices sales price for
+     * the level being upgraded to.
      *
-     * merchant_code / scheme_code: issued by Worldline per environment.
-     * enc_key / enc_iv: exactly 16 characters each (AES-128-CBC).
-     * mode: TEST while on the test merchant code, LIVE once approved. In TEST
-     *   the gateway only accepts amounts between ₹1 and ₹10, and the test bank
-     *   login is test / test.
+     * The SALT signs every request and response; it must only ever live here
+     * on the server. Never send it to a frontend or bake it into the APK.
+     *
+     * mode: TEST while the merchant account is in demo, LIVE once approved.
      * callback_base_url: public origin of THIS API that the gateway posts the
      *   result back to (e.g. https://api.starupworld.com). Left empty, it falls
      *   back to the host the payment was started from — APP_URL on this
      *   deployment is not reliable, so it is deliberately not used.
-     * itc: optional extra client meta sent as {itc:...}; leave unset normally.
      */
-    'worldline' => [
-        'service_url'       => env('WORLDLINE_SERVICE_URL', 'https://www.tpsl-india.in/PaymentGateway/services/TransactionDetailsNew'),
-        'merchant_code'     => env('WORLDLINE_MERCHANT_CODE'),
-        'scheme_code'       => env('WORLDLINE_SCHEME_CODE'),
-        'enc_key'           => env('WORLDLINE_ENC_KEY'),
-        'enc_iv'            => env('WORLDLINE_ENC_IV'),
-        'mode'              => env('WORLDLINE_MODE', 'TEST'),
-        'itc'               => env('WORLDLINE_ITC'),
-        // Bank / payment-option code (tpsl_bank_cd). Required by merchant
-        // setups that do not show Worldline's own payment-options page — a
-        // payment without it fails with TPPGE006 "Bank ID is mandatory".
-        // Worldline supplies the code list for the merchant.
-        'bank_code'         => env('WORLDLINE_BANK_CODE'),
-        'callback_base_url' => env('WORLDLINE_CALLBACK_BASE_URL'),
-        // Hosts the admin test-payment page may be served from; the gateway
-        // return sends the browser back there. Comma-separated host suffixes.
-        'admin_hosts'       => env('WORLDLINE_ADMIN_HOSTS', 'starupworld.com,starup.in,startup.co.in,localhost,127.0.0.1'),
-        'timeout'           => (int) env('WORLDLINE_TIMEOUT', 30),
+    'omniware' => [
+        'api_url'           => env('OMNIWARE_API_URL', 'https://pgbiz.omniware.in'),
+        'api_key'           => env('OMNIWARE_API_KEY'),
+        'salt'              => env('OMNIWARE_SALT'),
+        'mode'              => env('OMNIWARE_MODE', 'TEST'),
+        'callback_base_url' => env('OMNIWARE_CALLBACK_BASE_URL'),
+        // Hosts the gateway return may send the browser back to — the admin
+        // console and the promoter app. Comma-separated host suffixes, so
+        // "starupworld.com" also covers dev. and mobile. subdomains.
+        'admin_hosts'       => env('OMNIWARE_ADMIN_HOSTS', 'starupworld.com,starup.in,startup.co.in,localhost,127.0.0.1'),
+        'timeout'           => (int) env('OMNIWARE_TIMEOUT', 20),
     ],
 
 ];
